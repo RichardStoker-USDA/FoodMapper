@@ -1,0 +1,62 @@
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.xcuserstate
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Build output
+build/
+Build/
+DerivedData/
+*.xcarchive
+*.dSYM.zip
+*.dSYM
+
+# Binaries and installers
+*.app
+*.ipa
+*.dmg
+*.pkg
+*.zip
+
+# Signing
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.p12
+*.keychain
+
+# Profiling
+*.profraw
+*.profdata
+*.gcno
+
+# SPM
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Local
+.archive/
+.local/
+model-converter/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcuserstate
+
+# Logs
+*.log

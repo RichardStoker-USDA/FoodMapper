@@ -1,0 +1,117 @@
+#benchmark_version=2.0
+#name=Gold Standard - FooDB
+#target_database=foodb
+#description=Gold standard benchmark for FooDB (9913 items). 112 items with verified expected matches against actual orig_food_common_name values. Tests realistic dietary recall inputs across difficulty tiers: 25 easy, 44 medium, 31 hard, 12 no-match.
+input_text,expected_match,expected_match_id,alternative_match,category,difficulty,instruction,notes
+"Banana",banana,,,"fruits",easy,,DUKE entry: banana. Direct match.
+"Apple",apple,,,"fruits",easy,,DUKE entry: apple. Direct match.
+"Watermelon",watermelon,,,"fruits",easy,,DUKE entry: watermelon. Direct match.
+"Pineapple",pineapple,,,"fruits",easy,,DUKE entry: pineapple. Direct match.
+"Mango",mango,,,"fruits",easy,,DUKE entry: mango. Direct match.
+"Peach",peach,,,"fruits",easy,,DUKE entry: peach. Direct match.
+"Pear",pear,,,"fruits",easy,,DUKE entry: pear. Direct match.
+"Lemon",lemon,,,"fruits",easy,,DUKE entry: lemon. Direct match.
+"Asparagus",asparagus,,,"vegetables",easy,,DUKE entry: asparagus. Direct match.
+"Broccoli",broccoli,,asparagus broccoli,vegetables,easy,,DTU/USDA entries: broccoli raw broccoli boiled. DUKE entry is asparagus broccoli.
+"Spinach",spinach,,,"vegetables",easy,,DUKE entry: spinach. Direct match.
+"Cucumber",cucumber,,,"vegetables",easy,,DUKE entry: cucumber. Direct match.
+"Potato",potato,,,"vegetables",easy,,DUKE entry: potato. Direct match.
+"Garlic",garlic,,,"vegetables",easy,,DUKE entry: garlic. Direct match.
+"Onion",onion,,,"vegetables",easy,,DUKE entry: onion. Direct match.
+"Rice",rice,,,"grains",easy,,DUKE entry: rice. Direct match.
+"Oatmeal",oats,,,"grains",easy,,DUKE entry: oats.
+"Honey",honey,,,"sweeteners",easy,,DTU entry: honey. Direct match.
+"Coffee, black",coffee,,,"beverages",easy,,DUKE entry: coffee. Direct match.
+"Ginger root",ginger,,,"spices",easy,,DUKE entry: ginger.
+"Almonds",almond,,,"nuts",easy,,DUKE entry: almond. Plural to singular.
+"Pistachio",pistachio,,,"nuts",easy,,DUKE entry: pistachio. Direct match.
+"Avocado",avocado,,,"fruits",easy,,DUKE entry: avocado. Direct match.
+"Tomato",tomato,,,"vegetables",easy,,DUKE entry: tomato. Direct match.
+"Lettuce",lettuce,,,"vegetables",easy,,DUKE entry: lettuce. Direct match.
+"Peanuts, roasted",groundnut,,peanut,"nuts",medium,,DUKE uses 'groundnut'. PHENOL EXPLORER: peanut. American name to scientific.
+"Walnuts, shelled",english walnut,,,"nuts",medium,,DUKE entry: english walnut.
+"Brazil nuts",brazilnut,,,"nuts",medium,,DUKE entry: brazilnut. Two words to one.
+"Macadamia nuts",macadamia,,,"nuts",medium,,DUKE entry: macadamia (via macadamia nut).
+"Sunflower seeds",sunflower,,girasol,"seeds",medium,,KNAPSACK entry: sunflower. DTU: sunflower seeds decorticated dried. DUKE is 'girasol' (Spanish).
+"Cashew nuts",cashew,,,"nuts",medium,,DUKE entry: cashew.
+"Pecans",pecan nut,,pecans dried,"nuts",medium,,PHENOL EXPLORER entry: pecan nut. DTU: pecans dried. USDA: nuts pecans.
+"Egg, whole",egg chicken whole raw,,egg chicken whole dried,"protein",medium,,DTU entry: egg chicken whole raw. Multiple egg entries in FooDB.
+"Chicken breast, skinless",chicken,,,"protein",medium,,DUKE entry: chicken. Multiple chicken entries.
+"Salmon, grilled",salmon raw,,fish salmon pink cooked dry heat,"protein",medium,,DTU entry: salmon raw. USDA: fish salmon pink cooked dry heat.
+"Shrimp, cooked",shrimp,,,"protein",medium,,DTU entry: shrimp boiled shell removed.
+"Tuna, canned",tuna water canned,,tuna raw,"protein",medium,,DTU entry: tuna water canned. Also DTU: tuna raw.
+"Beef steak",beef chuck raw,,beef fillet defatted raw,"protein",medium,,DTU entry: beef chuck raw. No generic 'beef' entry in FooDB.
+"Pork chop",pork chop raw,,pork loin lean raw,"protein",medium,,DTU entry: pork chop raw. DTU: pork loin lean raw. No generic 'pork' in FooDB.
+"Turkey, ground",turkey,,,"protein",medium,,USDA entry: turkey whole meat only raw.
+"Milk, whole",milk whole,,,"dairy",medium,,DTU entry: milk whole konventional. fuzzyMatch contains.
+"Yogurt, plain",yogurt,,yoghurt,"dairy",medium,,DTU entries: yoghurt. USDA: yogurt plain whole milk.
+"Butter, unsalted",butter without salt,,butter salt not added,"dairy",medium,,USDA entry: butter without salt. DTU: butter salt not added.
+"Soybean",soybean,,,"legumes",medium,,DUKE entry: soybean. Direct match.
+"Chickpea",chickpea,,,"legumes",medium,,DUKE entry: chickpea. Direct match.
+"Lentils, green",lentil,,,"legumes",medium,,DUKE entry: lentil.
+"Black beans, canned",black bean,,,"legumes",medium,,DUKE entry: black bean (Common bean).
+"Kidney beans",beans kidney all types mature seeds raw,,black bean,"legumes",hard,,USDA entry: beans kidney all types mature seeds raw. No short 'kidney bean' in FooDB.
+"Lima beans",butter bean,,lima bean,"legumes",medium,,DUKE entry: butter bean (lima bean).
+"Green tea",green tea,,,"beverages",medium,,PHYTOHUB entry: green tea. Direct match.
+"Black tea",black tea,,,"beverages",medium,,PHYTOHUB entry: black tea. Direct match.
+"Orange juice, fresh",orange juice raw,,orange juice canned,"beverages",medium,,USDA entry: orange juice raw. DTU: orange juice canned.
+"Apple juice",apple juice canned bottled,,,"beverages",medium,,DTU entry: apple juice canned bottled. No short 'apple juice' in FooDB.
+"Grape juice",grape juice,,,"beverages",medium,,DTU entry: grape juice. Direct match.
+"Olive oil, extra virgin",olive oil,,,"oils",medium,,DTU entry: olive oil. USDA: oil olive extra virgin.
+"Coconut oil",coconut oil refined palmin,,coconut,"oils",medium,,DTU entry: coconut oil refined palmin. No short 'coconut oil' in FooDB. DUKE: coconut.
+"Corn oil",corn oil,,,"oils",medium,,DTU entry: corn oil.
+"Sweet potato, baked",sweet potato,,,"vegetables",medium,,DUKE entry: sweet potato.
+"Cabbage, green",cabbage,,,"vegetables",medium,,DUKE entry: cabbage.
+"Celery stalks",celery,,,"vegetables",medium,,DUKE entry: celery.
+"Okra, frozen",okra,,,"vegetables",medium,,DUKE entry: okra.
+"Kale, raw",kale,,kale raw,vegetables,medium,,DTU entries: kale canned kale frozen. USDA: kale raw. Many entries contain kale.
+"Radish, sliced",radish,,,"vegetables",medium,,DUKE entry: radish.
+"Parsley, fresh",parsley,,,"vegetables",medium,,DUKE entry: parsley.
+"Dill, fresh",dill,,,"herbs",medium,,DUKE entry: dill.
+"Basil, fresh",basil,,,"herbs",medium,,DUKE entry: basil.
+"Rosemary",rosemary,,,"herbs",medium,,DUKE entry: rosemary.
+"Cilantro, fresh",coriander,,chinese parsley,"herbs",hard,,DUKE entry for Coriander is 'chinese parsley'. American name cilantro to botanical.
+"Aubergine",aubergine,,eggplant,"vegetables",hard,,DUKE entry: aubergine. British English.
+"Courgette",summer squash,,squash zucchini raw,"vegetables",hard,,DUKE entry: summer squash. DTU: squash zucchini raw. British 'courgette' to 'zucchini'. No exact 'zucchini' in FooDB.
+"Rocket leaves",rocket salad,,arugula raw,"vegetables",hard,,MANUAL entry: rocket salad. USDA: arugula raw. No exact 'arugula' in FooDB.
+"Maize flour",corn,,,"grains",hard,,DUKE entry: corn. Technical maize to common corn.
+"Capsicum, red",bell pepper,,,"vegetables",hard,,DUKE entry: bell pepper. Australian/British name.
+"Prawns, large",shrimp,,,"protein",hard,,DTU entry: shrimp prawn boiled. British prawns to American shrimp.
+"Cacao nibs",cacao,,,"other",hard,,DUKE entry: cacao. Product form to base.
+"Star fruit, fresh",carambola,,,"fruits",hard,,DUKE entry: carambola. Common name to scientific.
+"Plantain, boiled",banana,,,"fruits",hard,,DUKE entry for plantain is banana. Related fruit.
+"Dried cranberries",american cranberry,,cranberry,"fruits",hard,,DUKE entry: american cranberry. Dried form to generic.
+"Dates, medjool",date palm,,,"fruits",hard,,DUKE entry: date palm. Varietal to generic.
+"Pomegranate seeds",pomegranate,,granado sp.,"fruits",hard,,DTU entry: pomegranates raw. DUKE entry: granado sp. Processed form to whole fruit.
+"Tahini paste",sesame,,ajonjoli sp.,"condiments",hard,,DUKE entry for sesame is 'ajonjoli sp.' Product to base.
+"Tempeh, organic",tempeh,,soybean,"protein",hard,,USDA entry: tempeh. Fermented soy product.
+"Miso paste",miso,,soybean,"condiments",hard,,USDA entry: miso. Fermented soy product.
+"Sauerkraut",sauerkraut,,cabbage,"vegetables",hard,,PHENOL EXPLORER entry: sauerkraut. Fermented form.
+"Edamame, frozen",soybean,,,"legumes",hard,,No edamame entry. Maps to soybean (DUKE).
+"Natto",natto,,soybean,"protein",hard,,USDA entry: natto. Japanese fermented soy.
+"Taro root, cooked",taro,,,"vegetables",hard,,DUKE entry: taro. Direct match.
+"Cassava, boiled",cassava,,,"vegetables",hard,,DUKE entry: cassava. Direct match.
+"Quinoa, cooked",quinoa,,,"grains",hard,,DUKE entry: quinoa. Direct match.
+"Buckwheat noodles",buckwheat,,,"grains",hard,,DUKE entry: buckwheat. Product to base grain.
+"Flaxseed, ground",flaxseed,,flax,"seeds",hard,,DUKE entry: flax. Also KNAPSACK: flaxseed. Ground form to whole.
+"Chia pudding",chia,,,"seeds",hard,,MANUAL entry: chia. Product to base seed.
+"Kefir, plain",milk cultured kefir,,kefir lowfat plain lifeway,"dairy",hard,,DTU entry: milk cultured kefir. USDA: kefir lowfat plain lifeway. No exact 'kefir' in FooDB.
+"Goat milk",goat milk,,,"dairy",hard,,DTU entry: goat milk. Direct match.
+"Saffron threads",saffron,,,"spices",hard,,DUKE entry: saffron. Form to base.
+"Turmeric powder",indian saffron,,turmeric,"spices",hard,,DUKE entry: indian saffron. Common name to DUKE name.
+"Cumin seeds",cumin,,,"spices",hard,,DUKE entry: cumin.
+"Sriracha hot sauce",NO_MATCH,,,"condiments",no_match,,Brand-specific composite condiment. No FooDB entry.
+"Ranch dressing",NO_MATCH,,,"condiments",no_match,,Composite condiment. No FooDB entry.
+"Pop-Tarts, strawberry",NO_MATCH,,,"snacks",no_match,,Branded composite pastry. No FooDB entry.
+"Gochujang paste",NO_MATCH,,,"condiments",no_match,,Korean fermented chili paste. Composite product.
+"Boba tea, taro",NO_MATCH,,,"beverages",no_match,,Specialty composite drink. No FooDB entry.
+"Energy drink, Monster",energy drink monster,,,"beverages",medium,,USDA entry: energy drink monster. Exact match.
+"Protein bar, chocolate",NO_MATCH,,,"snacks",no_match,,Composite supplement product. No FooDB entry.
+"Pizza, pepperoni",NO_MATCH,,,"composite",no_match,,Multi-ingredient dish. No FooDB entry.
+"French fries, salted",NO_MATCH,,,"composite",no_match,,Prepared composite dish. No FooDB entry.
+"Chicken nuggets",NO_MATCH,,,"composite",no_match,,Processed breaded product. No FooDB entry.
+"Burrito, bean and cheese",NO_MATCH,,,"composite",no_match,,Multi-ingredient dish. No FooDB entry.
+"Pad Thai noodles",NO_MATCH,,,"composite",no_match,,Composite prepared dish. No FooDB entry.
+"Granola bar, oat",NO_MATCH,,,"snacks",no_match,,Composite snack product. No FooDB entry.
+"Ice cream sandwich",ice cream sandwich,,,"dairy",medium,,USDA entry: ice cream sandwich. Exact match.
+"Croissant, butter",croissants butter,,,"grains",medium,,USDA entry: croissants butter. Exact match.

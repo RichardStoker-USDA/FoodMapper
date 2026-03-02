@@ -1,0 +1,162 @@
+[
+  {
+    "input_id": 1,
+    "input_description": "Chickpeas (garbanzo beans, bengal gram), mature seeds, raw",
+    "best_match": "Canned garbanzo beans",
+    "score": 0.32,
+    "is_correct": true,
+    "candidates": null
+  },
+  {
+    "input_id": 2,
+    "input_description": "Sausage, pork, chorizo, link or ground, cooked, pan-fried",
+    "best_match": "Pork tenderloin",
+    "score": 0.24,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 3,
+    "input_description": "Spices, pepper, black",
+    "best_match": "Whole green bell pepper",
+    "score": 0.35,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 4,
+    "input_description": "Butter, salted",
+    "best_match": "Unsalted butter",
+    "score": 0.46,
+    "is_correct": true,
+    "candidates": null
+  },
+  {
+    "input_id": 5,
+    "input_description": "Oil, olive, salad or cooking",
+    "best_match": "Unsalted butter",
+    "score": 0.15,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 6,
+    "input_description": "Cheese, monterey",
+    "best_match": "Cheddar cheese",
+    "score": 0.41,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 7,
+    "input_description": "Margarine-like spread, approximately 40% fat, soybean and palm",
+    "best_match": "Soybean oil",
+    "score": 0.22,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 8,
+    "input_description": "Bananas, raw",
+    "best_match": "Dried cranberry",
+    "score": 0.25,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 9,
+    "input_description": "Blueberries, raw",
+    "best_match": "Whole strawberry",
+    "score": 0.36,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 10,
+    "input_description": "Oranges, raw, navels",
+    "best_match": "Mandarin orange",
+    "score": 0.39,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 11,
+    "input_description": "Apples, raw, golden delicious, with skin",
+    "best_match": "Dried apple",
+    "score": 0.29,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 12,
+    "input_description": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D",
+    "best_match": "Almond milk",
+    "score": 0.21,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 13,
+    "input_description": "Ketchup, tomato, regular",
+    "best_match": "Tomato Ketchup",
+    "score": 0.45,
+    "is_correct": true,
+    "candidates": null
+  },
+  {
+    "input_id": 14,
+    "input_description": "Sauce, salsa, ready-to-serve",
+    "best_match": "No match",
+    "score": 0.14,
+    "is_correct": true,
+    "candidates": null
+  },
+  {
+    "input_id": 15,
+    "input_description": "Bread, white, commercially prepared",
+    "best_match": "Whole wheat flour",
+    "score": 0.22,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 16,
+    "input_description": "Crackers, saltine, regular",
+    "best_match": "No match",
+    "score": 0.11,
+    "is_correct": true,
+    "candidates": null
+  },
+  {
+    "input_id": 17,
+    "input_description": "Beverages, coffee, brewed, prepared with tap water",
+    "best_match": "Tap water",
+    "score": 0.28,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 18,
+    "input_description": "Cereals, corn flakes, plain, fortified",
+    "best_match": "Yellow sweet corn",
+    "score": 0.26,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 19,
+    "input_description": "Soup, chicken noodle, canned, condensed",
+    "best_match": "Whole chicken",
+    "score": 0.23,
+    "is_correct": false,
+    "candidates": null
+  },
+  {
+    "input_id": 20,
+    "input_description": "Yogurt, Greek, plain, nonfat",
+    "best_match": "Whole milk",
+    "score": 0.20,
+    "is_correct": false,
+    "candidates": null
+  }
+]

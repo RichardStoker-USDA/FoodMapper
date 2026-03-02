@@ -1,0 +1,301 @@
+Food_ID,Food_Description
+1,golden delicious apple
+2,bartlett pear
+3,shingo pear
+4,steamed plantain
+5,yellow banana
+6,fresh apricot
+7,red plum
+8,yellow nectarine
+9,yellow peach
+10,ripe mango
+11,greenhouse tomato
+12,fresh blueberries
+13,fresh raspberries
+14,fresh blackberries
+15,strawberries
+16,sweet cherries
+17,navel orange
+18,tangerine
+19,red grapefruit
+20,kiwi fruit
+21,cantaloupe
+22,honeydew melon
+23,seedless watermelon
+24,golden pineapple
+25,papaya
+26,red grapes
+27,jicama root
+28,steamed beets
+29,lime juice fresh
+30,steamed red chard
+31,steamed collard greens
+32,steamed mustard greens
+33,steamed bok choy
+34,steamed iceberg lettuce
+35,fresh spinach leaves
+36,steamed brussels sprouts
+37,steamed broccoli
+38,steamed cauliflower
+39,steamed celery
+40,steamed snow peas
+41,fresh snow peas
+42,steamed green beans
+43,steamed carrots
+44,steamed green bell pepper
+45,steamed red bell pepper
+46,steamed butternut squash
+47,steamed spaghetti squash
+48,steamed yellow squash
+49,steamed zucchini
+50,steamed sweet potato
+51,steamed russet potato
+52,russet potato flesh
+53,steamed white mushrooms
+54,steamed shiitake mushrooms
+55,english cucumber
+56,potato bread loaf
+57,whole grain english muffin
+58,original english muffin
+59,flour tortilla
+60,yellow corn tortilla
+61,whole wheat tortilla
+62,orange marmalade
+63,creamy peanut butter
+64,natural peanut butter
+65,nutella hazelnut spread
+66,almond butter
+67,soy milk unsweetened
+68,fresh carrot juice
+69,vegetable juice blend
+70,apple juice
+71,orange juice pulp free
+72,chocolate milk lowfat
+73,whole milk
+74,cottage cheese
+75,mozzarella cheese
+76,chocolate chip cookies
+77,vanilla wafer cookies
+78,corn flakes cereal
+79,multigrain cereal
+80,oat cereal
+81,honey nut cheerios
+82,hazelnut flour
+83,buttermilk pancake mix
+84,soy flour
+85,canned pinto beans
+86,canned black beans
+87,canned chickpeas
+88,canned kidney beans
+89,canned artichoke hearts
+90,applesauce
+91,macaroni and cheese
+92,cooked quinoa
+93,white rice long grain
+94,brown rice
+95,cream of wheat
+96,rolled oats
+97,rice cereal baby
+98,spaghetti pasta
+99,whole wheat pasta
+100,bulgur wheat
+101,golden flaxseed
+102,brown lentils
+103,buckwheat cereal
+104,corn grits
+105,pearl barley
+106,tahini paste
+107,freeze dried mango
+108,raisin bran cereal
+109,rice krispies
+110,wheat thins
+111,multigrain crackers
+112,dried mango slices
+113,dried apricots
+114,banana chips dried
+115,freeze dried apples
+116,dried coconut
+117,dried orange slices
+118,thin wheat crackers
+119,roasted seaweed snack
+120,animal crackers
+121,graham crackers honey
+122,cheese crackers
+123,peanut butter crackers
+124,veggie chips
+125,popcorn
+126,roasted peanuts
+127,cashews
+128,macadamia nuts
+129,brazil nuts
+130,pistachios
+131,pine nuts
+132,pecans
+133,sunflower seeds
+134,pumpkin seeds
+135,minestrone soup
+136,split pea soup
+137,multigrain bread
+138,sprouted wheat bread
+139,frozen blueberries
+140,frozen okra
+141,frozen edamame
+142,frozen green beans
+143,frozen broccoli
+144,pomegranate seeds
+145,veggie burger patty
+146,plant based ground meat
+147,cream of mushroom soup
+148,brown rice cakes
+149,saltine crackers
+150,frosted flakes cereal
+151,cheerios cereal
+152,firm tofu
+153,silken tofu
+154,frozen sweet peas
+155,frozen chopped spinach
+156,frozen corn kernels
+157,frozen asparagus
+158,fresh cilantro
+159,fresh garlic
+160,yellow onion
+161,jalapeno pepper
+162,fresh parsley
+163,fresh basil
+164,dill pickles
+165,refried beans
+166,maple syrup pure
+167,honey raw
+168,soy sauce
+169,american cheese
+170,sharp cheddar cheese
+171,cola soda
+172,lemon lime soda
+173,yellow cornmeal
+174,jolly rancher candy
+175,walnuts
+176,dried cranberries
+177,white sugar
+178,all purpose flour
+179,granola clusters
+180,dark chocolate
+181,medjool dates
+182,protein powder vanilla
+183,black tea brewed
+184,gatorade sports drink
+185,red wine cabernet
+186,lager beer
+187,corn starch
+188,sourdough bread
+189,sour cream
+190,greek yogurt
+191,vanilla ice cream
+192,almond milk unsweetened
+193,chicken broth low sodium
+194,marinara sauce
+195,diced tomatoes canned
+196,tomato paste
+197,tomato sauce
+198,ketchup
+199,chicken noodle soup
+200,white beans
+201,mayonnaise
+202,chunky vegetable soup
+203,unsalted butter
+204,wheat bran cereal
+205,tortilla chips
+206,whole wheat flour
+207,whole wheat bread
+208,white sandwich bread
+209,pitted prunes
+210,fresh kale
+211,green onions
+212,romaine lettuce
+213,eggplant
+214,albacore tuna canned
+215,rice noodles
+216,pearl couscous
+217,wild rice blend
+218,bean and cheese burrito
+219,chicken tenders
+220,grilled chicken strips
+221,chicken breast boneless
+222,beef steak round tip
+223,raw shrimp
+224,egg yolk
+225,egg white
+226,whole egg
+227,rye bread
+228,purple cabbage
+229,cocoa powder unsweetened
+230,canned pumpkin puree
+231,coconut milk
+232,roasted almonds
+233,blueberry snack bar
+234,oat bran cooked
+235,brewed coffee
+236,half and half cream
+237,alfalfa sprouts
+238,cream cheese
+239,fresh chives
+240,fresh arugula
+241,ground turkey
+242,ground pork
+243,plant based fish fillet
+244,plant based chicken
+245,plant based bacon
+246,plant based sausage
+247,plant based hot dog
+248,black eyed peas
+249,green split peas dried
+250,navy beans
+251,great northern beans
+252,lima beans
+253,fresh bean sprouts
+254,grilled salmon fillet
+255,baked cod fish
+256,raw tuna steak
+257,whole grain bagel
+258,blueberry muffin
+259,banana bread slice
+260,apple pie slice
+261,cheesecake slice
+262,brownie chocolate
+263,angel food cake
+264,pound cake slice
+265,croissant butter
+266,cinnamon roll
+267,biscotti cookie
+268,oatmeal raisin cookie
+269,sugar cookie
+270,shortbread cookie
+271,dragon fruit fresh
+272,durian fruit
+273,jackfruit fresh
+274,rambutan
+275,mangosteen
+276,lychee fresh
+277,starfruit carambola
+278,passion fruit
+279,guava fresh
+280,tamarind
+281,soursop fruit
+282,breadfruit
+283,ackee fruit
+284,kumquat
+285,persimmon
+286,cherimoya
+287,feijoa
+288,sapodilla
+289,longan fruit
+290,acai berries
+291,goji berries dried
+292,sea buckthorn berries
+293,elderberries
+294,mulberries dried
+295,gooseberries fresh
+296,boysenberries
+297,huckleberries
+298,marionberries
+299,cloudberries
+300,salak snake fruit

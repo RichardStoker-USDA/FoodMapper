@@ -1,0 +1,182 @@
+[
+  {
+    "input_id": 1,
+    "input_description": "Chickpeas (garbanzo beans, bengal gram), mature seeds, raw",
+    "ground_truth": "Canned garbanzo beans",
+    "haiku_selection": "Canned garbanzo beans",
+    "haiku_correct": true,
+    "sonnet_selection": "Canned garbanzo beans",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 2,
+    "input_description": "Sausage, pork, chorizo, link or ground, cooked, pan-fried",
+    "ground_truth": "ground pork",
+    "haiku_selection": "ground pork",
+    "haiku_correct": true,
+    "sonnet_selection": "ground pork",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 3,
+    "input_description": "Spices, pepper, black",
+    "ground_truth": null,
+    "haiku_selection": "No match",
+    "haiku_correct": true,
+    "sonnet_selection": "Whole green bell pepper",
+    "sonnet_correct": false
+  },
+  {
+    "input_id": 4,
+    "input_description": "Butter, salted",
+    "ground_truth": "Unsalted butter",
+    "haiku_selection": "Unsalted butter",
+    "haiku_correct": true,
+    "sonnet_selection": "Unsalted butter",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 5,
+    "input_description": "Oil, olive, salad or cooking",
+    "ground_truth": null,
+    "haiku_selection": "No match",
+    "haiku_correct": true,
+    "sonnet_selection": "Unsalted butter",
+    "sonnet_correct": false
+  },
+  {
+    "input_id": 6,
+    "input_description": "Cheese, monterey",
+    "ground_truth": "American cheese",
+    "haiku_selection": "Cheddar cheese",
+    "haiku_correct": false,
+    "sonnet_selection": "American cheese",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 7,
+    "input_description": "Margarine-like spread, approximately 40% fat, soybean and palm",
+    "ground_truth": "Unsalted butter",
+    "haiku_selection": "No match",
+    "haiku_correct": false,
+    "sonnet_selection": "Unsalted butter",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 8,
+    "input_description": "Bananas, raw",
+    "ground_truth": "Yellow banana flesh only",
+    "haiku_selection": "Yellow banana flesh only",
+    "haiku_correct": true,
+    "sonnet_selection": "Yellow banana flesh only",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 9,
+    "input_description": "Blueberries, raw",
+    "ground_truth": "Whole blueberry",
+    "haiku_selection": "No match",
+    "haiku_correct": false,
+    "sonnet_selection": "Whole blueberry",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 10,
+    "input_description": "Oranges, raw, navels",
+    "ground_truth": "Navel orange",
+    "haiku_selection": "No match",
+    "haiku_correct": false,
+    "sonnet_selection": "Navel orange",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 11,
+    "input_description": "Apples, raw, golden delicious, with skin",
+    "ground_truth": "Whole Golden Del apple w/o seed",
+    "haiku_selection": "No match",
+    "haiku_correct": false,
+    "sonnet_selection": "Whole Golden Del apple w/o seed",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 12,
+    "input_description": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D",
+    "ground_truth": "Whole milk",
+    "haiku_selection": "Whole milk",
+    "haiku_correct": true,
+    "sonnet_selection": "No match",
+    "sonnet_correct": false
+  },
+  {
+    "input_id": 13,
+    "input_description": "Ketchup, tomato, regular",
+    "ground_truth": "Tomato Ketchup",
+    "haiku_selection": "Tomato Ketchup",
+    "haiku_correct": true,
+    "sonnet_selection": "Tomato Ketchup",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 14,
+    "input_description": "Sauce, salsa, ready-to-serve",
+    "ground_truth": null,
+    "haiku_selection": "No match",
+    "haiku_correct": true,
+    "sonnet_selection": "No match",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 15,
+    "input_description": "Bread, white, commercially prepared",
+    "ground_truth": null,
+    "haiku_selection": "No match",
+    "haiku_correct": true,
+    "sonnet_selection": "Whole wheat flour",
+    "sonnet_correct": false
+  },
+  {
+    "input_id": 16,
+    "input_description": "Crackers, saltine, regular",
+    "ground_truth": null,
+    "haiku_selection": "Whole wheat flour",
+    "haiku_correct": false,
+    "sonnet_selection": "No match",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 17,
+    "input_description": "Beverages, coffee, brewed, prepared with tap water",
+    "ground_truth": null,
+    "haiku_selection": "No match",
+    "haiku_correct": true,
+    "sonnet_selection": "Tap water",
+    "sonnet_correct": false
+  },
+  {
+    "input_id": 18,
+    "input_description": "Cereals, corn flakes, plain, fortified",
+    "ground_truth": null,
+    "haiku_selection": "Yellow sweet corn",
+    "haiku_correct": false,
+    "sonnet_selection": "No match",
+    "sonnet_correct": true
+  },
+  {
+    "input_id": 19,
+    "input_description": "Soup, chicken noodle, canned, condensed",
+    "ground_truth": null,
+    "haiku_selection": "Whole chicken",
+    "haiku_correct": false,
+    "sonnet_selection": "Whole chicken",
+    "sonnet_correct": false
+  },
+  {
+    "input_id": 20,
+    "input_description": "Yogurt, Greek, plain, nonfat",
+    "ground_truth": null,
+    "haiku_selection": "Whole milk",
+    "haiku_correct": false,
+    "sonnet_selection": "Whole milk",
+    "sonnet_correct": false
+  }
+]

@@ -1,0 +1,105 @@
+{
+  "dataset_stats": {
+    "nhanes_input_count": 1304,
+    "dfg2_target_count": 256,
+    "match_percentage": 53.1,
+    "no_match_percentage": 46.9,
+    "foodb_item_count": 9913,
+    "asa24_input_count": 1199
+  },
+  "method_accuracies": [
+    {
+      "method": "Fuzzy Matching",
+      "overall_accuracy": 25.0,
+      "match_accuracy": 28.0,
+      "no_match_accuracy": 22.0,
+      "description": "Levenshtein distance-based string comparison"
+    },
+    {
+      "method": "TF-IDF",
+      "overall_accuracy": 40.0,
+      "match_accuracy": 45.0,
+      "no_match_accuracy": 34.0,
+      "description": "Term frequency-inverse document frequency weighted bag of words"
+    },
+    {
+      "method": "GTE-Large (Top-1)",
+      "overall_accuracy": null,
+      "match_accuracy": 76.9,
+      "no_match_accuracy": null,
+      "description": "Semantic embedding similarity, always returns a match"
+    },
+    {
+      "method": "Claude Full-Context (Haiku)",
+      "overall_accuracy": 48.9,
+      "match_accuracy": 42.6,
+      "no_match_accuracy": 55.2,
+      "description": "All 256 targets sent to Claude Haiku in a single prompt"
+    },
+    {
+      "method": "Claude Full-Context (Sonnet)",
+      "overall_accuracy": 62.6,
+      "match_accuracy": 87.4,
+      "no_match_accuracy": 34.4,
+      "description": "All 256 targets sent to Claude Sonnet in a single prompt"
+    },
+    {
+      "method": "Hybrid Haiku (K=5)",
+      "overall_accuracy": 65.4,
+      "match_accuracy": 82.2,
+      "no_match_accuracy": 46.6,
+      "description": "GTE-Large top-5 candidates verified by Claude Haiku"
+    },
+    {
+      "method": "Hybrid Sonnet (K=5)",
+      "overall_accuracy": 60.4,
+      "match_accuracy": 89.9,
+      "no_match_accuracy": 26.8,
+      "description": "GTE-Large top-5 candidates verified by Claude Sonnet"
+    }
+  ],
+  "top_k_accuracies": [
+    {"k": 1, "accuracy": 76.9, "dataset": "NHANES-DFG2"},
+    {"k": 5, "accuracy": 96.4, "dataset": "NHANES-DFG2"},
+    {"k": 10, "accuracy": 98.4, "dataset": "NHANES-DFG2"},
+    {"k": 25, "accuracy": 99.4, "dataset": "NHANES-DFG2"},
+    {"k": 50, "accuracy": 99.6, "dataset": "NHANES-DFG2"}
+  ],
+  "representative_errors": [
+    {
+      "input_id": 101,
+      "input": "Cheese, monterey",
+      "predicted": "American cheese",
+      "ground_truth": null,
+      "reasoning": "Monterey Jack is a distinct cheese variety not in the database, but embedding similarity pulls American cheese as closest match"
+    },
+    {
+      "input_id": 102,
+      "input": "Cream substitute, powdered",
+      "predicted": "Sour cream",
+      "ground_truth": null,
+      "reasoning": "Non-dairy powdered creamer matched to closest dairy product by semantic similarity"
+    },
+    {
+      "input_id": 103,
+      "input": "Milk, nonfat, fluid, with added vitamin A and vitamin D",
+      "predicted": "Whole milk",
+      "ground_truth": null,
+      "reasoning": "Skim milk matched to whole milk despite significant fat content difference"
+    },
+    {
+      "input_id": 104,
+      "input": "Margarine, regular, 80% fat, composite, stick, with salt",
+      "predicted": "Unsalted butter",
+      "ground_truth": null,
+      "reasoning": "Plant-oil margarine incorrectly matched to dairy butter based on similar culinary use"
+    },
+    {
+      "input_id": 105,
+      "input": "Alcoholic beverage, beer, light",
+      "predicted": "Budweiser",
+      "ground_truth": null,
+      "reasoning": "Generic light beer matched to a specific brand that exists in the database"
+    }
+  ]
+}

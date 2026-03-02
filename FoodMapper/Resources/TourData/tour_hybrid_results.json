@@ -1,0 +1,302 @@
+[
+  {
+    "input_id": 1,
+    "input_description": "Chickpeas (garbanzo beans, bengal gram), mature seeds, raw",
+    "ground_truth": "Canned garbanzo beans",
+    "embedding_candidates": [
+      {"description": "Canned garbanzo beans", "score": 0.89, "is_ground_truth": true},
+      {"description": "White kidney beans", "score": 0.72, "is_ground_truth": false},
+      {"description": "Black beans", "score": 0.68, "is_ground_truth": false},
+      {"description": "Green lentils", "score": 0.64, "is_ground_truth": false},
+      {"description": "Green peas", "score": 0.61, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Canned garbanzo beans",
+    "haiku_reasoning": "Best match based on same plant source (chickpea/garbanzo)",
+    "is_correct": true
+  },
+  {
+    "input_id": 2,
+    "input_description": "Sausage, pork, chorizo, link or ground, cooked, pan-fried",
+    "ground_truth": "ground pork",
+    "embedding_candidates": [
+      {"description": "ground pork", "score": 0.84, "is_ground_truth": true},
+      {"description": "Pork tenderloin", "score": 0.79, "is_ground_truth": false},
+      {"description": "ground beef", "score": 0.75, "is_ground_truth": false},
+      {"description": "Bacon", "score": 0.68, "is_ground_truth": false},
+      {"description": "Whole chicken", "score": 0.52, "is_ground_truth": false}
+    ],
+    "haiku_selection": "ground pork",
+    "haiku_reasoning": "Chorizo sausage is made from ground pork, direct ingredient match",
+    "is_correct": true
+  },
+  {
+    "input_id": 3,
+    "input_description": "Spices, pepper, black",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Whole green bell pepper", "score": 0.71, "is_ground_truth": false},
+      {"description": "Red bell pepper", "score": 0.65, "is_ground_truth": false},
+      {"description": "Jalapeno pepper", "score": 0.58, "is_ground_truth": false},
+      {"description": "Ground ginger", "score": 0.45, "is_ground_truth": false},
+      {"description": "Garlic cloves", "score": 0.42, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "Black pepper is a dried spice, none of the candidates are spices or seasonings",
+    "is_correct": true
+  },
+  {
+    "input_id": 4,
+    "input_description": "Butter, salted",
+    "ground_truth": "Unsalted butter",
+    "embedding_candidates": [
+      {"description": "Unsalted butter", "score": 0.94, "is_ground_truth": true},
+      {"description": "Heavy cream", "score": 0.62, "is_ground_truth": false},
+      {"description": "Sour cream", "score": 0.55, "is_ground_truth": false},
+      {"description": "Cream cheese", "score": 0.51, "is_ground_truth": false},
+      {"description": "Whole milk", "score": 0.48, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Unsalted butter",
+    "haiku_reasoning": "Salted and unsalted butter are the same product differing only in salt content",
+    "is_correct": true
+  },
+  {
+    "input_id": 5,
+    "input_description": "Oil, olive, salad or cooking",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Unsalted butter", "score": 0.52, "is_ground_truth": false},
+      {"description": "Coconut milk", "score": 0.42, "is_ground_truth": false},
+      {"description": "Heavy cream", "score": 0.38, "is_ground_truth": false},
+      {"description": "Cream cheese", "score": 0.34, "is_ground_truth": false},
+      {"description": "Whole milk", "score": 0.31, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "Olive oil is a plant-derived cooking fat; none of the dairy-based candidates are appropriate matches",
+    "is_correct": true
+  },
+  {
+    "input_id": 6,
+    "input_description": "Cheese, monterey",
+    "ground_truth": "American cheese",
+    "embedding_candidates": [
+      {"description": "Cheddar cheese", "score": 0.88, "is_ground_truth": false},
+      {"description": "American cheese", "score": 0.85, "is_ground_truth": true},
+      {"description": "Mozzarella cheese", "score": 0.82, "is_ground_truth": false},
+      {"description": "Cream cheese", "score": 0.71, "is_ground_truth": false},
+      {"description": "Parmesan cheese", "score": 0.68, "is_ground_truth": false}
+    ],
+    "haiku_selection": "American cheese",
+    "haiku_reasoning": "Monterey Jack and American are both mild semi-soft cheeses with similar profiles",
+    "is_correct": true
+  },
+  {
+    "input_id": 7,
+    "input_description": "Margarine-like spread, approximately 40% fat, soybean and palm",
+    "ground_truth": "Unsalted butter",
+    "embedding_candidates": [
+      {"description": "Unsalted butter", "score": 0.72, "is_ground_truth": true},
+      {"description": "Soybean oil", "score": 0.68, "is_ground_truth": false},
+      {"description": "Coconut oil", "score": 0.55, "is_ground_truth": false},
+      {"description": "Heavy cream", "score": 0.48, "is_ground_truth": false},
+      {"description": "Cream cheese", "score": 0.44, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "Margarine spread is a plant-oil product, fundamentally different from dairy butter",
+    "is_correct": false
+  },
+  {
+    "input_id": 8,
+    "input_description": "Bananas, raw",
+    "ground_truth": "Yellow banana flesh only",
+    "embedding_candidates": [
+      {"description": "Yellow banana flesh only", "score": 0.93, "is_ground_truth": true},
+      {"description": "Plantain", "score": 0.71, "is_ground_truth": false},
+      {"description": "Dried cranberry", "score": 0.42, "is_ground_truth": false},
+      {"description": "Mango", "score": 0.40, "is_ground_truth": false},
+      {"description": "Pineapple", "score": 0.38, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Yellow banana flesh only",
+    "haiku_reasoning": "Raw banana directly corresponds to yellow banana flesh",
+    "is_correct": true
+  },
+  {
+    "input_id": 9,
+    "input_description": "Blueberries, raw",
+    "ground_truth": "Whole blueberry",
+    "embedding_candidates": [
+      {"description": "Whole blueberry", "score": 0.95, "is_ground_truth": true},
+      {"description": "Whole strawberry", "score": 0.74, "is_ground_truth": false},
+      {"description": "Whole raspberry", "score": 0.72, "is_ground_truth": false},
+      {"description": "Dried cranberry", "score": 0.58, "is_ground_truth": false},
+      {"description": "Concord grape", "score": 0.51, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Whole blueberry",
+    "haiku_reasoning": "Direct match between raw blueberries and whole blueberry",
+    "is_correct": true
+  },
+  {
+    "input_id": 10,
+    "input_description": "Oranges, raw, navels",
+    "ground_truth": "Navel orange",
+    "embedding_candidates": [
+      {"description": "Navel orange", "score": 0.96, "is_ground_truth": true},
+      {"description": "Mandarin orange", "score": 0.82, "is_ground_truth": false},
+      {"description": "Grapefruit", "score": 0.65, "is_ground_truth": false},
+      {"description": "Lemon", "score": 0.58, "is_ground_truth": false},
+      {"description": "Lime", "score": 0.54, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Navel orange",
+    "haiku_reasoning": "Exact variety match between NHANES navel orange and database entry",
+    "is_correct": true
+  },
+  {
+    "input_id": 11,
+    "input_description": "Apples, raw, golden delicious, with skin",
+    "ground_truth": "Whole Golden Del apple w/o seed",
+    "embedding_candidates": [
+      {"description": "Whole Golden Del apple w/o seed", "score": 0.90, "is_ground_truth": true},
+      {"description": "Dried apple", "score": 0.72, "is_ground_truth": false},
+      {"description": "Apple juice", "score": 0.63, "is_ground_truth": false},
+      {"description": "Whole pear", "score": 0.48, "is_ground_truth": false},
+      {"description": "Peach", "score": 0.42, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Whole Golden Del apple w/o seed",
+    "haiku_reasoning": "Same apple variety, raw with skin matches whole apple without seed",
+    "is_correct": true
+  },
+  {
+    "input_id": 12,
+    "input_description": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D",
+    "ground_truth": "Whole milk",
+    "embedding_candidates": [
+      {"description": "Whole milk", "score": 0.88, "is_ground_truth": true},
+      {"description": "Almond milk", "score": 0.65, "is_ground_truth": false},
+      {"description": "Heavy cream", "score": 0.61, "is_ground_truth": false},
+      {"description": "Sour cream", "score": 0.48, "is_ground_truth": false},
+      {"description": "Unsalted butter", "score": 0.40, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "2% reduced fat milk differs significantly from whole milk in fat content",
+    "is_correct": false
+  },
+  {
+    "input_id": 13,
+    "input_description": "Ketchup, tomato, regular",
+    "ground_truth": "Tomato Ketchup",
+    "embedding_candidates": [
+      {"description": "Tomato Ketchup", "score": 0.92, "is_ground_truth": true},
+      {"description": "Canned tomato", "score": 0.68, "is_ground_truth": false},
+      {"description": "Tomato paste", "score": 0.62, "is_ground_truth": false},
+      {"description": "Red bell pepper", "score": 0.38, "is_ground_truth": false},
+      {"description": "White onion", "score": 0.25, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Tomato Ketchup",
+    "haiku_reasoning": "Direct match between ketchup variants",
+    "is_correct": true
+  },
+  {
+    "input_id": 14,
+    "input_description": "Sauce, salsa, ready-to-serve",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Canned tomato", "score": 0.62, "is_ground_truth": false},
+      {"description": "Jalapeno pepper", "score": 0.55, "is_ground_truth": false},
+      {"description": "White onion", "score": 0.48, "is_ground_truth": false},
+      {"description": "Red bell pepper", "score": 0.44, "is_ground_truth": false},
+      {"description": "Garlic cloves", "score": 0.41, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "Salsa is a multi-ingredient condiment, no single ingredient match exists",
+    "is_correct": true
+  },
+  {
+    "input_id": 15,
+    "input_description": "Bread, white, commercially prepared",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Whole wheat flour", "score": 0.64, "is_ground_truth": false},
+      {"description": "White rice", "score": 0.45, "is_ground_truth": false},
+      {"description": "Rolled oats", "score": 0.38, "is_ground_truth": false},
+      {"description": "Unsalted butter", "score": 0.28, "is_ground_truth": false},
+      {"description": "Large egg", "score": 0.25, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "Bread is a prepared multi-ingredient product, not a raw food item",
+    "is_correct": true
+  },
+  {
+    "input_id": 16,
+    "input_description": "Crackers, saltine, regular",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Whole wheat flour", "score": 0.52, "is_ground_truth": false},
+      {"description": "White rice", "score": 0.38, "is_ground_truth": false},
+      {"description": "Rolled oats", "score": 0.35, "is_ground_truth": false},
+      {"description": "Large egg", "score": 0.22, "is_ground_truth": false},
+      {"description": "Unsalted butter", "score": 0.20, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Whole wheat flour",
+    "haiku_reasoning": "Crackers are a wheat-based product, flour is the primary ingredient",
+    "is_correct": false
+  },
+  {
+    "input_id": 17,
+    "input_description": "Beverages, coffee, brewed, prepared with tap water",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Tap water", "score": 0.58, "is_ground_truth": false},
+      {"description": "Green tea leaves", "score": 0.52, "is_ground_truth": false},
+      {"description": "Whole milk", "score": 0.32, "is_ground_truth": false},
+      {"description": "White sugar", "score": 0.28, "is_ground_truth": false},
+      {"description": "Heavy cream", "score": 0.25, "is_ground_truth": false}
+    ],
+    "haiku_selection": "No match",
+    "haiku_reasoning": "Brewed coffee is a prepared beverage, not a raw food item in the database",
+    "is_correct": true
+  },
+  {
+    "input_id": 18,
+    "input_description": "Cereals, corn flakes, plain, fortified",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Yellow sweet corn", "score": 0.66, "is_ground_truth": false},
+      {"description": "Rolled oats", "score": 0.54, "is_ground_truth": false},
+      {"description": "Whole wheat flour", "score": 0.42, "is_ground_truth": false},
+      {"description": "White rice", "score": 0.38, "is_ground_truth": false},
+      {"description": "White sugar", "score": 0.25, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Yellow sweet corn",
+    "haiku_reasoning": "Corn flakes are made from corn, yellow sweet corn is the closest match",
+    "is_correct": false
+  },
+  {
+    "input_id": 19,
+    "input_description": "Soup, chicken noodle, canned, condensed",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Whole chicken", "score": 0.62, "is_ground_truth": false},
+      {"description": "Chicken breast", "score": 0.58, "is_ground_truth": false},
+      {"description": "Whole wheat flour", "score": 0.32, "is_ground_truth": false},
+      {"description": "White onion", "score": 0.30, "is_ground_truth": false},
+      {"description": "Celery", "score": 0.28, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Whole chicken",
+    "haiku_reasoning": "Chicken noodle soup contains chicken as primary protein",
+    "is_correct": false
+  },
+  {
+    "input_id": 20,
+    "input_description": "Yogurt, Greek, plain, nonfat",
+    "ground_truth": null,
+    "embedding_candidates": [
+      {"description": "Whole milk", "score": 0.70, "is_ground_truth": false},
+      {"description": "Sour cream", "score": 0.64, "is_ground_truth": false},
+      {"description": "Heavy cream", "score": 0.52, "is_ground_truth": false},
+      {"description": "Cream cheese", "score": 0.48, "is_ground_truth": false},
+      {"description": "Unsalted butter", "score": 0.35, "is_ground_truth": false}
+    ],
+    "haiku_selection": "Whole milk",
+    "haiku_reasoning": "Yogurt is a dairy product derived from milk, closest available match",
+    "is_correct": false
+  }
+]

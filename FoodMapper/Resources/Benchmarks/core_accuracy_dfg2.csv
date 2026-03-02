@@ -1,0 +1,142 @@
+#benchmark_version=2.0
+#name=Core Accuracy - DFG2
+#target_database=dfg2
+#description=Primary accuracy benchmark against DFG2 (256 items). Tests food matching across difficulty tiers with realistic dietary recall inputs.
+input_text,expected_match,expected_match_id,alternative_match,category,difficulty,instruction,notes
+"Bananas, raw",Yellow banana flesh only,,Plantain banana (steamed 10 in),fruits,easy,,Direct banana match
+"Apple, fresh",Whole Golden Del apple w/o seed,,Golden Del apple flesh only,fruits,easy,,Generic apple to specific variety
+"Strawberries",Whole strawberry,,,fruits,easy,,Direct singular/plural match
+"Blueberries, fresh",Whole blueberry,,,fruits,easy,,Simple berry match
+"Navel orange",Navel orange,,,fruits,easy,,Exact name match
+"Grapes, red seedless",Red seedless grape,,,fruits,easy,,Direct grape match
+"Watermelon",Seedless watermelon,,,fruits,easy,,Common to specific
+"Pineapple, fresh",Gold (golden) pineapple,,,fruits,easy,,Generic to brand variety
+"Kiwi fruit",Kiwi,,,fruits,easy,,Slight name variant
+"Mango, fresh",Yellow mango,,,fruits,easy,,Simple match
+"Whole milk",Whole milk,,,dairy,easy,,Exact match
+"Peanut butter, creamy",Creamy peanut butter (Skippy),,Peanut butter (Laura Scudder's),spreads,easy,,Generic to branded
+"Orange juice, pulp free",Pulp free orange juice,,,beverages,easy,,Reordered words
+"Cottage cheese",Cottage cheese,,,dairy,easy,,Exact match
+"Honey",Honey,,,sweeteners,easy,,Exact match
+"Maple syrup",Maple syrup,,,sweeteners,easy,,Exact match
+"Table sugar",Table sugar,,,sweeteners,easy,,Exact match
+"Spaghetti, cooked",Spaghetti,,,grains,easy,,With preparation modifier
+"Rolled oats, dry",Rolled oats,,,grains,easy,,With form modifier
+"Chicken breast, raw",Chicken breast,,,protein,easy,,Direct match
+"Broccoli, steamed",Steamed Crown broccoli florets and stalk,,,vegetables,medium,,Informal to formal description
+"Carrots, cooked",Steamed whole carrots,,,vegetables,medium,,Different preparation word
+"Green beans, frozen",Frozen whole green beans,,,vegetables,medium,,Match frozen variant
+"Sweet potato, baked",Steamed whole sweet potato,,,vegetables,medium,,Different preparation method
+"Russet potato, boiled",Steamed whole russet potato,,Steamed russet potato flesh only,vegetables,medium,,Boiled vs steamed preparation
+"Cauliflower, steamed",Steamed Cauliflower florets and stalk,,,vegetables,medium,,Generic to specific cut
+"Celery sticks",Steamed Celery stalk,,,vegetables,medium,,Informal to formal
+"Spinach, fresh",Spinach leaves,,,vegetables,medium,,Form difference
+"Bell pepper, red",Steamed whole red bell pepper w/o seed,,,vegetables,medium,,Missing preparation
+"Mushrooms, white",Steamed whole white mushrooms,,,vegetables,medium,,Common name to specific
+"Brussels sprouts",Steamed Whole brussel sprouts,,,vegetables,medium,,Spelling variant
+"Bok choy, steamed",Steamed Baby Bok Choy leaves and stalk,,,vegetables,medium,,Size variant
+"Corn, frozen",Frozen Golden Corn Kernels (Siganture Select),,,vegetables,medium,,Generic to branded
+"Edamame, frozen",Frozen edamame,,,vegetables,medium,,Simple match with frozen
+"Okra, frozen",Frozen whole okra,,,vegetables,medium,,Simple match with frozen
+"Milk, reduced fat, 2%",Whole milk,,,dairy,medium,,Closest available fat variant in DFG2
+"Chocolate milk, lowfat",Lowfat chocolate milk,,,dairy,medium,,Reordered words
+"Soy milk, unsweetened",Soy milk,,,dairy,medium,,Dropped modifier
+"Almond milk, unsweetened",Unsweetened almond milk,,,dairy,medium,,Reordered words
+"Mozzarella cheese",Low Moisture part Skim Mozarella cheese,,,dairy,medium,,Generic to specific variety
+"Sharp cheddar cheese",Sharp Chedder Cheese,,,dairy,medium,,Spelling variant in DB
+"American cheese slices",American Cheese,,,dairy,medium,,With form descriptor
+"Yogurt, plain",Yogurt,,,dairy,medium,,Dropped flavor
+"Sour cream",Sour cream,,,dairy,medium,,Exact match
+"Cream cheese",Cream cheese,,,dairy,medium,,Exact match
+"Butter, unsalted",Unsalted butter,,,dairy,medium,,Reordered words
+"Brown rice, cooked",Brown rice (Mahatma),,,grains,medium,,Generic to branded
+"White rice, long grain",Enriched long white rice (Mahatma),,,grains,medium,,Partial match with brand
+"Quinoa, cooked",Quinoa,,,grains,medium,,Dropped preparation
+"Whole wheat bread",Whole wheat bread,,,grains,medium,,Exact match
+"Sourdough bread",Sourdough bread,,,grains,medium,,Exact match
+"Flour tortilla",Flour tortilla,,,grains,medium,,Exact match
+"Corn tortilla",Yellow corn tortilla,,,grains,medium,,Added color descriptor
+"English muffin",Whole Original English muffin (Thomas),,Whole Whole Grains English muffin (Oroweat),grains,medium,,Generic to branded
+"Peanuts, roasted",Peanuts,,,nuts,medium,,Dropped preparation
+"Almonds, roasted",roasted almonds,,,nuts,medium,,Reordered
+"Cashews",Cashew,,,nuts,medium,,Plural to singular
+"Walnuts",Walnuts,,,nuts,medium,,Exact match
+"Coffee, brewed",brewed coffee,,,beverages,medium,,Reordered
+"Black tea",Black tea,,,beverages,medium,,Exact match
+"Apple juice",Apple juice,,,beverages,medium,,Exact match
+"Carrot juice",Carrot juice,,,beverages,medium,,Exact match
+"Coca-Cola",Coca cola,,,beverages,medium,,Punctuation difference
+"Ground beef steak",Beef round tip steak,,,protein,medium,,Generic cut to specific
+"Shrimp, cooked",Shrimp,,,protein,medium,,Dropped preparation
+"Ground turkey",ground turkey,,,protein,medium,,Exact match (case diff)
+"Eggs, whole",Whole brown egg,,,protein,medium,,Generic to specific color
+"Egg whites",Brown egg white,,,protein,medium,,Generic to specific
+"Tofu, firm",Firm Tofu (Wildwood),,,protein,medium,,Generic to branded
+"Pinto beans, canned",Canned low sodium pinto bean,,,legumes,medium,,Reordered with modifiers
+"Black beans, canned",Canned black beans (S&W),,,legumes,medium,,Generic to branded
+"Garbanzo beans",Canned garbanzo beans,,,legumes,medium,,Missing preparation
+"Kidney beans, canned",Canned Kidney beans,,,legumes,medium,,Reordered
+"Ketchup",Tomato Ketchup,,,condiments,medium,,Short name to full name
+"Mayonnaise",Mayonnaise,,,condiments,medium,,Exact match
+"Soy sauce",Soy sauce,,,condiments,medium,,Exact match
+"Tomato paste",Hunt's Tomato paste,,,condiments,medium,,Generic to branded
+"Tomato sauce",Hunt's Tomato sauce,,,condiments,medium,,Generic to branded
+"Popcorn",Popcorn,,,snacks,medium,,Exact match
+"Tortilla chips",Tortilla chips,,,snacks,medium,,Exact match
+"Chocolate chip cookies",Chocolate chip cookies,,,snacks,medium,,Exact match
+"Granola",Granola,,,grains,medium,,Exact match
+"Dried mango slices",Dried Philippines Mango (Mariani),,Freeze dried mango flesh,fruits,hard,,Generic dried to specific origin
+"Dried apricots",Dried apricots,,,fruits,medium,,Exact match
+"Banana chips",Banana chips,,,snacks,medium,,Exact match
+"Frozen blueberries",Frozen whole blueberry,,,fruits,medium,,Added 'whole' in DB
+"Macaroni and cheese",Commercial Mac and Cheese,,,composite,hard,,Informal to commercial name
+"Chicken noodle soup",Chicken Noodle Soup,,,composite,hard,,Direct match (case diff)
+"Minestrone soup",Minestrone soup,,,composite,hard,,Exact match
+"Split pea soup",Split pea soup,,,composite,hard,,Exact match
+"Vegetable soup, chunky",Chunky vegetable soup,,,composite,hard,,Reordered
+"Cream of mushroom soup",Cream of Mushroom Soup (Pacific Foods),,,composite,hard,,Generic to branded
+"Bean and cheese burrito",Bean and cheese burrito,,,composite,hard,,Exact match
+"Veggie burger patty",Mixed vegetable burger patty,,,protein,hard,,Informal to formal
+"Beyond Meat ground",Ground non-meat (Beyond meat),,,protein,hard,,Brand to generic equivalent
+"Plant-based chicken tenders",beyond chicken tenders,,,protein,hard,,Generic to brand
+"Plant-based sausage",beyond sausage,,,protein,hard,,Generic to brand
+"Nutella",Nutella spread,,,spreads,hard,,Brand name to full entry
+"Orange marmalade",Orange jam (Bonne Maman),,,spreads,hard,,Marmalade vs jam terminology
+"Almond butter",Almond Butter (Justin's),,,spreads,hard,,Generic to branded
+"Protein powder, whey",Protein powder,,,supplements,hard,,Dropped specific type
+"Rice cakes, brown rice",Brown Rice Rice Cake,,,snacks,hard,,Plural to singular with reorder
+"Graham crackers",Honey graham crackers,,,snacks,hard,,Generic to specific variety
+"Cheese crackers",Cheese crackers,,,snacks,hard,,Exact match
+"Raisin bran cereal",Raisin bran cereal,,,grains,hard,,Exact match
+"Corn flakes",Corn cereal (corn flakes),,,grains,hard,,Common name to DB format
+"Pumpkin, canned",canned pumpkin,,,vegetables,hard,,Reordered
+"Coconut milk",coconut milk,,,dairy,hard,,Exact match (case)
+"Arugula salad",arugula,,,vegetables,hard,,Dropped 'salad' context
+"Kale, raw",Kale,,,vegetables,hard,,Dropped preparation
+"Eggplant",Eggplant,,,vegetables,hard,,Exact match
+"Pickled cucumbers",Pickles,,,vegetables,hard,,Formal to informal name
+"Stir fry noodles",Stir fry rice noodle,,,grains,hard,,Generic noodle to rice noodle
+"Couscous, pearl",Toasted Pearl couscous,,,grains,hard,,Missing toasted modifier
+"Vanilla ice cream",Vanilla bean ice cream,,,dairy,hard,,Slight name variant
+"Half and half cream",half and half,,,dairy,hard,,Dropped cream
+"Cocoa powder",Cocoa powder,,,baking,hard,,Exact match
+"All purpose flour",All purpose flour,,,baking,hard,,Exact match
+"Corn starch",Corn Starch,,,baking,hard,,Case difference
+"Sriracha hot sauce",NO_MATCH,,,condiments,no_match,,Brand-specific hot sauce not in DFG2
+"Ranch dressing",NO_MATCH,,,condiments,no_match,,Salad dressing not in DFG2
+"Olive oil",NO_MATCH,,,oils,no_match,,No cooking oils in DFG2
+"Hummus",NO_MATCH,,,condiments,no_match,,No hummus in DFG2
+"Boba tea, taro",NO_MATCH,,,beverages,no_match,,Specialty drink not in database
+"Pop-Tarts, strawberry",NO_MATCH,,,snacks,no_match,,Branded pastry not in database
+"Gochujang paste",NO_MATCH,,,condiments,no_match,,Korean condiment not in database
+"Croissant",NO_MATCH,,,grains,no_match,,French pastry not in DFG2
+"Bacon, pork",NO_MATCH,,,protein,no_match,,No traditional pork bacon in DFG2
+"Salmon, grilled",NO_MATCH,,,protein,no_match,,No salmon in DFG2
+"Lamb chops",NO_MATCH,,,protein,no_match,,No lamb in DFG2
+"Avocado",NO_MATCH,,,fruits,no_match,,No avocado in DFG2
+"Rice milk",NO_MATCH,,,dairy,no_match,,No rice milk in DFG2
+"Instant ramen noodles",NO_MATCH,,,composite,no_match,,No instant ramen in DFG2
+"Bagel, plain",NO_MATCH,,,grains,no_match,,No bagels in DFG2
+"Energy bar, chocolate",NO_MATCH,,,snacks,no_match,,Generic energy bar not in DFG2 (only blueberry snack bar)
+"Mustard, yellow",NO_MATCH,,,condiments,no_match,,No mustard condiment in DFG2
+"Vinegar, apple cider",NO_MATCH,,,condiments,no_match,,No vinegar in DFG2

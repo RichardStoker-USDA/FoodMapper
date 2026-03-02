@@ -1,0 +1,205 @@
+FoodMapper
+
+This work was prepared by an employee of the United States Government as
+part of that person's official duties and is therefore a work of the United
+States Government. In accordance with 17 U.S.C. 105, no copyright
+protection is available for such works under U.S. law.
+
+This software is released under CC0 1.0 Universal (CC0 1.0) Public Domain
+Dedication internationally.
+
+You can copy, modify, distribute and perform the work, even for commercial
+purposes, all without asking permission.
+
+For full CC0 1.0 legal text, see:
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+================================================================================
+
+THIRD-PARTY DEPENDENCIES AND LICENSES
+
+FoodMapper includes the following third-party software. Each package retains
+its original license and copyright.
+
+--------------------------------------------------------------------------------
+
+mlx-swift
+https://github.com/ml-explore/mlx-swift
+
+MIT License
+
+Copyright (c) 2023 ml-explore
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+swift-transformers
+https://github.com/huggingface/swift-transformers
+
+Apache License 2.0
+
+Copyright 2022 Hugging Face SAS.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+
+--------------------------------------------------------------------------------
+
+Jinja
+https://github.com/johnmai-dev/Jinja
+
+Apache License 2.0
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+
+--------------------------------------------------------------------------------
+
+swift-argument-parser
+https://github.com/apple/swift-argument-parser
+
+Apache License 2.0 with Runtime Library Exception
+
+Copyright (c) 2020 Apple Inc. and the Swift project authors.
+
+Licensed under the Apache License, Version 2.0 with Runtime Library Exception.
+See https://swift.org/LICENSE.txt for full license text.
+
+--------------------------------------------------------------------------------
+
+swift-collections
+https://github.com/apple/swift-collections
+
+Apache License 2.0 with Runtime Library Exception
+
+Copyright (c) 2021-2024 Apple Inc. and the Swift project authors.
+
+Licensed under the Apache License, Version 2.0 with Runtime Library Exception.
+See https://swift.org/LICENSE.txt for full license text.
+
+--------------------------------------------------------------------------------
+
+swift-numerics
+https://github.com/apple/swift-numerics
+
+Apache License 2.0 with Runtime Library Exception
+
+Copyright (c) 2019-2025 Apple Inc. and the Swift Numerics project authors.
+
+Licensed under the Apache License, Version 2.0 with Runtime Library Exception.
+See https://swift.org/LICENSE.txt for full license text.
+
+================================================================================
+
+MODELS
+
+FoodMapper downloads and runs ML models on-device. No model weights are
+bundled in this repository. Users download models at runtime.
+
+All models use the SafeTensors format for weight storage. FoodMapper does not
+load pickle files or any other serialized Python objects.
+
+--------------------------------------------------------------------------------
+
+GTE-Large (General Text Embeddings)
+https://huggingface.co/richtext/foodmapper-gte-large
+
+MIT License (original model)
+
+A 335M parameter BERT-based embedding model originally published by the
+Institute for Intelligent Computing, Alibaba Group. The MLX-compatible
+SafeTensors conversion used by FoodMapper is hosted at the repository above.
+This is the primary model used for the research validation pipeline.
+
+Original model: https://huggingface.co/thenlper/gte-large
+
+--------------------------------------------------------------------------------
+
+Qwen3-Embedding (0.6B / 4B / 8B)
+https://huggingface.co/Qwen/Qwen3-Embedding-0.6B
+
+Apache License 2.0
+
+Copyright (c) 2025 Alibaba Cloud / Qwen Team.
+
+Text embedding models from the Qwen3 family. Available in three sizes for
+different hardware profiles. MLX-quantized (DWQ 4-bit) SafeTensors weights
+are provided by mlx-community on HuggingFace. Used as the embedding stage
+in the standard food matching pipeline. Requires enabling advanced options.
+
+--------------------------------------------------------------------------------
+
+Qwen3-Reranker (0.6B / 4B)
+https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
+
+Apache License 2.0
+
+Copyright (c) 2025 Alibaba Cloud / Qwen Team.
+
+Cross-encoder reranker models from the Qwen3 family. MLX-converted SafeTensors
+weights are hosted on HuggingFace. Used as the second stage in two-stage and
+smart triage pipelines. Requires enabling advanced options.
+
+--------------------------------------------------------------------------------
+
+Qwen3 (0.6B / 4B) -- Generative Judge
+https://huggingface.co/Qwen/Qwen3-0.6B
+
+Apache License 2.0
+
+Copyright (c) 2025 Alibaba Cloud / Qwen Team.
+
+General-purpose Qwen3 language models used in generative judge mode for
+match selection via logit extraction. MLX-quantized (4-bit) SafeTensors
+weights are provided by mlx-community. Experimental. Requires advanced options.
+
+================================================================================
+
+EXTERNAL SERVICES
+
+FoodMapper optionally connects to external APIs. These are not bundled
+dependencies but are used at runtime when configured by the user.
+
+--------------------------------------------------------------------------------
+
+Anthropic Claude API
+https://www.anthropic.com
+
+Used in the research validation pipeline (GTE-Large + Claude Haiku hybrid).
+Requires the user to provide their own Anthropic API key. Communication uses
+the Anthropic Message Batches API. No API keys are stored in this repository.

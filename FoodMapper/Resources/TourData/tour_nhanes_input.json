@@ -1,0 +1,122 @@
+[
+  {
+    "id": 1,
+    "input_description": "Chickpeas (garbanzo beans, bengal gram), mature seeds, raw",
+    "ground_truth": "Canned garbanzo beans",
+    "has_match": true
+  },
+  {
+    "id": 2,
+    "input_description": "Sausage, pork, chorizo, link or ground, cooked, pan-fried",
+    "ground_truth": "ground pork",
+    "has_match": true
+  },
+  {
+    "id": 3,
+    "input_description": "Spices, pepper, black",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 4,
+    "input_description": "Butter, salted",
+    "ground_truth": "Unsalted butter",
+    "has_match": true
+  },
+  {
+    "id": 5,
+    "input_description": "Oil, olive, salad or cooking",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 6,
+    "input_description": "Cheese, monterey",
+    "ground_truth": "American cheese",
+    "has_match": true
+  },
+  {
+    "id": 7,
+    "input_description": "Margarine-like spread, approximately 40% fat, soybean and palm",
+    "ground_truth": "Unsalted butter",
+    "has_match": true
+  },
+  {
+    "id": 8,
+    "input_description": "Bananas, raw",
+    "ground_truth": "Yellow banana flesh only",
+    "has_match": true
+  },
+  {
+    "id": 9,
+    "input_description": "Blueberries, raw",
+    "ground_truth": "Whole blueberry",
+    "has_match": true
+  },
+  {
+    "id": 10,
+    "input_description": "Oranges, raw, navels",
+    "ground_truth": "Navel orange",
+    "has_match": true
+  },
+  {
+    "id": 11,
+    "input_description": "Apples, raw, golden delicious, with skin",
+    "ground_truth": "Whole Golden Del apple w/o seed",
+    "has_match": true
+  },
+  {
+    "id": 12,
+    "input_description": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D",
+    "ground_truth": "Whole milk",
+    "has_match": true
+  },
+  {
+    "id": 13,
+    "input_description": "Ketchup, tomato, regular",
+    "ground_truth": "Tomato Ketchup",
+    "has_match": true
+  },
+  {
+    "id": 14,
+    "input_description": "Sauce, salsa, ready-to-serve",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 15,
+    "input_description": "Bread, white, commercially prepared",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 16,
+    "input_description": "Crackers, saltine, regular",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 17,
+    "input_description": "Beverages, coffee, brewed, prepared with tap water",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 18,
+    "input_description": "Cereals, corn flakes, plain, fortified",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 19,
+    "input_description": "Soup, chicken noodle, canned, condensed",
+    "ground_truth": null,
+    "has_match": false
+  },
+  {
+    "id": 20,
+    "input_description": "Yogurt, Greek, plain, nonfat",
+    "ground_truth": null,
+    "has_match": false
+  }
+]
