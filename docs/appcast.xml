@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>FoodMapper</title>
+    <link>https://foodmapper.app/appcast.xml</link>
+    <description>FoodMapper updates</description>
+    <language>en</language>
+    <item>
+      <title>Version 0.1.1</title>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 02 Mar 2026 01:25:02 -0800</pubDate>
+      <enclosure
+        url="https://github.com/RichardStoker-USDA/FoodMapper/releases/download/v0.1.1/FoodMapper.dmg"
+        sparkle:edSignature="rV9Sm/QEOMbZyv1imcmq6wQ4ZnGiETZrIHgCXBGDx73MN8Gorkkfq+/vc1B2OjUWZvHDlSqOQkh9vtfXEFrVAQ=="
+        length="29367031"
+        type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
