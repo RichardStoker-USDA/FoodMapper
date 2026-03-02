@@ -4,6 +4,8 @@ Match free-text food descriptions to standardized reference databases using on-d
 
 ![FoodMapper home screen](docs/images/hero-home.png)
 
+**[Download FoodMapper](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)** -- macOS installer, no admin rights needed.
+
 ## What This Is
 
 Nutrition researchers collect food descriptions from study participants through surveys, dietary recalls, and food frequency questionnaires. Those descriptions need to be mapped to standardized database entries before analysis can happen. Manual matching is slow. Keyword matching misses things like "whole wheat bread" matching "whole grain bread." FoodMapper uses embedding models running on your Mac's GPU to handle the matching, then gives you a guided review workflow to verify the results. It's a companion tool to the paper "From Diet to Molecules" by USDA ARS researchers.
@@ -30,7 +32,7 @@ Nutrition researchers collect food descriptions from study participants through 
 
 ## Getting Started
 
-1. **Download** the installer from [GitHub Releases](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest).
+1. **[Download the installer](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)** (PKG, no admin rights needed). A [DMG](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.dmg) is also available for users who prefer drag-and-drop installation.
 2. **Install.** Double-click the PKG to install. No admin rights needed.
 3. **Launch.** Search "FoodMapper" in Spotlight (Cmd+Space) or open it from ~/Applications. Download the GTE-Large model when prompted (~640 MB, one-time).
 4. **Walk through the tutorial** -- it runs automatically on first launch and covers the full workflow in 19 steps. You can restart it later from the Help menu.
