@@ -7,14 +7,14 @@
     <language>en</language>
     <item>
       <title>Version 0.1.1</title>
-      <sparkle:version>2</sparkle:version>
+      <sparkle:version>3</sparkle:version>
       <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <pubDate>Mon, 02 Mar 2026 01:25:02 -0800</pubDate>
+      <pubDate>Mon, 02 Mar 2026 02:06:28 -0800</pubDate>
       <enclosure
         url="https://github.com/RichardStoker-USDA/FoodMapper/releases/download/v0.1.1/FoodMapper.dmg"
-        sparkle:edSignature="rV9Sm/QEOMbZyv1imcmq6wQ4ZnGiETZrIHgCXBGDx73MN8Gorkkfq+/vc1B2OjUWZvHDlSqOQkh9vtfXEFrVAQ=="
-        length="29367031"
+        sparkle:edSignature="j9HtCuT+LWWJzezpXlhwL6KsxyywFuP5YFwsfgQbE387qHiwmWjNWi04tRTXwNhzgUzHlr+ftV/QUYhBeJMyCg=="
+        length="29367018"
         type="application/octet-stream" />
     </item>
   </channel>
