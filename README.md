@@ -26,11 +26,7 @@ Nutrition researchers collect food descriptions from study participants through 
 
 ![Results with review inspector](docs/images/results-inspector.png)
 
-![Guided review workflow](docs/images/guided-review.gif)
-
 ![Behind the Research showcase](docs/images/behind-research.png)
-
-![Match statistics](docs/images/statistics.png)
 
 ## Getting Started
 
