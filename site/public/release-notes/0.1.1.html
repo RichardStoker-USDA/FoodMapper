@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 16px 20px;
+    color: #1d1d1f;
+    background: #ffffff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      color: #f5f5f7;
+      background: #1c1c1e;
+    }
+    .section { border-color: #38383a; }
+    .tag { background: #2c2c2e; color: #a1a1a6; }
+    h2 { color: #f5f5f7; }
+    li::marker { color: #86868b; }
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+
+  .version-meta {
+    font-size: 12px;
+    color: #86868b;
+    margin-bottom: 16px;
+  }
+
+  .section {
+    border-top: 1px solid #e5e5ea;
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+
+  h2 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #1d1d1f;
+  }
+
+  ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  li {
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+
+  li::before {
+    content: "\2022";
+    position: absolute;
+    left: 2px;
+    color: #86868b;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+  }
+
+  .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #f2f2f7;
+    color: #636366;
+  }
+</style>
+</head>
+<body>
+  <h1>FoodMapper 0.1.1</h1>
+  <div class="version-meta">First public release</div>
+
+  <div class="section">
+    <h2>Matching</h2>
+    <ul>
+      <li>On-device semantic matching using GTE-Large embeddings on Apple Silicon GPU</li>
+      <li>Built-in reference databases: FooDB (9,913 items) and DFG2 (256 items)</li>
+      <li>Custom database support with cached embeddings</li>
+      <li>Optional hybrid pipeline with cloud LLM verification</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Review</h2>
+    <ul>
+      <li>Guided review workflow with keyboard-driven decisions</li>
+      <li>Bulk actions: select all, multi-select, range select, click-and-drag</li>
+      <li>Session persistence -- results and review decisions auto-save</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Import & Export</h2>
+    <ul>
+      <li>CSV and TSV import/export with auto-detected delimiters</li>
+      <li>Original columns preserved, match metadata appended</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Getting Started</h2>
+    <ul>
+      <li>Interactive tutorial covering the full workflow (19 steps)</li>
+      <li>Behind the Research showcase with live matching demo</li>
+    </ul>
+  </div>
+
+  <div class="tags">
+    <span class="tag">macOS 14+</span>
+    <span class="tag">Apple Silicon</span>
+    <span class="tag">MLX</span>
+  </div>
+</body>
+</html>

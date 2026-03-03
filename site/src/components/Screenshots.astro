@@ -1,0 +1,67 @@
+---
+// Screenshot gallery: 4 existing screenshots in card frames
+---
+
+<section class="section" id="screenshots">
+  <div class="container">
+    <div class="screenshot-grid">
+      <figure class="screenshot-card">
+        <img
+          class="theme-screenshot"
+          src="/images/match-setup-light.png"
+          data-light-src="/images/match-setup-light.png"
+          data-dark-src="/images/match-setup-dark.png"
+          alt="Configure Match page with loaded CSV, column picker, and database selection"
+          width="1470"
+          height="956"
+          loading="lazy"
+        />
+        <figcaption>Configure your match with file preview and database selection</figcaption>
+      </figure>
+
+      <figure class="screenshot-card">
+        <img
+          class="theme-screenshot"
+          src="/images/results-inspector-light.png"
+          data-light-src="/images/results-inspector-light.png"
+          data-dark-src="/images/results-inspector-dark.png"
+          alt="Results table with inspector panel showing match details and candidate list"
+          width="1470"
+          height="956"
+          loading="lazy"
+        />
+        <figcaption>Review results with the inspector panel and keyboard shortcuts</figcaption>
+      </figure>
+
+      <figure class="screenshot-card">
+        <img
+          class="theme-screenshot"
+          src="/images/behind-research-light.png"
+          data-light-src="/images/behind-research-light.png"
+          data-dark-src="/images/behind-research-dark.png"
+          alt="Behind the Research showcase with pipeline visualization"
+          width="1470"
+          height="956"
+          loading="lazy"
+        />
+        <figcaption>Interactive research showcase with pipeline visualization</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<style>
+  .screenshot-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-xxl);
+    max-width: var(--content-wide, 920px);
+    margin-inline: auto;
+  }
+
+  @media (max-width: 768px) {
+    .screenshot-grid {
+      gap: var(--space-lg);
+    }
+  }
+</style>

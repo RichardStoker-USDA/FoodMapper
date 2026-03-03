@@ -1,0 +1,105 @@
+---
+// 3-step "how it works" section
+---
+
+<section class="section" id="workflow">
+  <div class="container-narrow">
+    <div class="section-header">
+      <h2>How it works</h2>
+    </div>
+
+    <div class="workflow-steps">
+      <div class="workflow-step">
+        <div class="workflow-step-number">1</div>
+        <div class="workflow-step-content">
+          <h3>Load your data</h3>
+          <p>
+            Drag in a CSV or TSV with food descriptions. Pick your description
+            column and target database.
+          </p>
+        </div>
+      </div>
+
+      <div class="workflow-connector" aria-hidden="true"></div>
+
+      <div class="workflow-step">
+        <div class="workflow-step-number">2</div>
+        <div class="workflow-step-content">
+          <h3>Match</h3>
+          <p>
+            Click Match and the embedding model runs on your GPU. Semantic
+            similarity finds the best database entries for each food item.
+          </p>
+        </div>
+      </div>
+
+      <div class="workflow-connector" aria-hidden="true"></div>
+
+      <div class="workflow-step">
+        <div class="workflow-step-number">3</div>
+        <div class="workflow-step-content">
+          <h3>Review and export</h3>
+          <p>
+            Guided review walks through results. Confirm, reject, or override
+            each match. Export with original columns plus match metadata.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .workflow-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .workflow-step {
+    display: flex;
+    gap: var(--space-xl);
+    align-items: flex-start;
+  }
+
+  .workflow-connector {
+    width: 1px;
+    height: 32px;
+    background: var(--border-subtle);
+    margin-left: 19px; /* center of the 40px circle */
+    flex-shrink: 0;
+  }
+
+  .workflow-step-number {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-accent);
+    background: var(--badge-neutral-bg);
+    border: var(--border-width) solid var(--badge-neutral-stroke);
+    border-radius: 50%;
+  }
+
+  .workflow-step-content {
+    padding-top: var(--space-xs);
+  }
+
+  .workflow-step-content h3 {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xxs);
+  }
+
+  .workflow-step-content p {
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+  }
+</style>

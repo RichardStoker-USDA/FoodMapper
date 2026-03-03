@@ -1,0 +1,53 @@
+---
+// Three-segment theme toggle: System | Light | Dark
+// Styled as a segmented pill control matching the app's appearance picker
+---
+
+<div class="theme-toggle" role="group" aria-label="Theme">
+  <!-- System -->
+  <button
+    class="theme-toggle-btn"
+    data-theme-mode="system"
+    aria-pressed="true"
+    aria-label="System theme"
+    title="System"
+  >
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="12" height="9" rx="1.5" />
+      <line x1="5" y1="14" x2="11" y2="14" />
+      <line x1="8" y1="12" x2="8" y2="14" />
+    </svg>
+  </button>
+  <!-- Light -->
+  <button
+    class="theme-toggle-btn"
+    data-theme-mode="light"
+    aria-pressed="false"
+    aria-label="Light theme"
+    title="Light"
+  >
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8" cy="8" r="3" />
+      <line x1="8" y1="1.5" x2="8" y2="3" />
+      <line x1="8" y1="13" x2="8" y2="14.5" />
+      <line x1="2.4" y1="2.4" x2="3.5" y2="3.5" />
+      <line x1="12.5" y1="12.5" x2="13.6" y2="13.6" />
+      <line x1="1.5" y1="8" x2="3" y2="8" />
+      <line x1="13" y1="8" x2="14.5" y2="8" />
+      <line x1="2.4" y1="13.6" x2="3.5" y2="12.5" />
+      <line x1="12.5" y1="3.5" x2="13.6" y2="2.4" />
+    </svg>
+  </button>
+  <!-- Dark -->
+  <button
+    class="theme-toggle-btn"
+    data-theme-mode="dark"
+    aria-pressed="false"
+    aria-label="Dark theme"
+    title="Dark"
+  >
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13.5 9.5a6 6 0 0 1-7-7 6 6 0 1 0 7 7z" />
+    </svg>
+  </button>
+</div>

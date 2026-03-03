@@ -1,0 +1,175 @@
+---
+// Hero section: app identity, tagline, download CTA, hero screenshot
+---
+
+<section class="hero section">
+  <div class="container" style="text-align: center;">
+    <!-- App icon + name -->
+    <div class="hero-identity">
+      <img
+        src="/images/app-icon-large.png"
+        alt="FoodMapper app icon"
+        class="hero-icon"
+        width="96"
+        height="96"
+      />
+      <h1 class="text-hero hero-title">FoodMapper</h1>
+    </div>
+
+    <!-- Tagline -->
+    <p class="hero-tagline">
+      Match free-text food descriptions to standardized reference databases
+      using on-device ML models powered by MLX on Apple Silicon.
+    </p>
+
+    <!-- Subtext -->
+    <p class="hero-subtext text-secondary">
+      Built for nutrition researchers on Apple Silicon.
+      Your data stays on your Mac. Optional cloud verification available for research workflows.
+    </p>
+
+    <!-- Download CTA -->
+    <div class="hero-cta">
+      <a
+        href="https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg"
+        class="download-btn"
+      >
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 3v10m0 0l-3.5-3.5M10 13l3.5-3.5" />
+          <path d="M3 14v2a1 1 0 001 1h12a1 1 0 001-1v-2" />
+        </svg>
+        Download for Mac
+      </a>
+    </div>
+
+    <!-- System requirements -->
+    <div class="hero-badges">
+      <span class="badge">Apple Silicon</span>
+      <span class="badge">macOS 14+</span>
+      <span class="badge">8 GB RAM min</span>
+    </div>
+
+    <!-- Hero screenshot -->
+    <div class="hero-screenshot-wrapper">
+      <figure class="screenshot-card hero-screenshot">
+        <img
+          class="hero-screenshot theme-screenshot"
+          src="/images/hero-home-light.png"
+          data-light-src="/images/hero-home-light.png"
+          data-dark-src="/images/hero-home-dark.png"
+          alt="FoodMapper home screen showing match setup and configuration"
+          width="1470"
+          height="956"
+          loading="eager"
+        />
+      </figure>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    padding-top: var(--space-hero-top, 64px);
+    padding-bottom: var(--space-section, 80px);
+  }
+
+  .hero-identity {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-xxl);
+  }
+
+  .hero-icon {
+    width: 96px;
+    height: 96px;
+    /* Light mode: very slight shadow */
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.10));
+  }
+
+  /* Dark mode: original drop-shadow (DO NOT CHANGE) */
+  :global([data-theme="dark"]) .hero-icon {
+    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4))
+            drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+  }
+
+  .hero-title {
+    font-size: 48px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    line-height: 1.1;
+  }
+
+  .hero-tagline {
+    font-size: 20px;
+    line-height: 1.45;
+    color: var(--text-primary);
+    max-width: 580px;
+    margin: 0 auto var(--space-md);
+  }
+
+  .hero-subtext {
+    font-size: 16px;
+    line-height: 1.45;
+    max-width: 480px;
+    margin: 0 auto var(--space-xxxl);
+  }
+
+  .hero-cta {
+    margin-bottom: var(--space-xxl);
+  }
+
+  .hero-secondary-download {
+    margin-top: var(--space-md);
+  }
+
+  .hero-badges {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-section-sm, 48px);
+  }
+
+  .hero-screenshot-wrapper {
+    max-width: var(--content-wide, 920px);
+    margin-inline: auto;
+  }
+
+  .hero-screenshot {
+    border-radius: var(--corner-radius-xl);
+  }
+
+  .hero-screenshot img {
+    border-radius: calc(var(--corner-radius-xl) - 1px);
+  }
+
+  @media (max-width: 768px) {
+    .hero {
+      padding-top: 40px;
+    }
+
+    .hero-title {
+      font-size: 36px;
+    }
+
+    .hero-tagline {
+      font-size: 18px;
+    }
+
+    .hero-screenshot-wrapper {
+      margin-inline: calc(-1 * var(--space-md));
+    }
+  }
+
+  @media (max-width: 480px) {
+    .hero-title {
+      font-size: 30px;
+    }
+
+    .hero-tagline {
+      font-size: 17px;
+    }
+  }
+</style>

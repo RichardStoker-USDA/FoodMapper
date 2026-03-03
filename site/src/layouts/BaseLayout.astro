@@ -1,0 +1,133 @@
+---
+import '../styles/global.css';
+import '../styles/components.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "FoodMapper -- On-Device Food Matching for Nutrition Research",
+  description = "Match free-text food descriptions to standardized reference databases using on-device machine learning. Built for nutrition researchers on Apple Silicon."
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content="https://foodmapper.app/images/hero-home.png" />
+  <meta property="og:url" content="https://foodmapper.app" />
+  <meta property="og:type" content="website" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content="https://foodmapper.app/images/hero-home.png" />
+
+  <!-- Theme color -->
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="64x64" href="/images/favicon-64.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png" />
+
+  <!-- Anti-flash: apply theme before paint -->
+  <script is:inline>
+    (function() {
+      var stored = localStorage.getItem('theme');
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var theme = stored || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+      if (!stored) {
+        document.documentElement.setAttribute('data-theme-source', 'system');
+      }
+    })();
+  </script>
+
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to content</a>
+  <slot />
+
+  <!-- Theme toggle behavior -->
+  <script is:inline>
+    function setTheme(mode) {
+      if (mode === 'system') {
+        localStorage.removeItem('theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme-source', 'system');
+      } else {
+        localStorage.setItem('theme', mode);
+        document.documentElement.setAttribute('data-theme', mode);
+        document.documentElement.removeAttribute('data-theme-source');
+      }
+      updateToggleUI(mode);
+    }
+
+    function updateToggleUI(activeMode) {
+      var buttons = document.querySelectorAll('.theme-toggle-btn');
+      buttons.forEach(function(btn) {
+        var isActive = btn.getAttribute('data-theme-mode') === activeMode;
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+
+    // Set initial toggle state
+    document.addEventListener('DOMContentLoaded', function() {
+      var stored = localStorage.getItem('theme');
+      var mode = stored || 'system';
+      updateToggleUI(mode);
+
+      // Bind click handlers
+      document.querySelectorAll('.theme-toggle-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          setTheme(btn.getAttribute('data-theme-mode'));
+        });
+      });
+    });
+
+    // Respond to system preference changes when in system mode
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+      if (!localStorage.getItem('theme')) {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      }
+    });
+
+    // Theme-aware screenshot swap
+    function updateScreenshots() {
+      var theme = document.documentElement.getAttribute('data-theme');
+      var isDark = theme === 'dark';
+      document.querySelectorAll('.theme-screenshot').forEach(function(img) {
+        var src = isDark ? img.dataset.darkSrc : img.dataset.lightSrc;
+        if (src && img.src !== src) {
+          img.src = src;
+        }
+      });
+    }
+
+    var screenshotObserver = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        if (mutations[i].attributeName === 'data-theme') {
+          updateScreenshots();
+          break;
+        }
+      }
+    });
+    screenshotObserver.observe(document.documentElement, { attributes: true });
+    updateScreenshots();
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[workspace]
+authors = ["Richard Stoker <richard.stoker@usda.gov>"]
+channels = ["conda-forge"]
+name = "site"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+dev = "npx astro dev"
+build = "npx astro build"
+preview = "npx astro preview"
+
+[dependencies]
+nodejs = ">=25.7.0,<25.8"
