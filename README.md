@@ -2,7 +2,7 @@
 
 Match free-text food descriptions to standardized reference databases using on-device machine learning. Built for nutrition researchers on Apple Silicon.
 
-![FoodMapper home screen](docs/images/hero-home.png)
+![FoodMapper home screen](docs/images/hero-home-light.png)
 
 **[Download FoodMapper](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)** -- macOS installer, no admin rights needed.
 
@@ -24,11 +24,11 @@ Nutrition researchers collect food descriptions from study participants through 
 
 ## Screenshots
 
-![Match setup with file loaded](docs/images/match-setup.png)
+![Match setup with file loaded](docs/images/match-setup-light.png)
 
-![Results with review inspector](docs/images/results-inspector.png)
+![Results with review inspector](docs/images/results-inspector-light.png)
 
-![Behind the Research showcase](docs/images/behind-research.png)
+![Behind the Research showcase](docs/images/behind-research-light.png)
 
 ## Getting Started
 
