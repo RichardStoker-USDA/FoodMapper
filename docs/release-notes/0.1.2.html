@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 16px 20px;
+    color: #1d1d1f;
+    background: #ffffff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      color: #f5f5f7;
+      background: #1c1c1e;
+    }
+    .section { border-color: #38383a; }
+    .tag { background: #2c2c2e; color: #a1a1a6; }
+    h2 { color: #f5f5f7; }
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+
+  .version-meta {
+    font-size: 12px;
+    color: #86868b;
+    margin-bottom: 16px;
+  }
+
+  .section {
+    border-top: 1px solid #e5e5ea;
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+    margin-bottom: 8px;
+    color: #1d1d1f;
+  }
+
+  ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  li {
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+
+  li::before {
+    content: "\2022";
+    position: absolute;
+    left: 2px;
+    color: #86868b;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+  }
+
+  .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #f2f2f7;
+    color: #636366;
+  }
+</style>
+</head>
+<body>
+  <h1>FoodMapper 0.1.2</h1>
+  <div class="version-meta">UI polish and website launch</div>
+
+  <div class="section">
+    <h2>New</h2>
+    <ul>
+      <li>API key setup help with step-by-step instructions and cost estimate on the Configure Match screen</li>
+      <li>Marketing website at foodmapper.app</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Fixes</h2>
+    <ul>
+      <li>Inspector panel no longer collapses permanently when dragged past minimum width</li>
+      <li>Column and database picker dropdowns sized correctly on macOS 26 Tahoe</li>
+      <li>Tutorial step 10 wording clarified</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Improvements</h2>
+    <ul>
+      <li>Behind the Research card uses refined static gradient glow instead of animated shine</li>
+      <li>Settings reset button, save button, and API key badges polished for consistency</li>
+      <li>Hybrid Matching info popover explains both on and off states</li>
+      <li>Inline status label shows current matching mode next to Hybrid Matching toggle</li>
+      <li>Green checkmark with animated transition when API key is configured</li>
+    </ul>
+  </div>
+
+  <div class="tags">
+    <span class="tag">macOS 14+</span>
+    <span class="tag">Apple Silicon</span>
+    <span class="tag">MLX</span>
+  </div>
+</body>
+</html>
