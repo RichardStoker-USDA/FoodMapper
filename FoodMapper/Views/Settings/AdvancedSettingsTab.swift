@@ -96,8 +96,8 @@ struct AdvancedSettingsTab: View {
             Text("System")
                 .technicalLabel()
 
-            infoRow("Device", hardwareConfig.deviceName)
-            infoRow("Memory", "\(hardwareConfig.detectedMemoryGB) GB")
+            infoRow("Device", hardwareConfig.shortDeviceName)
+            infoRow("Memory", "\(hardwareConfig.displayMemoryGB) GB")
             infoRow("Profile", hardwareConfig.profile.displayName)
         }
         .padding(Spacing.md)
@@ -241,35 +241,20 @@ struct AdvancedSettingsTab: View {
             Text("Reset")
                 .technicalLabel()
 
-            Button {
-                showingResetConfirmation = true
-            } label: {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("Reset FoodMapper")
-                        .font(.callout.weight(.semibold))
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(destructiveTint)
-            .controlSize(.regular)
-
-            Text("Removes all data and restores FoodMapper to its original state. The app will restart automatically.")
+            Text("Removes all data, downloaded models, match history, and preferences. Restores FoodMapper to its original state.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Button(role: .destructive) {
+                showingResetConfirmation = true
+            } label: {
+                Label("Reset FoodMapper", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
         }
         .padding(Spacing.md)
         .settingsCardStyle(cornerRadius: 10)
-    }
-
-    private var destructiveTint: Color {
-        // >= 4.5:1 contrast against white label text in both appearances.
-        if colorScheme == .dark {
-            return Color(red: 0.78, green: 0.16, blue: 0.16) // C62828
-        }
-        return Color(red: 0.85, green: 0.18, blue: 0.13) // D92D20
     }
 
     private var experimentalPill: some View {

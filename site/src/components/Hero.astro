@@ -1,10 +1,8 @@
 ---
-// Hero section: app identity, tagline, download CTA, hero screenshot
 ---
 
 <section class="hero section">
   <div class="container" style="text-align: center;">
-    <!-- App icon + name -->
     <div class="hero-identity">
       <img
         src="/images/app-icon-large.png"
@@ -16,19 +14,16 @@
       <h1 class="text-hero hero-title">FoodMapper</h1>
     </div>
 
-    <!-- Tagline -->
     <p class="hero-tagline">
       Match free-text food descriptions to standardized reference databases
       using on-device ML models powered by MLX on Apple Silicon.
     </p>
 
-    <!-- Subtext -->
     <p class="hero-subtext text-secondary">
       Built for nutrition researchers on Apple Silicon.
       Your data stays on your Mac. Optional cloud verification available for research workflows.
     </p>
 
-    <!-- Download CTA -->
     <div class="hero-cta">
       <a
         href="https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg"
@@ -42,14 +37,12 @@
       </a>
     </div>
 
-    <!-- System requirements -->
     <div class="hero-badges">
       <span class="badge">Apple Silicon</span>
       <span class="badge">macOS 14+</span>
       <span class="badge">8 GB RAM min</span>
     </div>
 
-    <!-- Hero screenshot -->
     <div class="hero-screenshot-wrapper">
       <figure class="screenshot-card hero-screenshot">
         <img
@@ -84,11 +77,9 @@
   .hero-icon {
     width: 96px;
     height: 96px;
-    /* Light mode: very slight shadow */
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.10));
   }
 
-  /* Dark mode: original drop-shadow (DO NOT CHANGE) */
   :global([data-theme="dark"]) .hero-icon {
     filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4))
             drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
@@ -118,10 +109,6 @@
 
   .hero-cta {
     margin-bottom: var(--space-xxl);
-  }
-
-  .hero-secondary-download {
-    margin-top: var(--space-md);
   }
 
   .hero-badges {

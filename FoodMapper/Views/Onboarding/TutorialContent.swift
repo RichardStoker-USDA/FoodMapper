@@ -123,7 +123,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 10,
             title: "Pick an Alternative",
-            body: "The candidate list shows other possible matches ranked by score. Click any candidate to select it. During Guided Review, press 1\u{2013}5 to quickly pick a candidate by rank. If you don't see the right option, use Manual Override at the bottom of the inspector to search the full database.",
+            body: "The candidate list shows other possible matches ranked by score. Click any candidate to select it. During Guided Review, press 1\u{2013}5 to quickly pick a candidate by rank. If you don't see the right option, scroll down to Manual Override to search the full database.",
             icon: "arrow.triangle.swap",
             highlightAnchors: ["inspectorCandidates"],
             coachMarkPosition: .left,

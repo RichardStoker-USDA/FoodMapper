@@ -185,12 +185,33 @@ extension Color {
 
 }
 
+// MARK: - Tahoe Picker Sizing
+
+/// macOS 26 changed menu-style Pickers to fitted (shrink-wrap) by default.
+/// This restores flexible (fill-width) sizing where the layout expects it.
+/// No-op on Sonoma/Sequoia where flexible was already the default.
+struct FlexiblePickerSizing: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.buttonSizing(.flexible)
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - View Modifiers
 
 extension View {
     /// SF Symbol hierarchical rendering (gradient depth)
     func symbolGradient() -> some View {
         self.symbolRenderingMode(.hierarchical)
+    }
+
+    /// Restores flexible (fill-width) sizing for menu Pickers on macOS 26 Tahoe.
+    /// No-op on Sonoma/Sequoia where flexible is already the default.
+    func flexiblePickerSizing() -> some View {
+        modifier(FlexiblePickerSizing())
     }
 
     /// Technical header styling with wide tracking for system panels
@@ -252,6 +273,7 @@ extension View {
     ) -> some View {
         modifier(LiquidGlassButtonModifier(color: color, cornerRadius: cornerRadius, isActive: isActive))
     }
+
 }
 
 // MARK: - Liquid Glass Button Modifier

@@ -1,9 +1,9 @@
 /* ============================================================
    Component Styles
-   Cards, buttons, badges -- from DesignSystem.swift modifiers
+   Cards, buttons, badges
    ============================================================ */
 
-/* --- Cards (CardStyleModifier) --- */
+/* --- Cards --- */
 
 .card {
   padding: var(--space-lg);
@@ -13,7 +13,7 @@
   box-shadow: var(--shadow-card);
 }
 
-/* --- Feature Cards (ActionCard style) --- */
+/* --- Feature Cards --- */
 
 .feature-card {
   display: flex;
@@ -74,7 +74,7 @@
   color: var(--text-secondary);
 }
 
-/* --- Download Button (capsule CTA) --- */
+/* --- Download Button --- */
 
 .download-btn {
   display: inline-flex;
@@ -113,21 +113,7 @@
   flex-shrink: 0;
 }
 
-/* --- Secondary Link --- */
-
-.secondary-link {
-  display: inline-block;
-  font-size: 14px;
-  color: var(--text-secondary);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-.secondary-link:hover {
-  color: var(--color-accent);
-}
-
-/* --- System Requirements Badges (polishedBadge neutral) --- */
+/* --- System Requirements Badges --- */
 
 .badge {
   display: inline-flex;
@@ -290,7 +276,7 @@
   height: 20px;
 }
 
-/* --- Theme Toggle (segmented control) --- */
+/* --- Theme Toggle --- */
 
 .theme-toggle {
   display: flex;

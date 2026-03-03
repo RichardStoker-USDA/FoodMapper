@@ -13,6 +13,7 @@ struct MatchSetupView: View {
     @State private var inlineAPIKeyStatus: InlineAPIKeyStatus = .idle
     @State private var isValidatingInlineKey = false
     @State private var showHaikuInfo = false
+    @State private var showAPIKeyHelp = false
     @State private var showInstructionInfo = false
     @State private var showCSVHelp = false
     @State private var inlineDownloadTasks: [String: Task<Void, Never>] = [:]
@@ -233,6 +234,7 @@ struct MatchSetupView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                    .flexiblePickerSizing()
                     .frame(minWidth: 120)
                 }
             }
@@ -261,6 +263,7 @@ struct MatchSetupView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .flexiblePickerSizing()
                 .frame(minWidth: 120)
 
                 if !isResearchMode {
@@ -298,7 +301,7 @@ struct MatchSetupView: View {
             HStack(spacing: Spacing.sm) {
                 Image(systemName: "info.circle")
                     .foregroundStyle(.secondary)
-                    .font(.caption)
+                    .font(.system(size: Size.iconSmall))
                 Text("Database will be embedded with \(modelName) on first match. This may take a moment.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -542,8 +545,8 @@ struct MatchSetupView: View {
                             showInstructionInfo.toggle()
                         } label: {
                             Image(systemName: "info.circle")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
+                                .font(.system(size: Size.iconSmall))
+                                .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.borderless)
                         .popover(isPresented: $showInstructionInfo, arrowEdge: .trailing) {
@@ -608,7 +611,7 @@ struct MatchSetupView: View {
                 showHaikuInfo.toggle()
             } label: {
                 Image(systemName: "info.circle")
-                    .font(.caption)
+                    .font(.system(size: Size.iconSmall))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
@@ -617,19 +620,33 @@ struct MatchSetupView: View {
                     Text("Hybrid Matching")
                         .font(.headline)
 
-                    Text("Semantic matching finds the top 5 candidates, then Claude Haiku determines the best match. This is the hybrid approach described in the research paper.")
-                        .font(.callout)
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text("**Off** -- On-device semantic matching only. An AI model on your Mac compares food descriptions to the database and returns the closest matches by meaning.")
 
-                    Text("Requires an Anthropic API key.")
+                        Text("**On** -- Adds a cloud verification step. After on-device matching narrows it down to the top 5, Claude Haiku reviews those candidates and picks the best one.")
+
+                        Text("Both approaches are from the research paper. The hybrid method achieved the highest accuracy.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
+
+                    Text("Hybrid mode requires an Anthropic API key.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     Link("Get an API key at console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
                         .font(.caption)
                 }
-                .frame(width: 280)
+                .frame(width: 300)
                 .padding(Spacing.md)
             }
+
+            // Inline status label showing current matching mode
+            Text(appState.enableHaikuVerification ? "Semantic + cloud verification" : "Semantic matching only")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .contentTransition(.interpolate)
+                .animation(Animate.standard, value: appState.enableHaikuVerification)
 
             Spacer()
         }
@@ -644,13 +661,14 @@ struct MatchSetupView: View {
                 // Key is stored and valid
                 VStack(spacing: Spacing.xs) {
                     HStack(spacing: Spacing.xs) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: Size.iconSmall))
+                            .foregroundStyle(.green)
+                            .transition(.scale.combined(with: .opacity))
+
                         Text("API key configured")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
-                        Image(systemName: "checkmark")
-                            .font(.caption)
-                            .foregroundStyle(.green)
 
                         Spacer()
 
@@ -690,10 +708,25 @@ struct MatchSetupView: View {
                         }
                     }
                 }
+                .animation(Animate.standard, value: appState.cachedHasAPIKey)
             } else {
                 // Inline API key entry
                 VStack(alignment: .leading, spacing: Spacing.xs) {
                     HStack(spacing: Spacing.xs) {
+                        // API key help button -- shows setup instructions
+                        Button {
+                            showAPIKeyHelp.toggle()
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: Size.iconSmall))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .popover(isPresented: $showAPIKeyHelp, arrowEdge: .leading) {
+                            apiKeyHelpPopover
+                        }
+                        .transition(.scale.combined(with: .opacity))
+
                         SecureField("sk-ant-...", text: $inlineAPIKeyInput)
                             .textFieldStyle(.roundedBorder)
 
@@ -702,22 +735,11 @@ struct MatchSetupView: View {
                         }
                         .disabled(inlineAPIKeyInput.isEmpty || isValidatingInlineKey)
                         .controlSize(.small)
-
-                        Button {
-                            showHaikuInfo = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.borderless)
                     }
 
                     switch inlineAPIKeyStatus {
                     case .idle:
-                        Text("Create an account at console.anthropic.com to get an API key.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        EmptyView()
                     case .validating:
                         HStack(spacing: Spacing.xs) {
                             ProgressView()
@@ -736,8 +758,47 @@ struct MatchSetupView: View {
                             .foregroundStyle(.red)
                     }
                 }
+                .animation(Animate.standard, value: appState.cachedHasAPIKey)
             }
         }
+    }
+
+    // MARK: - API Key Help Popover
+
+    private var apiKeyHelpPopover: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Anthropic API Key")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("To use hybrid matching, you need an API key from Anthropic.")
+                    .font(.callout)
+
+                VStack(alignment: .leading, spacing: Spacing.xxxs) {
+                    Text("1. Create an account at console.anthropic.com")
+                        .font(.callout)
+                    Text("2. Go to Settings \u{2192} API Keys")
+                        .font(.callout)
+                    Text("3. Generate a new key and paste it above")
+                        .font(.callout)
+                }
+
+                Text("The key starts with sk-ant- and is stored locally on your Mac.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: Spacing.xxxs) {
+                Text("Hybrid matching uses Claude Haiku via the Batches API, which runs at 50% off standard pricing. Matching ~2,700 food items costs roughly $0.15\u{2013}0.20.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
+                .font(.caption)
+        }
+        .frame(width: 300)
+        .padding(Spacing.md)
     }
 
     // MARK: - Inline API Key Save

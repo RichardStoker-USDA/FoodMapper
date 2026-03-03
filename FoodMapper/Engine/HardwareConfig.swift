@@ -70,6 +70,11 @@ struct HardwareConfig: Codable, Equatable {
         return name
     }
 
+    /// Memory display string for status bar
+    var displayMemoryGB: Int {
+        return detectedMemoryGB
+    }
+
     /// Detect hardware and return optimal configuration
     static func detect() -> HardwareConfig {
         guard let device = MTLCreateSystemDefaultDevice() else {

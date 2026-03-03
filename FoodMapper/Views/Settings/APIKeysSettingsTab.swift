@@ -164,7 +164,7 @@ struct APIKeysSettingsTab: View {
                 saveAndValidateAPIKey()
             }
             .disabled(apiKeyInput.isEmpty || isValidating)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .controlSize(.small)
 
             if appState.cachedHasAPIKey {
@@ -184,14 +184,14 @@ struct APIKeysSettingsTab: View {
         switch apiKeyStatus {
         case .unknown:
             if appState.cachedHasAPIKey {
-                statusBadge("Stored", systemImage: "checkmark.circle.fill", color: .green)
+                statusBadge("Stored", systemImage: "checkmark.circle", color: .green)
             } else {
                 statusBadge("Not set", systemImage: "minus.circle", color: .secondary)
             }
         case .valid:
-            statusBadge("Valid", systemImage: "checkmark.circle.fill", color: .green)
+            statusBadge("Valid", systemImage: "checkmark.circle", color: .green)
         case .invalid(let reason):
-            statusBadge(reason, systemImage: "xmark.circle.fill", color: .red)
+            statusBadge(reason, systemImage: "xmark.circle", color: .red)
                 .lineLimit(1)
                 .truncationMode(.tail)
         case .saving:

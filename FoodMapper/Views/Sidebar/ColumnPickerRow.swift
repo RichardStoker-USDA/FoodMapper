@@ -19,6 +19,7 @@ struct ColumnPickerRow: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
+            .flexiblePickerSizing()
             .help("Select the column containing food descriptions to match")
         }
     }

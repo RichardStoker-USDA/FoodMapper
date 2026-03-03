@@ -91,7 +91,23 @@ struct WelcomeLandingView: View {
                     appState.startResearchShowcase()
                     appState.selectedPipelineMode = .researchValidation
                 }
-                .polishedShine(cornerRadius: 12, isActive: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.accentColor.opacity(0.5),
+                                    Color.purple.opacity(0.3),
+                                    Color.accentColor.opacity(0.4)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                )
+                .shadow(color: Color.accentColor.opacity(0.12), radius: 8, x: 0, y: 0)
+                .shadow(color: Color.purple.opacity(0.08), radius: 12, x: 0, y: 0)
                 .onHover { hoveredCard = $0 ? "research" : nil }
                 .disabled(appState.showTutorial && appState.tutorialState.currentStep > 1)
             }

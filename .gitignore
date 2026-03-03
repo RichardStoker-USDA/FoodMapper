@@ -60,3 +60,11 @@ playground.xcuserstate
 
 # Logs
 *.log
+
+# Release assets (local only)
+assets/
+
+# Astro / site build tooling
+site/.pixi/
+site/node_modules/
+site/.astro/

@@ -51,7 +51,7 @@ struct StatusBar: View {
 
                     // Show device name and memory when model is ready
                     if modelStatus.isReady {
-                        Text("\(hardwareConfig.shortDeviceName) (\(hardwareConfig.detectedMemoryGB)GB)")
+                        Text("\(hardwareConfig.shortDeviceName) (\(hardwareConfig.displayMemoryGB) GB)")
                             .foregroundStyle(.secondary)
                     } else {
                         Text(modelStatus.shortText)

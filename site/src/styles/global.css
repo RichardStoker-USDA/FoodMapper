@@ -1,6 +1,6 @@
 /* ============================================================
    FoodMapper Design Tokens
-   Extracted from DesignSystem.swift -- light and dark mode
+   Light and dark mode
    ============================================================ */
 
 /* --- Light Mode (default) --- */
@@ -332,7 +332,6 @@ a:hover {
   margin-inline: auto;
 }
 
-/* Divider between sections */
 .section-divider {
   max-width: var(--content-max-width);
   margin-inline: auto;
@@ -345,7 +344,6 @@ a:hover {
   background: var(--border-subtle);
 }
 
-/* Page gradient background */
 .page-gradient {
   position: relative;
   overflow: hidden;
@@ -486,7 +484,6 @@ a:hover {
   z-index: 1;
 }
 
-/* Focus styles */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

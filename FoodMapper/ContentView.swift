@@ -653,6 +653,7 @@ struct ResultsView: View {
                 .background(Color(nsColor: .textBackgroundColor))
                 .blur(radius: appState.showCompletionOverlay ? 6 : 0)
                 .inspectorColumnWidth(min: 360, ideal: 400, max: 520)
+                .interactiveDismissDisabled(true)
         }
         .overlay {
             if appState.showCompletionOverlay {

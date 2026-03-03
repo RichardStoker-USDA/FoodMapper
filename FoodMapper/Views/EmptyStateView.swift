@@ -425,6 +425,7 @@ struct PreMatchPreviewView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                    .flexiblePickerSizing()
                     .frame(minWidth: 120)
                 }
             }
@@ -450,6 +451,7 @@ struct PreMatchPreviewView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .flexiblePickerSizing()
                 .frame(minWidth: 120)
             }
             .frame(maxWidth: .infinity)
