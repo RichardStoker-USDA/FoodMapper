@@ -386,7 +386,7 @@
   }
 
   .hero-screenshot {
-    margin-inline: calc(-1 * var(--space-lg));
+    margin-inline: 0;
   }
 }
 
@@ -407,5 +407,9 @@
   .download-btn {
     padding: 10px 24px;
     font-size: 15px;
+  }
+
+  .feature-card {
+    padding: var(--space-lg);
   }
 }

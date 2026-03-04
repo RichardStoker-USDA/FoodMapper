@@ -64,7 +64,7 @@ struct BuiltInDatabaseAboutView: View {
 
                     // FoodMapper paper section
                     infoSection(title: "FoodMapper Research") {
-                        Text("Included in FoodMapper as part of the \"From Diet to Molecules\" study.")
+                        Text("Included in FoodMapper as part of the study \"Evaluation of Large Language Models for Mapping Dietary Data to Food Databases.\"")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

@@ -159,14 +159,9 @@ struct ContinueSection: View {
                 .padding(.horizontal, Spacing.xxl)
 
             VStack(spacing: Spacing.xs) {
-                Text("From Diet to Molecules")
-                    .font(.body.weight(.semibold))
+                Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.82 : 0.90))
-                    .multilineTextAlignment(.center)
-
-                Text("Application of Large Language Models for Mapping Dietary Data to Food Databases")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.66 : 0.80))
                     .multilineTextAlignment(.center)
 
                 Spacer()

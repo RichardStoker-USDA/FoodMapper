@@ -587,21 +587,15 @@ private struct HelpWarningCard: View {
     }
 }
 
-/// Capsule pill for experimental features. Neutral/gray to de-emphasize.
+/// Capsule pill for experimental features. Warm amber to distinguish from stable features.
 private struct ExperimentalBadge: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Text("Experimental")
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .secondary)
+            .foregroundStyle(.white)
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxxs)
-            .background(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.1)
-                    : Color.primary.opacity(0.08)
-            )
+            .background(Color.experimentalAmber.opacity(0.85))
             .clipShape(Capsule())
     }
 }

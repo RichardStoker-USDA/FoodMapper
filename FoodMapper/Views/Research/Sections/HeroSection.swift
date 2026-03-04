@@ -19,8 +19,11 @@ struct HeroSection: View {
         VStack(spacing: Spacing.xxl) {
             Spacer()
 
-            // Paper title + subtitle with text reveal and parallax
+            // Paper title with text reveal and parallax
             heroTitleGroup
+
+            Spacer()
+                .frame(height: Spacing.sm)
 
             // Authors and institution -- staggered entrance
             VStack(spacing: Spacing.xs) {
@@ -129,44 +132,25 @@ struct HeroSection: View {
     @ViewBuilder
     private var heroTitleGroup: some View {
         if #available(macOS 15, *), !reduceMotion {
-            VStack(spacing: Spacing.xxl) {
-                Text("From Diet to Molecules")
-                    .font(.system(size: 36, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    .textRenderer(RevealTextRenderer(progress: revealProgress))
-                    .visualEffect { content, proxy in
-                        content.offset(y: parallaxOffset(proxy: proxy, rate: 0.15))
-                    }
-
-                Text("Application of Large Language Models for Mapping Dietary Data to Food Databases")
-                    .font(.title3)
-                    .foregroundStyle(heroSecondaryTextColor)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 600)
-                    .textRenderer(RevealTextRenderer(progress: max(0, revealProgress - 0.15)))
-                    .visualEffect { content, proxy in
-                        content.offset(y: parallaxOffset(proxy: proxy, rate: 0.08))
-                    }
-            }
+            Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 680)
+                .textRenderer(RevealTextRenderer(progress: revealProgress))
+                .visualEffect { content, proxy in
+                    content.offset(y: parallaxOffset(proxy: proxy, rate: 0.15))
+                }
         } else {
             // Sonoma fallback: simple fade+slide on the whole group
-            VStack(spacing: Spacing.xxl) {
-                Text("From Diet to Molecules")
-                    .font(.system(size: 36, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    .visualEffect { content, proxy in
-                        content.offset(y: reduceMotion ? 0 : parallaxOffset(proxy: proxy, rate: 0.15))
-                    }
-
-                Text("Application of Large Language Models for Mapping Dietary Data to Food Databases")
-                    .font(.title3)
-                    .foregroundStyle(heroSecondaryTextColor)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 600)
-                    .visualEffect { content, proxy in
-                        content.offset(y: reduceMotion ? 0 : parallaxOffset(proxy: proxy, rate: 0.08))
-                    }
-            }
+            Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 680)
+                .visualEffect { content, proxy in
+                    content.offset(y: reduceMotion ? 0 : parallaxOffset(proxy: proxy, rate: 0.15))
+                }
             .opacity(revealProgress > 0.1 ? 1 : 0)
             .offset(y: revealProgress > 0.1 ? 0 : 20)
             .animation(.spring(response: 0.6, dampingFraction: 0.8), value: revealProgress > 0.1)

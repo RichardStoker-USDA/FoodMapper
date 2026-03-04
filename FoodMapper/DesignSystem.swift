@@ -76,6 +76,9 @@ extension Color {
     static let statusNone = Color(nsColor: .tertiaryLabelColor)
     static let statusError = Color.orange
 
+    // Experimental/beta badge amber -- warm, muted, not system .orange
+    static let experimentalAmber = Color(red: 0.85, green: 0.55, blue: 0.15)
+
     // Score color based on absolute thresholds (unified across table dots + inspector badges)
     static func scoreColor(_ score: Double) -> Color {
         switch score {

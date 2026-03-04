@@ -192,6 +192,7 @@ html {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -201,6 +202,9 @@ body {
   color: var(--text-primary);
   background-color: var(--bg-page);
   min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  overflow-wrap: break-word;
 }
 
 img {

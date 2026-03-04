@@ -250,9 +250,10 @@ struct SplashScreenView: View {
                 .padding(.horizontal, Spacing.xxl)
 
             VStack(spacing: Spacing.xxs) {
-                Text("From Diet to Molecules")
+                Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.80))
+                    .multilineTextAlignment(.center)
 
                 Text("Lemay, Strohmeier, Stoker, Larke, Wilson")
                     .font(.caption)

@@ -6,7 +6,6 @@ struct AdvancedSettingsTab: View {
     @Binding var advancedSettings: AdvancedSettings
     let onResetAllData: () -> Void
 
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var appState: AppState
     @State private var showingAdvancedConfirmation = false
     @State private var showingResetConfirmation = false
@@ -250,7 +249,8 @@ struct AdvancedSettingsTab: View {
             } label: {
                 Label("Reset FoodMapper", systemImage: "arrow.counterclockwise")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 0.80, green: 0.15, blue: 0.15))
             .controlSize(.regular)
         }
         .padding(Spacing.md)
@@ -258,19 +258,13 @@ struct AdvancedSettingsTab: View {
     }
 
     private var experimentalPill: some View {
-        let isDark = colorScheme == .dark
-        let textColor: Color = isDark ? .white.opacity(0.86) : .primary.opacity(0.68)
-        let fillColor: Color = isDark ? .white.opacity(0.08) : .black.opacity(0.045)
-        let borderColor: Color = isDark ? .white.opacity(0.18) : .black.opacity(0.12)
-
-        return Text("Experimental")
+        Text("Experimental")
             .font(.system(size: 11, weight: .semibold, design: .rounded))
             .tracking(0.1)
-            .foregroundStyle(textColor)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(Capsule(style: .continuous).fill(fillColor))
-            .overlay(Capsule(style: .continuous).strokeBorder(borderColor, lineWidth: 0.66))
+            .foregroundStyle(.white)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+            .background(Capsule(style: .continuous).fill(Color.experimentalAmber.opacity(0.85)))
     }
 
     private func infoRow(_ label: String, _ value: String) -> some View {

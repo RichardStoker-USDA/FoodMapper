@@ -8,7 +8,7 @@ Match free-text food descriptions to standardized reference databases using on-d
 
 ## What This Is
 
-Nutrition researchers collect food descriptions from study participants through surveys, dietary recalls, and food frequency questionnaires. Those descriptions need to be mapped to standardized database entries before analysis can happen. Manual matching is slow. Keyword matching misses things like "whole wheat bread" matching "whole grain bread." FoodMapper uses embedding models running on your Mac's GPU to handle the matching, then gives you a guided review workflow to verify the results. It's a companion tool to the paper "From Diet to Molecules" by USDA ARS researchers.
+Nutrition researchers collect food descriptions from study participants through surveys, dietary recalls, and food frequency questionnaires. Those descriptions need to be mapped to standardized database entries before analysis can happen. Manual matching is slow. Keyword matching misses things like "whole wheat bread" matching "whole grain bread." FoodMapper uses embedding models running on your Mac's GPU to handle the matching, then gives you a guided review workflow to verify the results. It's a companion tool to "Evaluation of Large Language Models for Mapping Dietary Data to Food Databases" by USDA ARS researchers.
 
 ## Features
 
@@ -111,7 +111,7 @@ Requires Xcode 16+ and an Apple Silicon Mac. This is an Xcode project, not Swift
 
 ## Research Background
 
-FoodMapper was built to support "From Diet to Molecules," a study on mapping dietary data to molecular-level food composition databases. The app includes a "Behind the Research" interactive showcase that walks through the paper's methods -- from the problem of free-text food matching, through embedding-based semantic search, to LLM-assisted verification. You can run the paper's exact pipeline against the DFG2 dataset right in the showcase.
+FoodMapper was built to support "Evaluation of Large Language Models for Mapping Dietary Data to Food Databases," a study on using LLMs and embedding models to match dietary data to food composition databases. The app includes a "Behind the Research" interactive showcase that walks through the paper's methods -- from the problem of free-text food matching, through embedding-based semantic search, to LLM-assisted verification. You can run the paper's exact pipeline against the DFG2 dataset right in the showcase.
 
 The benchmark datasets, experiments, and analysis code from the research are available at [dglemay/USDA-Food-Mapping](https://github.com/dglemay/USDA-Food-Mapping).
 

@@ -270,19 +270,13 @@ struct ModelRow: View {
     @ViewBuilder
     private var leadingModelMarker: some View {
         if showExperimentalBadge {
-            let isDark = colorScheme == .dark
-            let textColor: Color = isDark ? .white.opacity(0.86) : .primary.opacity(0.68)
-            let fillColor: Color = isDark ? .white.opacity(0.12) : .black.opacity(0.07)
-            let borderColor: Color = isDark ? .white.opacity(0.16) : .black.opacity(0.12)
-
             Text("BETA")
                 .font(.system(size: 9.5, weight: .bold))
                 .tracking(0.5)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .foregroundStyle(textColor)
-                .background(Capsule(style: .continuous).fill(fillColor))
-                .overlay(Capsule(style: .continuous).strokeBorder(borderColor, lineWidth: 0.66))
+                .padding(.horizontal, Spacing.xs)
+                .padding(.vertical, Spacing.xxxs)
+                .foregroundStyle(.white)
+                .background(Capsule(style: .continuous).fill(Color.experimentalAmber.opacity(0.85)))
                 .frame(width: 40, alignment: .center)
         } else {
             Color.clear

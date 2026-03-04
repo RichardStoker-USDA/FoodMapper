@@ -6,7 +6,7 @@ UI polish and website launch.
 
 ### Features
 - API key setup help button with step-by-step instructions and cost estimate on the Configure Match screen
-- Marketing website at foodmapper.app with light/dark theme, screenshot gallery, and mesh gradient background
+- Project website at foodmapper.app with light/dark theme, screenshot gallery, and mesh gradient background
 
 ### Fixes
 - Inspector panel collapsing with no way to restore when dragged past minimum width
