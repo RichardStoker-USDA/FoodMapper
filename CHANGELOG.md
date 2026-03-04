@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.3 (2026-03-03)
+
+UI refinements, updated research citation, and website improvements.
+
+### Improvements
+- Updated research paper title across the app and documentation
+- Behind the Research hero: refined title layout with improved spacing
+- Settings reset button: solid dark red style for clear destructive intent
+- Experimental pipeline tags: polished amber capsule pills for better visibility
+- Website: improved mobile responsiveness and polished feature descriptions
+
+---
+
 ## 0.1.2 (2026-03-03)
 
 UI polish and website launch.
