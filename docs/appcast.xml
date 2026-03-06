@@ -6,6 +6,19 @@
     <description>FoodMapper updates</description>
     <language>en</language>
     <item>
+      <title>Version 0.1.5</title>
+      <sparkle:releaseNotesLink>https://foodmapper.app/release-notes/0.1.5.html</sparkle:releaseNotesLink>
+      <sparkle:version>24</sparkle:version>
+      <sparkle:shortVersionString>0.1.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 06 Mar 2026 01:00:40 -0800</pubDate>
+      <enclosure
+        url="https://github.com/RichardStoker-USDA/FoodMapper/releases/download/v0.1.5/FoodMapper.dmg"
+        sparkle:edSignature="YcDflUWRa6ZZ8lumaVkEclVDzTLhCbcy5X04DwNAVn/OZNTJu2oqTbYLmmlJS9tj1TdX+f9rl+BS3XBjdrd7Ag=="
+        length="29487703"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 0.1.4</title>
       <sparkle:releaseNotesLink>https://foodmapper.app/release-notes/0.1.4.html</sparkle:releaseNotesLink>
       <sparkle:version>21</sparkle:version>

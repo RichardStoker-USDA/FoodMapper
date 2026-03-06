@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5 (2026-03-06)
+
+Sonoma compatibility fixes for Research Showcase animations.
+
+### Fixes
+- Research Showcase animations not triggering on macOS Sonoma -- section reveals, counter animations, and pipeline pill sequences now fire correctly when scrolled into view
+- Hero title animation on Sonoma -- replaced macOS 15+ text reveal renderer with unified fade+scale entrance that works across macOS 14-26
+
+---
+
 ## 0.1.4 (2026-03-05)
 
 Removed incomplete benchmark suite from advanced settings.
