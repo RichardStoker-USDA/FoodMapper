@@ -352,14 +352,17 @@ private struct CounterTriggerModifier: ViewModifier {
                 }
         } else {
             content
-                .onAppear {
-                    if !hasAppeared {
-                        // Small delay so the scroll reveal settles first
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            triggerAnimation()
-                        }
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onChange(of: geo.frame(in: .named("showcaseScroll")).midY) { _, midY in
+                                let viewportH = NSApp.mainWindow?.contentView?.bounds.height ?? 800
+                                if midY > 0 && midY < viewportH && !hasAppeared {
+                                    triggerAnimation()
+                                }
+                            }
                     }
-                }
+                )
         }
     }
 

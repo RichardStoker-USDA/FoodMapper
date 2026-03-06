@@ -560,13 +560,17 @@ private struct PipelineRevealTrigger: ViewModifier {
                 }
         } else {
             content
-                .onAppear {
-                    if visiblePillCount == 0 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            triggerSequence()
-                        }
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onChange(of: geo.frame(in: .named("showcaseScroll")).midY) { _, midY in
+                                let viewportH = NSApp.mainWindow?.contentView?.bounds.height ?? 800
+                                if midY > 0 && midY < viewportH && visiblePillCount == 0 {
+                                    triggerSequence()
+                                }
+                            }
                     }
-                }
+                )
         }
     }
 

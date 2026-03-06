@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Section 1: Hero area with paper title, authors, positioning, and CTAs.
-/// Full-viewport height with parallax text, text reveal animation (macOS 15+),
+/// Full-viewport height with parallax text, fade+scale title entrance,
 /// living MeshGradient background, and scroll-driven chevron fade.
 struct HeroSection: View {
     let scrollProxy: ScrollViewProxy
@@ -120,7 +120,7 @@ struct HeroSection: View {
             if reduceMotion {
                 revealProgress = 1.0
             } else {
-                withAnimation(.spring(duration: 1.8, bounce: 0.15)) {
+                withAnimation(.spring(duration: 1.6, bounce: 0)) {
                     revealProgress = 1.0
                 }
             }
@@ -129,32 +129,18 @@ struct HeroSection: View {
 
     // MARK: - Hero Title Group
 
-    @ViewBuilder
     private var heroTitleGroup: some View {
-        if #available(macOS 15, *), !reduceMotion {
-            Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 680)
-                .textRenderer(RevealTextRenderer(progress: revealProgress))
-                .visualEffect { content, proxy in
-                    content.offset(y: parallaxOffset(proxy: proxy, rate: 0.15))
-                }
-        } else {
-            // Sonoma fallback: simple fade+slide on the whole group
-            Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 680)
-                .visualEffect { content, proxy in
-                    content.offset(y: reduceMotion ? 0 : parallaxOffset(proxy: proxy, rate: 0.15))
-                }
+        Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
+            .font(.system(size: 28, weight: .bold))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 680)
             .opacity(revealProgress > 0.1 ? 1 : 0)
-            .offset(y: revealProgress > 0.1 ? 0 : 20)
-            .animation(.spring(response: 0.6, dampingFraction: 0.8), value: revealProgress > 0.1)
-        }
+            .scaleEffect(revealProgress > 0.1 ? 1.0 : 0.92)
+            .animation(.spring(response: 0.8, dampingFraction: 0.85), value: revealProgress > 0.1)
+            .visualEffect { content, proxy in
+                content.offset(y: reduceMotion ? 0 : parallaxOffset(proxy: proxy, rate: 0.15))
+            }
     }
 
     // MARK: - Chevron Indicator
