@@ -465,8 +465,6 @@ struct MainContent: View {
                 PipelineOverviewView()
             case .pipelineConfig:
                 PipelineConfigurationView()
-            case .benchmarks:
-                BenchmarkView()
             case nil:
                 WelcomeLandingView()
             }

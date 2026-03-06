@@ -13,7 +13,6 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     case history
     case pipelineOverview
     case pipelineConfig
-    case benchmarks
 
     var id: String { rawValue }
 
@@ -25,7 +24,6 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         case .history: return "History"
         case .pipelineOverview: return "Overview"
         case .pipelineConfig: return "Configuration"
-        case .benchmarks: return "Benchmarks"
         }
     }
 
@@ -37,14 +35,13 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         case .history: return "clock"
         case .pipelineOverview: return "list.bullet.rectangle"
         case .pipelineConfig: return "slider.horizontal.3"
-        case .benchmarks: return "chart.bar.xaxis"
         }
     }
 
     /// Whether this item is visible in simple mode
     var isVisibleInSimpleMode: Bool {
         switch self {
-        case .benchmarks, .pipelineOverview, .pipelineConfig: return false
+        case .pipelineOverview, .pipelineConfig: return false
         default: return true
         }
     }
@@ -52,7 +49,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     /// Whether this item belongs to the Pipelines section
     var isPipelineItem: Bool {
         switch self {
-        case .pipelineOverview, .pipelineConfig, .benchmarks: return true
+        case .pipelineOverview, .pipelineConfig: return true
         default: return false
         }
     }
@@ -64,7 +61,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
 
     /// Items that appear in the Pipelines section (advanced mode only)
     static var pipelineItems: [NavigationItem] {
-        [.pipelineOverview, .pipelineConfig, .benchmarks]
+        [.pipelineOverview, .pipelineConfig]
     }
 }
 
@@ -692,18 +689,6 @@ final class AppState: ObservableObject {
     @Published var tourHybridPhase: MatchingPhase = .idle
     @Published var tourHybridError: String? = nil
 
-    // Benchmark state
-    @Published var benchmarkDatasets: [BenchmarkDataset] = []
-    @Published var benchmarkResults: [BenchmarkResult] = []
-    @Published var isBenchmarkRunning: Bool = false
-    @Published var benchmarkViewState: BenchmarkViewState = .empty
-    @Published var benchmarkProgress: Double = 0
-    @Published var benchmarkPhaseLabel: String = ""
-    @Published var benchmarkRunningAccuracy: Double = 0
-    @Published var benchmarkItemsCompleted: Int = 0
-    @Published var benchmarkItemsTotal: Int = 0
-    @Published var latestBenchmarkResult: BenchmarkResult?
-
     // Tutorial state
     @Published var tutorialState: TutorialState = TutorialState.load()
     @Published var showTutorial: Bool = false
@@ -734,18 +719,6 @@ final class AppState: ObservableObject {
 
     var sessionsIndexURL: URL {
         sessionsDirectory.appendingPathComponent("sessions.json")
-    }
-
-    var benchmarksURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FoodMapper/benchmarks.json")
-    }
-
-    var benchmarkResultsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("FoodMapper/BenchmarkResults", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
     }
 
     // Computed properties
@@ -976,8 +949,6 @@ final class AppState: ObservableObject {
         loadCustomDatabases()
         loadStoredInputFiles()
         loadTargetDatabaseSample()
-        loadBenchmarkDatasets()
-        loadBenchmarkResults()
 
         // Observe UserDefaults changes for settings synced via @AppStorage in SettingsView
         settingsObserver = NotificationCenter.default.addObserver(

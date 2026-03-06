@@ -32,14 +32,6 @@
 		ASSETS001AB06705BEB2F2F60 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ASSETS002A5867F164E2245D6 /* Assets.xcassets */; };
 		B259B4F7194B9E2513F7560F /* MLXEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */; };
 		BBC18C9D20BA1A5DD87D3DA0 /* TargetDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */; };
-		BENCH001MODELBUILD000 /* BenchmarkResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH001MODELFILEREF /* BenchmarkResult.swift */; };
-		BENCH002ENGINEBUILD00 /* BenchmarkRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH002ENGINEFILEREF /* BenchmarkRunner.swift */; };
-		BENCH003ENGINEBUILD00 /* BenchmarkCSVParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH003ENGINEFILEREF /* BenchmarkCSVParser.swift */; };
-		BENCH004VIEWBUILD0000 /* BenchmarkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH004VIEWFILEREF00 /* BenchmarkView.swift */; };
-		BENCH005VIEWBUILD0000 /* BenchmarkRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH005VIEWFILEREF00 /* BenchmarkRunnerView.swift */; };
-		BENCH006VIEWBUILD0000 /* BenchmarkResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH006VIEWFILEREF00 /* BenchmarkResultsView.swift */; };
-		BENCH007COMPBUILD00000 /* BenchmarkComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BENCH007COMPFILEREF00 /* BenchmarkComparisonView.swift */; };
-		BENCHDATA001RES /* Benchmarks in Resources */ = {isa = PBXBuildFile; fileRef = BENCHDATA002FOLDER /* Benchmarks */; };
 		C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */; };
 		C5A2F572155A82FFBBC9201A /* FoodMapperApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19B3EAF237E39DA12E71979 /* FoodMapperApp.swift */; };
 		CF168F5398114B7D20C0F37D /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = A9493989579DD61D47B78934 /* Transformers */; };
@@ -186,14 +178,6 @@
 		ASSETS002A5867F164E2245D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B398910584D2D6D54FD08EC7 /* FoodMapper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoodMapper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE570A4E4DE359704D6CCB2C /* StatisticsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsPanel.swift; sourceTree = "<group>"; };
-		BENCH001MODELFILEREF /* BenchmarkResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkResult.swift; sourceTree = "<group>"; };
-		BENCH002ENGINEFILEREF /* BenchmarkRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRunner.swift; sourceTree = "<group>"; };
-		BENCH003ENGINEFILEREF /* BenchmarkCSVParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkCSVParser.swift; sourceTree = "<group>"; };
-		BENCH004VIEWFILEREF00 /* BenchmarkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkView.swift; sourceTree = "<group>"; };
-		BENCH005VIEWFILEREF00 /* BenchmarkRunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRunnerView.swift; sourceTree = "<group>"; };
-		BENCH006VIEWFILEREF00 /* BenchmarkResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkResultsView.swift; sourceTree = "<group>"; };
-		BENCH007COMPFILEREF00 /* BenchmarkComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkComparisonView.swift; sourceTree = "<group>"; };
-		BENCHDATA002FOLDER /* Benchmarks */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Benchmarks; path = FoodMapper/Resources/Benchmarks; sourceTree = SOURCE_ROOT; };
 		C630EF1EBF126F0553A2AB66 /* ResultsTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsTableView.swift; sourceTree = "<group>"; };
 		CSVDROP02A5867F164E2245D6 /* CSVDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVDropDelegate.swift; sourceTree = "<group>"; };
 		D1828737DB7CCFE3CE668CFC /* InputFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFile.swift; sourceTree = "<group>"; };
@@ -366,7 +350,6 @@
 				D1828737DB7CCFE3CE668CFC /* InputFile.swift */,
 				D68A3B6EE5B2220FC644F9FD /* MatchingSession.swift */,
 				1438643E235614FDEB31CAB0 /* MatchResult.swift */,
-				BENCH001MODELFILEREF /* BenchmarkResult.swift */,
 				REVDEC002FILEREF /* ReviewDecision.swift */,
 				P10INPUT002FILEREF /* StoredInputFile.swift */,
 				2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */,
@@ -384,7 +367,6 @@
 				SAMPLEDATA002FOLDER /* SampleData */,
 				TEMPLATES002FOLDER /* Templates */,
 				TOURDATA002FOLDER /* TourData */,
-				BENCHDATA002FOLDER /* Benchmarks */,
 				4CB0AF5E4F67E83D7A06EAAC /* FoodMapper */,
 				F6766A8DA9D4EBC157B189C9 /* FoodMapperTests */,
 				252E00673E250659E3F7AEF7 /* Products */,
@@ -400,8 +382,6 @@
 				SPARKLE004FILEREF000 /* CheckForUpdatesView.swift */,
 				250D88C3658300D3F23B0660 /* CSVExporter.swift */,
 				DB34908844CB1D5096674C78 /* CSVParser.swift */,
-				BENCH003ENGINEFILEREF /* BenchmarkCSVParser.swift */,
-				BENCH002ENGINEFILEREF /* BenchmarkRunner.swift */,
 				ANTHAPI002FILEREF /* AnthropicAPIClient.swift */,
 				EMBLLM002FILEREF /* EmbeddingLLMPipeline.swift */,
 				PIPELINE004FILEREF /* EmbeddingOnlyPipeline.swift */,
@@ -427,17 +407,6 @@
 			path = Engine;
 			sourceTree = "<group>";
 		};
-		BENCH001GROUPUUID0000 /* Benchmark */ = {
-			isa = PBXGroup;
-			children = (
-				BENCH004VIEWFILEREF00 /* BenchmarkView.swift */,
-				BENCH005VIEWFILEREF00 /* BenchmarkRunnerView.swift */,
-				BENCH006VIEWFILEREF00 /* BenchmarkResultsView.swift */,
-				BENCH007COMPFILEREF00 /* BenchmarkComparisonView.swift */,
-			);
-			path = Benchmark;
-			sourceTree = "<group>";
-		};
 		EA3A9DB0F01AE85CA424C820 /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -450,7 +419,6 @@
 				F07A1BC06A88B4E2E56D8B7F /* ModelDownloadView.swift */,
 				TOUR001RESEARCHGRP /* Research */,
 				PIPE001GROUPUUID00000 /* Pipeline */,
-				BENCH001GROUPUUID0000 /* Benchmark */,
 				SETT001GRP00 /* Settings */,
 				TOUR017FILEREF /* SplashScreenView.swift */,
 				F9465B2D871AB99CFFADB212 /* StatusBar.swift */,
@@ -651,7 +619,6 @@
 				SAMPLEDATA001RES /* SampleData in Resources */,
 				TEMPLATES001RES /* Templates in Resources */,
 				TOURDATA001RES /* TourData in Resources */,
-				BENCHDATA001RES /* Benchmarks in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -773,13 +740,6 @@
 				SC006BUILD /* ContinueSection.swift in Sources */,
 				SC007BUILD /* EmbeddingVisualization.swift in Sources */,
 				TOUR017BUILD /* SplashScreenView.swift in Sources */,
-				BENCH001MODELBUILD000 /* BenchmarkResult.swift in Sources */,
-				BENCH002ENGINEBUILD00 /* BenchmarkRunner.swift in Sources */,
-				BENCH003ENGINEBUILD00 /* BenchmarkCSVParser.swift in Sources */,
-				BENCH004VIEWBUILD0000 /* BenchmarkView.swift in Sources */,
-				BENCH005VIEWBUILD0000 /* BenchmarkRunnerView.swift in Sources */,
-				BENCH006VIEWBUILD0000 /* BenchmarkResultsView.swift in Sources */,
-				BENCH007COMPBUILD00000 /* BenchmarkComparisonView.swift in Sources */,
 				PIPE001OVBUILD0000000 /* PipelineOverviewView.swift in Sources */,
 				PIPE002CFBUILD0000000 /* PipelineConfigurationView.swift in Sources */,
 				SPARKLE005BUILD00000 /* CheckForUpdatesView.swift in Sources */,
