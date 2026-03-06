@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 (2026-03-05)
+
+Removed incomplete benchmark suite from advanced settings.
+
+### Improvements
+- Removed incomplete benchmark suite from advanced settings to avoid confusion
+
+---
+
 ## 0.1.3 (2026-03-03)
 
 UI refinements, updated research citation, and website improvements.
