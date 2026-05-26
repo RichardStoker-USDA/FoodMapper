@@ -17,7 +17,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "llm-only-pip
 /// 3. If multiple batches, run a final round with batch winners
 /// 4. Top result becomes the match
 final class LLMOnlyPipeline: MatchingPipelineProtocol {
-    let pipelineType: PipelineType = .qwen3LLMOnly
+    let pipelineType: PipelineType
     var name: String { pipelineType.displayName }
 
     private let judge: GenerativeJudgeModel
@@ -36,11 +36,13 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
 
     /// Engine is used only for loading database entries (not for embedding)
     init(
+        pipelineType: PipelineType = .qwen3LLMOnly,
         judge: GenerativeJudgeModel,
         engine: MatchingEngine,
         responseFormat: JudgeResponseFormat = .letter,
         allowThinking: Bool = false
     ) {
+        self.pipelineType = pipelineType
         self.judge = judge
         self.engine = engine
         self.responseFormat = responseFormat

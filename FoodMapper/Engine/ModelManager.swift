@@ -52,6 +52,7 @@ enum ModelFamily: String, CaseIterable {
     case qwen3Embedding = "Qwen3-Embedding"
     case qwen3Reranker = "Qwen3-Reranker"
     case qwen3Generative = "Qwen3-Generative"
+    case gemma4Generative = "Gemma 4 Generative"
 }
 
 /// Model size categories
@@ -89,6 +90,18 @@ final class ModelManager: ObservableObject {
     /// Model keys with a pending user cancel request.
     /// Checked at safe boundaries during download work.
     private var cancelledDownloadKeys: Set<String> = []
+
+    /// Model keys currently downloading (prevents concurrent task collisions)
+    private var activeDownloads: Set<String> = []
+
+    /// Callback for detailed GTE-Large progress updates (progress, written, total)
+    var onGTELargeProgress: (@MainActor (_ progress: Double, _ written: Int64, _ total: Int64) -> Void)?
+
+    /// Retained delegate to prevent deallocation during active download
+    private var activeDownloadDelegate: AnyObject?
+
+    /// Active download task to allow explicit cancellation
+    private var activeDownloadTask: URLSessionDownloadTask?
 
     init(hardwareConfig: HardwareConfig) {
         self.hardwareConfig = hardwareConfig
@@ -210,7 +223,84 @@ final class ModelManager: ObservableObject {
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
             ),
+            RegisteredModel(
+                key: "gemma4-e2b-it-4bit",
+                displayName: "Gemma 4 E2B Instruct 4-bit",
+                modelFamily: .gemma4Generative,
+                sizeCategory: .small,
+                repoId: "mlx-community/gemma-4-e2b-it-4bit",
+                downloadSize: 1_200_000_000,
+                gpuMemoryUsage: 1_500_000_000,
+                minimumProfile: .base
+            ),
+            RegisteredModel(
+                key: "gemma4-e4b-it-4bit",
+                displayName: "Gemma 4 E4B Instruct 4-bit",
+                modelFamily: .gemma4Generative,
+                sizeCategory: .medium,
+                repoId: "mlx-community/gemma-4-e4b-it-4bit",
+                downloadSize: 2_400_000_000,
+                gpuMemoryUsage: 2_800_000_000,
+                minimumProfile: .base
+            ),
         ]
+        
+        loadCustomRegisteredModels()
+    }
+
+    /// Loads custom user-registered models dynamically from a local JSON config
+    private func loadCustomRegisteredModels() {
+        let fileManager = FileManager.default
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        
+        // Ensure parent directories exist
+        let modelsDir = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
+        try? fileManager.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        
+        let customModelsURL = modelsDir.appendingPathComponent("custom_models.json")
+        
+        guard fileManager.fileExists(atPath: customModelsURL.path) else { return }
+        
+        do {
+            let data = try Data(contentsOf: customModelsURL)
+            struct CustomModelDecodable: Decodable {
+                let key: String
+                let displayName: String
+                let modelFamily: String
+                let sizeCategory: String
+                let repoId: String?
+                let downloadSize: Int64?
+                let gpuMemoryUsage: Int64?
+                let minimumProfile: String
+            }
+            
+            let decoded = try JSONDecoder().decode([CustomModelDecodable].self, from: data)
+            
+            for item in decoded {
+                let family = ModelFamily(rawValue: item.modelFamily) ?? .gemma4Generative
+                let size = ModelSizeCategory(rawValue: item.sizeCategory) ?? .medium
+                let profile = HardwareProfile(rawValue: item.minimumProfile) ?? .base
+                
+                let customModel = RegisteredModel(
+                    key: item.key,
+                    displayName: item.displayName,
+                    modelFamily: family,
+                    sizeCategory: size,
+                    repoId: item.repoId,
+                    downloadSize: item.downloadSize,
+                    gpuMemoryUsage: item.gpuMemoryUsage,
+                    minimumProfile: profile
+                )
+                
+                // Add to registeredModels if not already present
+                if !registeredModels.contains(where: { $0.key == customModel.key }) {
+                    registeredModels.append(customModel)
+                    logger.info("Loaded custom model registration: \(customModel.key) (\(customModel.displayName))")
+                }
+            }
+        } catch {
+            logger.error("Failed to load custom models JSON: \(error.localizedDescription)")
+        }
     }
 
     /// Check which models are already downloaded/available
@@ -268,15 +358,29 @@ final class ModelManager: ObservableObject {
     /// The download task should also be cancelled by the caller for fastest stop.
     func cancelDownload(key: String) {
         cancelledDownloadKeys.insert(key)
+        if key == "gte-large" {
+            activeDownloadTask?.cancel()
+            activeDownloadTask = nil
+        }
     }
 
     /// Download a model by key with progress reporting
     func downloadModel(key: String) async throws {
-        guard let registration = registeredModel(for: key),
-              let repoId = registration.repoId else {
+        guard let registration = registeredModel(for: key) else {
             throw ModelManagerError.unknownModel(key)
         }
 
+        // Prevent parallel download tasks for the same model key
+        guard !activeDownloads.contains(key) else {
+            logger.warning("Download already in progress for model: \(key)")
+            return
+        }
+        activeDownloads.insert(key)
+        defer {
+            activeDownloads.remove(key)
+        }
+
+        let repoId = registration.repoId
         cancelledDownloadKeys.remove(key)
         modelStates[key] = .downloading(progress: 0)
 
@@ -298,17 +402,26 @@ final class ModelManager: ObservableObject {
             cancelledDownloadKeys.remove(key)
             modelStates[key] = .downloaded
             logger.info("Downloaded model: \(key)")
-        } catch is CancellationError {
-            if key != "gte-large" {
-                try? await downloader.deleteModel(repoId: repoId)
-            }
-            cancelledDownloadKeys.remove(key)
-            modelStates[key] = .notDownloaded
-            logger.info("Cancelled model download: \(key)")
         } catch {
-            cancelledDownloadKeys.remove(key)
-            modelStates[key] = .error(error.localizedDescription)
-            throw error
+            let isCancelled = self.shouldCancelDownload(for: key) ||
+                             error is CancellationError ||
+                             (error as? URLError)?.code == .cancelled
+            
+            if isCancelled {
+                if key == "gte-large" {
+                    cleanupGTELargeFiles()
+                } else if let repoId = repoId {
+                    try? await downloader.deleteModel(repoId: repoId)
+                }
+                cancelledDownloadKeys.remove(key)
+                modelStates[key] = .notDownloaded
+                logger.info("Cancelled model download: \(key)")
+                throw error
+            } else {
+                cancelledDownloadKeys.remove(key)
+                modelStates[key] = .error(error.localizedDescription)
+                throw error
+            }
         }
     }
 
@@ -377,30 +490,24 @@ final class ModelManager: ObservableObject {
             }
 
             let fileWeight = Double(approximateSize)
-            let isLargeFile = approximateSize > 10_000_000  // >10MB gets per-byte tracking
-
-            if isLargeFile {
-                let baseProgress = completedWeight
-                try await downloadLargeFile(from: sourceURL, to: destURL, modelKey: modelKey) { [weak self] fileProgress in
-                    let overall = (baseProgress + fileProgress * fileWeight) / totalWeight
-                    Task { @MainActor in
-                        guard let self else { return }
-                        guard !self.shouldCancelDownload(for: modelKey) else { return }
-                        self.modelStates[modelKey] = .downloading(progress: overall)
-                    }
-                }
-            } else {
-                let (data, response) = try await URLSession.shared.data(from: sourceURL)
-                guard let httpResponse = response as? HTTPURLResponse,
-                      httpResponse.statusCode == 200 else {
-                    throw ModelManagerError.downloadFailed("Failed to download \(filename)")
-                }
-                try data.write(to: destURL)
+            let baseProgress = completedWeight
+            
+            try await downloadLargeFile(from: sourceURL, to: destURL, modelKey: modelKey, expectedContentLength: approximateSize) { [weak self] fileProgress in
+                let overall = (baseProgress + fileProgress * fileWeight) / totalWeight
+                guard let self = self else { return }
+                guard !self.shouldCancelDownload(for: modelKey) else { return }
+                self.modelStates[modelKey] = .downloading(progress: overall)
+                
+                let fileWritten = Int64(fileProgress * fileWeight)
+                let totalWritten = Int64(baseProgress) + fileWritten
+                self.onGTELargeProgress?(overall, totalWritten, Int64(totalWeight))
             }
 
             try throwIfDownloadCancelled(for: modelKey)
             completedWeight += fileWeight
-            modelStates[modelKey] = .downloading(progress: completedWeight / totalWeight)
+            let overall = completedWeight / totalWeight
+            modelStates[modelKey] = .downloading(progress: overall)
+            onGTELargeProgress?(overall, Int64(completedWeight), Int64(totalWeight))
         }
     }
 
@@ -410,27 +517,41 @@ final class ModelManager: ObservableObject {
         from sourceURL: URL,
         to destURL: URL,
         modelKey: String,
-        onFileProgress: @escaping (Double) -> Void = { _ in }
+        expectedContentLength: Int64,
+        onFileProgress: @escaping @MainActor (Double) -> Void = { _ in }
     ) async throws {
-        let delegate = DownloadProgressDelegate { progress in
-            onFileProgress(progress)
-        }
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let delegate = GTEDownloadDelegate(
+                    expectedContentLength: expectedContentLength,
+                    destURL: destURL,
+                    continuation: continuation,
+                    onProgress: { progress in
+                        onFileProgress(progress)
+                    },
+                    onBytesProgress: { _, _ in }
+                )
 
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        let (tempURL, response) = try await session.download(from: sourceURL)
-        try throwIfDownloadCancelled(for: modelKey)
+                // Retain strongly in ModelManager during active download
+                self.activeDownloadDelegate = delegate
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw ModelManagerError.downloadFailed(
-                "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
-            )
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 25.0
+                config.timeoutIntervalForResource = 3600.0
+                
+                let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+                let task = session.downloadTask(with: sourceURL)
+                
+                self.activeDownloadTask = task
+                task.resume()
+            }
+            self.activeDownloadDelegate = nil
+            self.activeDownloadTask = nil
+        } catch {
+            self.activeDownloadDelegate = nil
+            self.activeDownloadTask = nil
+            throw error
         }
-
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
-        }
-        try FileManager.default.moveItem(at: tempURL, to: destURL)
     }
 
     private func shouldCancelDownload(for key: String) -> Bool {
@@ -676,6 +797,16 @@ final class ModelManager: ObservableObject {
         }
         return found ? totalSize : nil
     }
+
+    /// Delete all downloaded or partial flat GTE-Large files
+    private func cleanupGTELargeFiles() {
+        let destDir = MLXEmbeddingModel.downloadDirectory
+        for (filename, _) in Self.gteLargeFiles {
+            let fileURL = destDir.appendingPathComponent(filename)
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        logger.info("Cleaned up GTE-Large files")
+    }
 }
 
 // MARK: - Errors
@@ -698,6 +829,90 @@ enum ModelManagerError: LocalizedError {
             return "Insufficient GPU memory: \(reqMB)MB required, \(avaMB)MB available"
         case .downloadFailed(let message):
             return "Download failed: \(message)"
+        }
+    }
+}
+
+// MARK: - GTEDownloadDelegate
+
+/// Self-contained delegate for tracking GTE-Large progress and completion
+final class GTEDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    private let expectedContentLength: Int64
+    private let onProgress: @MainActor (Double) -> Void
+    private let onBytesProgress: (Int64, Int64) -> Void
+    private let destURL: URL
+    private let continuation: CheckedContinuation<Void, Error>
+    private var lastReportedProgress: Double = -1
+    private let minimumProgressIncrement: Double = 0.002
+    private var hasResumed = false
+
+    init(
+        expectedContentLength: Int64,
+        destURL: URL,
+        continuation: CheckedContinuation<Void, Error>,
+        onProgress: @escaping @MainActor (Double) -> Void,
+        onBytesProgress: @escaping (Int64, Int64) -> Void
+    ) {
+        self.expectedContentLength = expectedContentLength
+        self.destURL = destURL
+        self.continuation = continuation
+        self.onProgress = onProgress
+        self.onBytesProgress = onBytesProgress
+        super.init()
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        let expectedBytes = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : expectedContentLength
+        guard expectedBytes > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(expectedBytes)
+
+        if progress - lastReportedProgress >= minimumProgressIncrement || progress >= 1.0 {
+            lastReportedProgress = progress
+            DispatchQueue.main.async { [weak self] in
+                self?.onProgress(progress)
+                self?.onBytesProgress(totalBytesWritten, expectedBytes)
+            }
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        guard !hasResumed else { return }
+        session.finishTasksAndInvalidate()
+        
+        guard let response = downloadTask.response as? HTTPURLResponse,
+              response.statusCode == 200 else {
+            let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+            hasResumed = true
+            continuation.resume(throwing: ModelManagerError.downloadFailed("HTTP \(code)"))
+            return
+        }
+
+        do {
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try FileManager.default.moveItem(at: location, to: destURL)
+            hasResumed = true
+            continuation.resume()
+        } catch {
+            hasResumed = true
+            continuation.resume(throwing: error)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard !hasResumed else { return }
+        session.invalidateAndCancel()
+        
+        if let error = error {
+            hasResumed = true
+            continuation.resume(throwing: error)
+        } else if let response = task.response as? HTTPURLResponse, response.statusCode != 200 {
+            hasResumed = true
+            continuation.resume(throwing: ModelManagerError.downloadFailed("HTTP \(response.statusCode)"))
         }
     }
 }

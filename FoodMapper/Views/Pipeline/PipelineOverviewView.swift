@@ -102,6 +102,8 @@ private struct PipelineCard: View {
         case .qwen3SmartTriage: return "checklist"
         case .qwen3LLMOnly: return "brain"
         case .embeddingLLM: return "cpu"
+        case .gemma4LLMOnly: return "brain"
+        case .gemma4TwoStage: return "cpu"
         }
     }
 
@@ -133,11 +135,11 @@ private struct PipelineCard: View {
                 // Availability indicator
                 HStack(spacing: Spacing.xs) {
                     Circle()
-                        .fill(isAvailable ? Color.green : Color.orange.opacity(0.6))
+                        .fill(isAvailable ? Color.green : Color.experimentalAmber.opacity(0.6))
                         .frame(width: Size.statusDot, height: Size.statusDot)
                     Text(isAvailable ? "Ready" : "Models needed")
                         .font(.caption)
-                        .foregroundStyle(isAvailable ? Color.secondary : Color.orange)
+                        .foregroundStyle(isAvailable ? Color.secondary : Color.experimentalAmber)
                 }
             }
 
@@ -153,17 +155,15 @@ private struct PipelineCard: View {
                 HStack(alignment: .top, spacing: Spacing.xs) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.experimentalAmber)
                         .frame(width: Size.iconSmall)
                     Text(warning)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
             // Models and metadata container

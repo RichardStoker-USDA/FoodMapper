@@ -337,7 +337,7 @@ struct TryItSection: View {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.experimentalAmber)
                         .font(.title3)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Matching could not complete")
@@ -368,7 +368,7 @@ struct TryItSection: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(spacing: Spacing.sm) {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.experimentalAmber)
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Embedding matching failed")
@@ -705,7 +705,7 @@ struct TryItSection: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(spacing: Spacing.sm) {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.experimentalAmber)
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Hybrid matching failed")

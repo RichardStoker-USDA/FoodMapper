@@ -16,7 +16,7 @@ struct StatusBar: View {
             StatusBarSegment {
                 HStack(spacing: Spacing.xs) {
                     Circle()
-                        .fill(isProcessing ? .orange : .green)
+                        .fill(isProcessing ? Color.experimentalAmber : .green)
                         .frame(width: Size.statusDot, height: Size.statusDot)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isProcessing)
 
@@ -45,7 +45,7 @@ struct StatusBar: View {
                             .font(.caption2)
                     } else {
                         Circle()
-                            .fill(.orange)
+                            .fill(Color.experimentalAmber)
                             .frame(width: Size.statusDot, height: Size.statusDot)
                     }
 

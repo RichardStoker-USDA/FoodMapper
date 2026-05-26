@@ -74,7 +74,7 @@ struct ModelDownloadSheet: View {
             if let error = downloadError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.experimentalAmber)
             }
 
             // Actions

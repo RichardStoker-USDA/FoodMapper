@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "embedding-ll
 /// Stage 2: GenerativeJudgeModel picks the best from top-K via text gen.
 /// Supports letter (A-Z), number (1-N), and text (name) response formats.
 final class EmbeddingLLMPipeline: MatchingPipelineProtocol {
-    let pipelineType: PipelineType = .embeddingLLM
+    let pipelineType: PipelineType
     var name: String { pipelineType.displayName }
 
     private let engine: MatchingEngine
@@ -19,12 +19,14 @@ final class EmbeddingLLMPipeline: MatchingPipelineProtocol {
     let allowThinking: Bool
 
     init(
+        pipelineType: PipelineType = .embeddingLLM,
         engine: MatchingEngine,
         judge: GenerativeJudgeModel,
         hardwareConfig: HardwareConfig,
         responseFormat: JudgeResponseFormat = .letter,
         allowThinking: Bool = false
     ) {
+        self.pipelineType = pipelineType
         self.engine = engine
         self.judge = judge
         self.hardwareConfig = hardwareConfig

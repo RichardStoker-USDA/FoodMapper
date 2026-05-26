@@ -117,7 +117,7 @@ extension AppState {
                     }
                 case .gteLargeHaiku:
                     rerankerInst = self.resolvedHaikuPrompt
-                case .qwen3LLMOnly, .embeddingLLM:
+                case .qwen3LLMOnly, .embeddingLLM, .gemma4LLMOnly, .gemma4TwoStage:
                     rerankerInst = self.resolvedJudgeInstruction
                 default:
                     rerankerInst = self.resolvedRerankerInstruction
@@ -440,13 +440,29 @@ extension AppState {
         case .qwen3LLMOnly:
             let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
             return LLMOnlyPipeline(
+                pipelineType: .qwen3LLMOnly,
+                judge: judge, engine: engine,
+                responseFormat: judgeResponseFormat, allowThinking: allowThinking
+            )
+        case .gemma4LLMOnly:
+            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
+            return LLMOnlyPipeline(
+                pipelineType: .gemma4LLMOnly,
                 judge: judge, engine: engine,
                 responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
         case .embeddingLLM:
             let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
             return EmbeddingLLMPipeline(
+                pipelineType: .embeddingLLM,
                 engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .embeddingLLM),
+                responseFormat: judgeResponseFormat, allowThinking: allowThinking
+            )
+        case .gemma4TwoStage:
+            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
+            return EmbeddingLLMPipeline(
+                pipelineType: .gemma4TwoStage,
+                engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .gemma4TwoStage),
                 responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
         }

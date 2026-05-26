@@ -29,11 +29,24 @@ extension AppState {
             return
         }
 
+        // Initialize progress variables
+        downloadStartTime = Date()
+        downloadBytesWritten = 0
+        downloadBytesTotal = 640_000_000
+        downloadSpeedBytesPerSecond = 0
+        downloadTimeRemaining = nil
+        
         // Download via ModelManager (unified download path)
         modelStatus = .downloading(progress: 0)
 
         do {
             try await modelManager.downloadModel(key: "gte-large")
+            
+            // Check if cancelled before embarking on verification
+            if modelStatus == .notDownloaded {
+                return
+            }
+            
             isVerifyingModelAfterDownload = true
             modelStatus = .loading
 
@@ -42,9 +55,23 @@ extension AppState {
             try await engine.loadModelIfNeeded()
             modelStatus = .ready(executionProvider: await engine.getExecutionProvider())
         } catch {
-            modelStatus = .error(error.localizedDescription)
+            let isCancelled = error is CancellationError ||
+                             (error as? URLError)?.code == .cancelled ||
+                             error.localizedDescription.contains("cancelled") ||
+                             error.localizedDescription.contains("Cancelled")
+            
+            if isCancelled || modelStatus == .notDownloaded {
+                modelStatus = .notDownloaded
+            } else {
+                modelStatus = .error(error.localizedDescription)
+            }
         }
         isVerifyingModelAfterDownload = false
+    }
+
+    func cancelDownload() {
+        modelManager.cancelDownload(key: "gte-large")
+        modelStatus = .notDownloaded
     }
 
     /// Sync modelStatus from ModelManager's state for GTE-Large.

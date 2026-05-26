@@ -416,6 +416,8 @@ final class AppState: ObservableObject {
         case .qwen3SmartTriage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
         case .qwen3LLMOnly: return [selectedGenerativeModelKey]
         case .embeddingLLM: return [selectedEmbeddingModelKey, selectedGenerativeModelKey]
+        case .gemma4LLMOnly: return [selectedGenerativeModelKey]
+        case .gemma4TwoStage: return [selectedEmbeddingModelKey, selectedGenerativeModelKey]
         }
     }
 
@@ -423,9 +425,9 @@ final class AppState: ObservableObject {
     var embeddingModelKeyForCurrentPipeline: String? {
         switch selectedPipelineType {
         case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM:
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return selectedEmbeddingModelKey
-        case .qwen3Reranker, .qwen3LLMOnly: return nil
+        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
 
@@ -578,9 +580,9 @@ final class AppState: ObservableObject {
     func embeddingModelKeyForPipeline(_ pipeline: PipelineType) -> String? {
         switch pipeline {
         case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM:
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return selectedEmbeddingModelKey
-        case .qwen3Reranker, .qwen3LLMOnly: return nil
+        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
 
@@ -593,6 +595,18 @@ final class AppState: ObservableObject {
     // Model state
     @Published var modelStatus: ModelStatus = .notDownloaded
 
+    // Detailed GTE-Large onboarding download state for premium feedback
+    @Published var downloadBytesWritten: Int64 = 0
+    @Published var downloadBytesTotal: Int64 = 640_000_000
+    @Published var downloadSpeedBytesPerSecond: Double = 0
+    @Published var downloadTimeRemaining: Double? = nil
+    @Published var downloadStartTime: Date? = nil
+
+    // Private variables for EMA smoothing and 1Hz throttled updates
+    private var lastSpeedCalculationTime: Date = .distantPast
+    private var lastBytesWritten: Int64 = 0
+    private var smoothedSpeedBytesPerSecond: Double = 0
+    private var lastMetadataUpdateTime: Date = .distantPast
     // Navigation state
     @Published var sessions: [MatchingSession] = []
     @Published var sidebarSelection: NavigationItem? = .home {
@@ -934,6 +948,53 @@ final class AppState: ObservableObject {
         hw.applyMLXCacheLimit()
         modelManager = ModelManager(hardwareConfig: hw)
 
+        modelManager.onGTELargeProgress = { [weak self] progress, written, total in
+            guard let self = self else { return }
+            
+            let now = Date()
+            
+            // Initialize calculation metrics on first callback
+            if self.lastSpeedCalculationTime == .distantPast {
+                self.lastSpeedCalculationTime = now
+                self.lastBytesWritten = written
+                self.lastMetadataUpdateTime = now
+                self.downloadBytesWritten = written
+                self.downloadBytesTotal = total
+                return
+            }
+            
+            let timeDelta = now.timeIntervalSince(self.lastSpeedCalculationTime)
+            if timeDelta >= 0.5 {
+                let bytesDelta = max(0, written - self.lastBytesWritten)
+                let instSpeed = Double(bytesDelta) / timeDelta
+                
+                // Apply Exponential Moving Average (EMA) with alpha = 0.15 for organic, steady damping
+                if self.smoothedSpeedBytesPerSecond == 0 {
+                    self.smoothedSpeedBytesPerSecond = instSpeed
+                } else {
+                    self.smoothedSpeedBytesPerSecond = (0.15 * instSpeed) + (0.85 * self.smoothedSpeedBytesPerSecond)
+                }
+                
+                self.lastBytesWritten = written
+                self.lastSpeedCalculationTime = now
+            }
+            
+            // Throttle UI metadata updates to exactly 1Hz (once per second) to prevent visual jittering
+            if now.timeIntervalSince(self.lastMetadataUpdateTime) >= 1.0 || progress >= 1.0 {
+                self.downloadBytesWritten = written
+                self.downloadBytesTotal = total
+                self.downloadSpeedBytesPerSecond = self.smoothedSpeedBytesPerSecond
+                
+                let remainingBytes = total - written
+                if self.smoothedSpeedBytesPerSecond > 50_000 && remainingBytes > 0 {
+                    self.downloadTimeRemaining = Double(remainingBytes) / self.smoothedSpeedBytesPerSecond
+                } else {
+                    self.downloadTimeRemaining = nil
+                }
+                self.lastMetadataUpdateTime = now
+            }
+        }
+
         // One-time migration: clean up old 3-zone threshold keys
         // The old system used "reviewAutoAcceptThreshold" (default 0.78) and "reviewAutoRejectThreshold" (default 0.50).
         // These values would poison the new 4-zone system (0.78 < 0.85 likelyMatch threshold = broken hierarchy).
@@ -1169,26 +1230,32 @@ extension Int {
 /// URLSession delegate for tracking download progress
 final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
     private let onProgress: (Double) -> Void
+    private let onBytesProgress: ((Int64, Int64) -> Void)?
     private var lastReportedProgress: Double = -1
-    private let minimumProgressIncrement: Double = 0.01  // Report at least every 1%
+    private let minimumProgressIncrement: Double = 0.002  // 0.2% updates for extremely smooth graphics
+    private let expectedContentLength: Int64?
 
-    init(onProgress: @escaping (Double) -> Void) {
+    init(expectedContentLength: Int64? = nil,
+         onProgress: @escaping (Double) -> Void,
+         onBytesProgress: ((Int64, Int64) -> Void)? = nil) {
+        self.expectedContentLength = expectedContentLength
         self.onProgress = onProgress
+        self.onBytesProgress = onBytesProgress
         super.init()
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        let expectedBytes = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : (expectedContentLength ?? 0)
+        guard expectedBytes > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(expectedBytes)
 
-        // Only report if progress changed by at least minimumProgressIncrement
-        // This prevents excessive UI updates while ensuring visibility
         if progress - lastReportedProgress >= minimumProgressIncrement || progress >= 1.0 {
             lastReportedProgress = progress
             DispatchQueue.main.async { [weak self] in
                 self?.onProgress(progress)
+                self?.onBytesProgress?(totalBytesWritten, expectedBytes)
             }
         }
     }

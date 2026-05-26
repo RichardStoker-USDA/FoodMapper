@@ -182,10 +182,10 @@ struct AddDatabaseSheet: View {
                                 // Allowed but oversized: toggle is ON
                                 HStack(spacing: Spacing.sm) {
                                     Image(systemName: "exclamationmark.triangle")
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(Color.experimentalAmber)
                                     VStack(alignment: .leading, spacing: Spacing.xxxs) {
                                         Text("Very large database")
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(Color.experimentalAmber)
                                         Text("Estimated time: \(estimatedEmbeddingTime). You'll be asked to confirm before embedding.")
                                             .foregroundStyle(.secondary)
                                     }
@@ -195,10 +195,10 @@ struct AddDatabaseSheet: View {
                                 // Exceeds recommended, toggle OFF
                                 HStack(spacing: Spacing.sm) {
                                     Image(systemName: "exclamationmark.triangle")
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(Color.experimentalAmber)
                                     VStack(alignment: .leading, spacing: Spacing.xxxs) {
                                         Text("Large database")
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(Color.experimentalAmber)
                                         Text("Recommended max: \(appState.hardwareConfig.recommendedMaxDatabaseItems.formatted()) items")
                                             .foregroundStyle(.secondary)
                                     }
@@ -245,7 +245,7 @@ struct AddDatabaseSheet: View {
                     if let error = errorMessage {
                         Section {
                             Label(error, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(.red)
                         }
                     }
                 }
@@ -375,7 +375,7 @@ struct AddDatabaseSheet: View {
                 // Error state
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 48))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.red)
 
                 Text("Embedding Failed")
                     .font(.title2)

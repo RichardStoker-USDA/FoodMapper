@@ -502,7 +502,7 @@ struct MatchSetupView: View {
                 if !pipelineUsesQwen3Embedding && !pipelineUsesQwen3Reranker { Divider() }
                 modelSizePicker(
                     label: "Judge Model",
-                    family: .qwen3Generative,
+                    family: pipelineUsesGemma4Generative ? .gemma4Generative : .qwen3Generative,
                     selection: $appState.selectedGenerativeSize
                 )
             }
@@ -845,7 +845,7 @@ struct MatchSetupView: View {
     /// Whether the current pipeline uses a Qwen3 embedding model
     private var pipelineUsesQwen3Embedding: Bool {
         switch basePipelineType {
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM: return true
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage: return true
         default: return false
         }
     }
@@ -860,8 +860,19 @@ struct MatchSetupView: View {
 
     /// Whether the current pipeline uses a generative judge model
     private var pipelineUsesGenerative: Bool {
+        pipelineUsesQwen3Generative || pipelineUsesGemma4Generative
+    }
+
+    private var pipelineUsesQwen3Generative: Bool {
         switch basePipelineType {
         case .qwen3LLMOnly, .embeddingLLM: return true
+        default: return false
+        }
+    }
+
+    private var pipelineUsesGemma4Generative: Bool {
+        switch basePipelineType {
+        case .gemma4LLMOnly, .gemma4TwoStage: return true
         default: return false
         }
     }

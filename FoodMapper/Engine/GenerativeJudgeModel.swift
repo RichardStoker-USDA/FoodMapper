@@ -818,7 +818,13 @@ actor GenerativeJudgeModel {
             \(responseInstruction)
             """
 
-        // Build the assistant prefix based on thinking mode
+        // Check if this is a Gemma model
+        if info.key.contains("gemma") {
+            let fullUserMessage = "\(systemPrompt)\n\n\(userMessage)"
+            return "<start_of_turn>user\n\(fullUserMessage)<end_of_turn>\n<start_of_turn>model\n"
+        }
+
+        // Build the assistant prefix based on thinking mode for Qwen
         let assistantPrefix: String
         if allowThinking {
             // Let model think freely before answering
