@@ -36,7 +36,7 @@ struct TutorialOverlay: View {
                         highlightRects: spotlightRects,
                         padding: 12
                     )
-                    .animation(Animate.smooth, value: spotlightRects.map { $0.origin.x + $0.origin.y })
+                    .animation(Animate.smooth, value: spotlightRects.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" })
                 }
 
                 // Coach mark positioned relative to highlight

@@ -29,6 +29,14 @@ struct FoodMapperApp: App {
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
     )
 
+    init() {
+        // Register Sparkle defaults: check automatically, but do not download automatically
+        UserDefaults.standard.register(defaults: [
+            "SUEnableAutomaticChecks": true,
+            "SUAutomaticallyUpdate": false
+        ])
+    }
+
     private var nsAppearance: NSAppearance? {
         switch appearance {
         case "light": return NSAppearance(named: .aqua)

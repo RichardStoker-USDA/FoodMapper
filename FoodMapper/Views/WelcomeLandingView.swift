@@ -7,6 +7,7 @@ struct WelcomeLandingView: View {
     @State private var hoveredCard: String?
     @State private var hoveredSession: MatchingSession.ID?
     @State private var showResearchGlow = true
+    @State private var outlinePulse = 0.0
 
     var body: some View {
         GeometryReader { geo in
@@ -22,6 +23,11 @@ struct WelcomeLandingView: View {
                 historySection
                     .frame(maxWidth: .infinity)
                     .frame(height: historyHeight(for: geo.size.height))
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
+                    outlinePulse = 1.0
+                }
             }
         }
     }
@@ -94,20 +100,11 @@ struct WelcomeLandingView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.accentColor.opacity(0.5),
-                                    Color.purple.opacity(0.3),
-                                    Color.accentColor.opacity(0.4)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
+                            Color.accentColor.opacity(0.15 + 0.35 * outlinePulse),
+                            lineWidth: 1.2
                         )
                 )
-                .shadow(color: Color.accentColor.opacity(0.12), radius: 8, x: 0, y: 0)
-                .shadow(color: Color.purple.opacity(0.08), radius: 12, x: 0, y: 0)
+                .shadow(color: Color.accentColor.opacity(0.04 + 0.08 * outlinePulse), radius: 6 + 6 * outlinePulse, x: 0, y: 0)
                 .onHover { hoveredCard = $0 ? "research" : nil }
                 .disabled(appState.showTutorial && appState.tutorialState.currentStep > 1)
             }

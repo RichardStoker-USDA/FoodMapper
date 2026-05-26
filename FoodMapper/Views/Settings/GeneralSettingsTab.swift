@@ -14,12 +14,7 @@ struct GeneralSettingsTab: View {
         )
     }
 
-    private var automaticallyDownloadsUpdates: Binding<Bool> {
-        Binding(
-            get: { updater.automaticallyDownloadsUpdates },
-            set: { updater.automaticallyDownloadsUpdates = $0 }
-        )
-    }
+
 
     var body: some View {
         ScrollView {
@@ -93,7 +88,6 @@ struct GeneralSettingsTab: View {
 
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 Toggle("Automatically check for updates", isOn: automaticallyChecksForUpdates)
-                Toggle("Automatically download updates", isOn: automaticallyDownloadsUpdates)
             }
 
             Text("FoodMapper checks for updates from foodmapper.app.")
