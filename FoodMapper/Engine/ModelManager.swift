@@ -389,6 +389,9 @@ final class ModelManager: ObservableObject {
                 // GTE-Large uses flat file layout (individual files to Models/)
                 try await downloadGTELarge(modelKey: key)
             } else {
+                guard let repoId = repoId else {
+                    throw ModelManagerError.unknownModel(key)
+                }
                 // Other models use Hub snapshot (nested {org}/{repo}/ directories)
                 _ = try await downloader.download(repoId: repoId) { [weak self] progress in
                     Task { @MainActor in
