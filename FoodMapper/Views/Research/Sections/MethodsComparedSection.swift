@@ -16,7 +16,7 @@ struct MethodsComparedSection: View {
                 subtitle: "Four approaches to automated food matching"
             )
 
-            Text("The paper evaluated four categories of matching methods, from simple string comparison to AI-powered hybrid pipelines. Each builds on the limitations of the one before it.")
+            Text("These four cards summarize the NHANES-to-DFG2 comparison. Other experiments in the paper also tested full-context language-model matching.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -27,7 +27,7 @@ struct MethodsComparedSection: View {
                 // Collapsible detailed breakdown (preserves vertical space)
                 TourTechnicalDetail(title: "Detailed Accuracy Breakdown") {
                     VStack(alignment: .leading, spacing: Spacing.md) {
-                        Text("Results from NHANES-to-DFG2 benchmark (1,304 items, 256 targets). Three metrics capture different aspects of matching quality:")
+                        Text("Results from the NHANES-to-DFG2 benchmark (1,304 items, 256 targets). Baseline overall, match, and no-match values use the paper's 0.95 similarity threshold. Top-K retrieval accuracy is reported separately in the showcase.")
                             .font(.body)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -78,16 +78,16 @@ struct MethodsComparedSection: View {
             methodCard(
                 icon: "textformat.abc",
                 title: "Fuzzy Matching",
-                accuracy: "~25%",
-                description: "Measures character-level edit distance. Fails on word reordering and synonyms."
+                accuracy: "9.3%",
+                description: "Measures character-level edit distance without modeling the meaning of a food description."
             )
             .scrollRevealStaggered(index: 0)
 
             methodCard(
                 icon: "function",
                 title: "TF-IDF",
-                accuracy: "~40%",
-                description: "Weights terms by document frequency. Better than fuzzy, but treats words as independent tokens."
+                accuracy: "47.2%",
+                description: "Weights terms by document frequency and treats words as independent tokens."
             )
             .scrollRevealStaggered(index: 1)
 
@@ -95,7 +95,7 @@ struct MethodsComparedSection: View {
                 icon: "cpu",
                 title: "Semantic Embedding",
                 accuracy: "48%",
-                description: "GTE-Large encodes text as 1024-dimensional vectors. 96.4% top-5 accuracy."
+                description: "GTE-Large encodes text as 1024-dimensional vectors. Top-5 retrieval was 96.4% among foods with a DFG2 match."
             )
             .scrollRevealStaggered(index: 2)
 

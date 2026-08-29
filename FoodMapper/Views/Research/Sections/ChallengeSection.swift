@@ -33,7 +33,7 @@ struct ChallengeSection: View {
             TourKeyFact(
                 icon: "xmark.circle",
                 text: "46.9% of NHANES descriptions have no valid match in DFG2.",
-                secondaryText: "Real-world databases rarely cover every food. A matching system must handle \"no match\" gracefully rather than forcing a bad result."
+                secondaryText: "Food databases rarely cover every reported food. A matching system must handle \"no match\" rather than forcing a bad result."
             )
 
             // Benchmark details

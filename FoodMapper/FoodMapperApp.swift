@@ -315,6 +315,8 @@ private struct AboutMenuItem: View {
 
 /// Custom About panel: icon left, name + version + credits right.
 private struct AboutPanelView: View {
+    @Environment(\.openURL) private var openURL
+
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
@@ -363,12 +365,12 @@ private struct AboutPanelView: View {
 
             HStack(spacing: Spacing.md) {
                 Button("Research Paper") {
-                    // Placeholder: will open paper DOI link when published
+                    openURL(AppLinks.publication)
                 }
                 .frame(width: 140)
 
                 Button("GitHub Repository") {
-                    // Placeholder: will open GitHub repo URL
+                    openURL(AppLinks.repository)
                 }
                 .frame(width: 140)
             }

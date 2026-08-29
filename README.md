@@ -67,6 +67,8 @@ FoodMapper converts each food description into an embedding with GTE-Large by de
 
 For default embedding matching, a fixed 0.50 eligibility floor determines whether the leading retrieval becomes the selected target. The floor does not remove retrieved candidate database entries from the review list. The separate Smart Auto-Match floor and score gap can mark a selected GTE-Large result for review or match. The optional Anthropic path requires an Anthropic API key.
 
+Advanced mode exposes ten registered models across five families and eleven pipeline configurations. These options are experimental until they have been tested against the published benchmarks. Gemma 4 and Qwen3 judge pipelines run on the Mac and don't use the Anthropic API.
+
 ## Review Workflow
 
 FoodMapper adds a review workflow that a batch script does not provide. After matching completes, the inspector shows a selected target and score when available, plus retrieved candidate database entries when the session stored them. You can review at your own pace or use guided review for items flagged as "Needs Review."

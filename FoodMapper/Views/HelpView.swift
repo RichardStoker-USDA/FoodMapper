@@ -659,7 +659,7 @@ private struct HelpGettingStartedContent: View {
             }
         }
 
-        HelpHint("The interactive tutorial walks you through all of this with real sample data. You can restart it anytime from Help > Restart Tutorial.")
+        HelpHint("The interactive tutorial walks you through all of this with included sample data. You can restart it anytime from Help > Restart Tutorial.")
     }
 }
 
@@ -671,7 +671,7 @@ private struct HelpHowItWorksContent: View {
     var body: some View {
         HelpSectionTitle(
             "How It Works",
-            subtitle: "FoodMapper uses embedding models to understand the meaning of food descriptions, not just exact text matches."
+            subtitle: "FoodMapper uses embedding models to compare the meaning of food descriptions rather than relying on exact text matches."
         )
 
         HelpCard {
@@ -695,7 +695,7 @@ private struct HelpHowItWorksContent: View {
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
 
-                HelpWarningCard(text: "Multi-stage pipelines are under active development and require tuning. For scientific research, always review ALL results, including matches and no-matches. False negatives are possible and human review is essential for research-quality data.")
+                HelpWarningCard(text: "Multi-stage pipelines are under active development and require tuning. For scientific research, always review ALL results, including matches and no-matches. False negatives are possible and human review is needed for research-quality data.")
             }
         }
 
@@ -766,7 +766,7 @@ private struct HelpPipelineModesContent: View {
                 Text("Simple vs. Advanced Mode")
                     .font(.headline)
 
-                Text("FoodMapper starts in Simple mode: you see the hybrid matching toggle (embedding only vs. embedding + Claude Haiku) and essential options. These are the default, validated pipelines.")
+                Text("FoodMapper starts in Simple mode: you see the hybrid matching toggle (embedding only vs. embedding + Claude Haiku) and basic options. These are the default, validated pipelines.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1618,7 +1618,7 @@ private struct HelpResearchContent: View {
                 Text("Behind the Research")
                     .font(.headline)
 
-                Text("The app includes an in-depth showcase called \"Behind the Research\" that walks through the paper's methodology with interactive visualizations. The showcase specifically covers the GTE-Large embedding model and Claude Haiku as the LLM judge, which are both the app's default pipeline and the exact methods used in the research paper.")
+                Text("The app includes an in-depth showcase called \"Behind the Research\" that walks through the paper's methodology with interactive visualizations. The showcase covers GTE-Large embedding and the optional Claude Haiku judge used in the published hybrid pipeline. Food Matching mode defaults to on-device GTE-Large embedding.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1638,10 +1638,15 @@ private struct HelpResearchContent: View {
                 Text("Publication")
                     .font(.headline)
 
-                Text("A link to the published paper will be added here soon.")
+                Text("Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG. Evaluation of Large Language Models for Mapping Dietary Data to Food Databases. J Nutr. 2026;156(8):101678.")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .italic()
+                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+
+                Link("doi:10.1016/j.tjnut.2026.101678", destination: AppLinks.publication)
+                    .font(.callout)
+
+                Link("PubMed PMID 42309308", destination: AppLinks.pubMed)
+                    .font(.callout)
             }
         }
 

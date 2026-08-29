@@ -8,8 +8,8 @@ struct ContinueSection: View {
     /// Closure to scroll back to top of the showcase.
     var scrollToTop: (() -> Void)?
 
-    private let paperURL: URL? = nil  // DOI pending publication
-    private let githubURL = URL(string: "https://github.com/dglemay/USDA-Food-Mapping")!
+    private let paperURL = AppLinks.publication
+    private let githubURL = AppLinks.researchRepository
     private let shinyURL = URL(string: "https://richtext-semantic-food-mapper.hf.space")!
 
     var body: some View {
@@ -23,7 +23,7 @@ struct ContinueSection: View {
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
 
-                Text("The research behind this app studied how LLMs perform at food database mapping, a real bottleneck in nutrition science. The hybrid embedding + LLM pipeline reached 90.7% accuracy on ASA24-to-FooDB and 65.4% on the harder NHANES-to-DFG2 benchmark. The paper covers six model comparisons, twenty prompt strategies, and two public benchmark datasets.")
+                Text("The research behind this app studied how LLMs perform at food database mapping. The hybrid embedding + LLM pipeline reached 90.7% accuracy on ASA24-to-FooDB and 65.4% on the harder NHANES-to-DFG2 benchmark. The paper and public repository cover the methods, prompts, and two benchmark datasets.")
                     .font(.body)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .multilineTextAlignment(.center)
@@ -64,10 +64,9 @@ struct ContinueSection: View {
             actionCardView(
                 icon: "doc.text",
                 title: "Read the Paper",
-                subtitle: "Full paper with methodology, benchmark results, and discussion",
-                disabled: paperURL == nil
+                subtitle: "Full paper with methodology, benchmark results, and discussion"
             ) {
-                if let url = paperURL { openURL(url) }
+                openURL(paperURL)
             }
             .scrollRevealStaggered(index: 0)
 
@@ -106,7 +105,6 @@ struct ContinueSection: View {
         isCustomSymbol: Bool = false,
         title: String,
         subtitle: String,
-        disabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button {
@@ -144,9 +142,7 @@ struct ContinueSection: View {
             .showcaseHover()
         }
         .buttonStyle(.plain)
-        .opacity(disabled ? 0.5 : 1.0)
-        .allowsHitTesting(!disabled)
-        .help(disabled ? "DOI pending publication" : subtitle)
+        .help(subtitle)
     }
 
     // MARK: - Attribution
@@ -179,6 +175,10 @@ struct ContinueSection: View {
 
                 Spacer()
                     .frame(height: Spacing.xs)
+
+                Link("J Nutr. 2026;156(8):101678", destination: paperURL)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 // Links
                 HStack(spacing: Spacing.lg) {

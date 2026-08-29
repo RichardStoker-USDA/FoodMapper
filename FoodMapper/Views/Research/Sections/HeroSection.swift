@@ -12,9 +12,6 @@ struct HeroSection: View {
     @State private var revealProgress: Double = 0
     @State private var hasAppeared = false
 
-    // DOI pending publication
-    private let paperURL: URL? = nil
-
     var body: some View {
         VStack(spacing: Spacing.xxl) {
             Spacer()
@@ -82,7 +79,7 @@ struct HeroSection: View {
                 .controlSize(.large)
 
                 Button {
-                    if let url = paperURL { openURL(url) }
+                    openURL(AppLinks.publication)
                 } label: {
                     HStack(spacing: Spacing.sm) {
                         Image(systemName: "doc.text")
@@ -92,18 +89,15 @@ struct HeroSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-                .disabled(paperURL == nil)
-                .help(paperURL == nil ? "DOI pending publication" : "Open paper in browser")
+                .help("Open paper in browser")
             }
             .opacity(revealProgress > 0.8 ? 1 : 0)
             .scaleEffect(revealProgress > 0.8 ? 1 : 0.9)
             .animation(.spring(response: 0.4, dampingFraction: 0.7), value: revealProgress > 0.8)
 
-            if paperURL == nil {
-                Text("DOI pending publication")
-                    .font(.caption)
-                    .foregroundStyle(doiTextColor)
-            }
+            Text("J Nutr. 2026;156(8):101678")
+                .font(.caption)
+                .foregroundStyle(doiTextColor)
 
             Spacer()
 
@@ -130,7 +124,9 @@ struct HeroSection: View {
     // MARK: - Hero Title Group
 
     private var heroTitleGroup: some View {
-        Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
+        let shouldReduceMotion = reduceMotion
+
+        return Text("Evaluation of Large Language Models for Mapping Dietary Data to Food Databases")
             .font(.system(size: 28, weight: .bold))
             .foregroundStyle(.primary)
             .multilineTextAlignment(.center)
@@ -139,7 +135,10 @@ struct HeroSection: View {
             .scaleEffect(revealProgress > 0.1 ? 1.0 : 0.92)
             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: revealProgress > 0.1)
             .visualEffect { content, proxy in
-                content.offset(y: reduceMotion ? 0 : parallaxOffset(proxy: proxy, rate: 0.15))
+                let midY = proxy.frame(in: .global).midY
+                let screenMidY = proxy.size.height / 2
+                let offset = shouldReduceMotion ? 0 : (midY - screenMidY) * 0.15
+                return content.offset(y: offset)
             }
     }
 
@@ -157,13 +156,6 @@ struct HeroSection: View {
         ) { view, phase in
             view.opacity(phase.isIdentity ? 0.6 : 0)
         }
-    }
-
-    /// Calculate parallax offset based on scroll position.
-    private func parallaxOffset(proxy: GeometryProxy, rate: CGFloat) -> CGFloat {
-        let midY = proxy.frame(in: .global).midY
-        let screenMidY = proxy.size.height / 2
-        return (midY - screenMidY) * rate
     }
 
     private var heroSecondaryTextColor: Color {

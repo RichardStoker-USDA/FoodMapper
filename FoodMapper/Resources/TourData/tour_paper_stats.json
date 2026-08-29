@@ -10,24 +10,24 @@
   "method_accuracies": [
     {
       "method": "Fuzzy Matching",
-      "overall_accuracy": 25.0,
-      "match_accuracy": 28.0,
-      "no_match_accuracy": 22.0,
+      "overall_accuracy": 9.3,
+      "match_accuracy": 17.5,
+      "no_match_accuracy": 0.0,
       "description": "Levenshtein distance-based string comparison"
     },
     {
       "method": "TF-IDF",
-      "overall_accuracy": 40.0,
-      "match_accuracy": 45.0,
-      "no_match_accuracy": 34.0,
+      "overall_accuracy": 47.2,
+      "match_accuracy": 0.7,
+      "no_match_accuracy": 100.0,
       "description": "Term frequency-inverse document frequency weighted bag of words"
     },
     {
       "method": "GTE-Large (Top-1)",
-      "overall_accuracy": null,
-      "match_accuracy": 76.9,
-      "no_match_accuracy": null,
-      "description": "Semantic embedding similarity, always returns a match"
+      "overall_accuracy": 48.0,
+      "match_accuracy": 2.2,
+      "no_match_accuracy": 100.0,
+      "description": "Semantic embedding similarity with the paper's 0.95 match threshold"
     },
     {
       "method": "Claude Full-Context (Haiku)",
@@ -71,35 +71,35 @@
       "input": "Cheese, monterey",
       "predicted": "American cheese",
       "ground_truth": null,
-      "reasoning": "Monterey Jack is a distinct cheese variety not in the database, but embedding similarity pulls American cheese as closest match"
+      "reasoning": "Published as an incorrect Sonnet hybrid prediction for an item labeled no match."
     },
     {
       "input_id": 102,
       "input": "Cream substitute, powdered",
       "predicted": "Sour cream",
       "ground_truth": null,
-      "reasoning": "Non-dairy powdered creamer matched to closest dairy product by semantic similarity"
+      "reasoning": "Published as an incorrect Sonnet hybrid prediction for an item labeled no match."
     },
     {
       "input_id": 103,
       "input": "Milk, nonfat, fluid, with added vitamin A and vitamin D",
       "predicted": "Whole milk",
       "ground_truth": null,
-      "reasoning": "Skim milk matched to whole milk despite significant fat content difference"
+      "reasoning": "Published as an incorrect Sonnet hybrid prediction for an item labeled no match."
     },
     {
       "input_id": 104,
       "input": "Margarine, regular, 80% fat, composite, stick, with salt",
       "predicted": "Unsalted butter",
       "ground_truth": null,
-      "reasoning": "Plant-oil margarine incorrectly matched to dairy butter based on similar culinary use"
+      "reasoning": "Published as an incorrect Sonnet hybrid prediction for an item labeled no match."
     },
     {
       "input_id": 105,
       "input": "Alcoholic beverage, beer, light",
       "predicted": "Budweiser",
       "ground_truth": null,
-      "reasoning": "Generic light beer matched to a specific brand that exists in the database"
+      "reasoning": "Published as an incorrect Sonnet hybrid prediction for an item labeled no match."
     }
   ]
 }

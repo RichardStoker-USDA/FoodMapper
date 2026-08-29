@@ -188,7 +188,7 @@ struct LLMStageSection: View {
                     Divider()
                         .padding(.vertical, Spacing.xs)
 
-                    Text("See how it works with real examples from the paper:")
+                    Text("Illustrative walkthroughs based on records in the published benchmark:")
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
