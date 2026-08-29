@@ -156,7 +156,7 @@ struct DatabaseManagementView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, Spacing.xxl)
                             .padding(.horizontal, Spacing.lg)
-                            .premiumMaterialStyle(cornerRadius: 8)
+                            .panelMaterialStyle(cornerRadius: 8)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -313,7 +313,7 @@ struct DatabaseManagementRow: View {
                                 .font(.caption2)
                                 .padding(.horizontal, Spacing.xxs)
                                 .padding(.vertical, 2)
-                                .polishedBadge(tone: .accentStrong, cornerRadius: 4)
+                                .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
                         }
                     }
                 }
@@ -333,7 +333,7 @@ struct DatabaseManagementRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, Spacing.xs)
                 .padding(.vertical, 2)
-                .polishedBadge(tone: badgeTone, cornerRadius: 4)
+                .appBadgeStyle(tone: badgeTone, cornerRadius: 4)
 
             // Type badge
             Text(isCustom ? "Custom" : "Built-in")
@@ -341,7 +341,7 @@ struct DatabaseManagementRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, Spacing.xs)
                 .padding(.vertical, 2)
-                .polishedBadge(tone: isCustom ? .accent : .neutral, cornerRadius: 4)
+                .appBadgeStyle(tone: isCustom ? .accent : .neutral, cornerRadius: 4)
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.sm)

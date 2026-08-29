@@ -229,7 +229,7 @@ private struct PipelineCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(Spacing.lg)
-        .premiumMaterialStyle(cornerRadius: 8)
+        .panelMaterialStyle(cornerRadius: 8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(

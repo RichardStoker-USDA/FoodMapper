@@ -228,7 +228,7 @@ struct TryItSection: View {
                                 .font(.caption2.weight(.semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .polishedBadge(tone: .accentStrong, cornerRadius: 999)
+                                .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                             if let start = embeddingStartTime, let end = embeddingEndTime {
                                 Text(formatDuration(from: start, to: end))
                                     .font(.subheadline.monospacedDigit())
@@ -570,7 +570,7 @@ struct TryItSection: View {
                                         .font(.caption2.weight(.semibold))
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .polishedBadge(tone: .accentStrong, cornerRadius: 999)
+                                        .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                                 }
                             }
                         }
@@ -870,7 +870,7 @@ struct TryItSection: View {
 
     private func accuracyColor(value: Double, thresholds: (green: Double, orange: Double)) -> Color {
         if value >= thresholds.green { return .green }
-        if value >= thresholds.orange { return .orange }
+        if value >= thresholds.orange { return .experimentalAmber }
         return .red
     }
 
@@ -1042,7 +1042,7 @@ struct TryItSection: View {
                             }
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .polishedBadge(tone: .neutral, cornerRadius: 999)
+                            .appBadgeStyle(tone: .neutral, cornerRadius: 999)
                         }
                         Spacer()
                         Text("5-15 min")

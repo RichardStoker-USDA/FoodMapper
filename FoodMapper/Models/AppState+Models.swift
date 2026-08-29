@@ -35,18 +35,18 @@ extension AppState {
         downloadBytesTotal = 640_000_000
         downloadSpeedBytesPerSecond = 0
         downloadTimeRemaining = nil
-        
+
         // Download via ModelManager (unified download path)
         modelStatus = .downloading(progress: 0)
 
         do {
             try await modelManager.downloadModel(key: "gte-large")
-            
+
             // Check if cancelled before embarking on verification
             if modelStatus == .notDownloaded {
                 return
             }
-            
+
             isVerifyingModelAfterDownload = true
             modelStatus = .loading
 
@@ -59,7 +59,7 @@ extension AppState {
                              (error as? URLError)?.code == .cancelled ||
                              error.localizedDescription.contains("cancelled") ||
                              error.localizedDescription.contains("Cancelled")
-            
+
             if isCancelled || modelStatus == .notDownloaded {
                 modelStatus = .notDownloaded
             } else {

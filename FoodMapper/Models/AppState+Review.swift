@@ -535,7 +535,7 @@ extension AppState {
                 decision.note = note.isEmpty ? nil : note
                 reviewDecisions[id] = decision
             } else {
-                // Create a pending decision just to hold the note
+                // Create a pending decision to hold the note
                 reviewDecisions[id] = ReviewDecision(
                     status: .pending,
                     note: note.isEmpty ? nil : note

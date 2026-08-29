@@ -244,7 +244,7 @@ final class ModelManager: ObservableObject {
                 minimumProfile: .base
             ),
         ]
-        
+
         loadCustomRegisteredModels()
     }
 
@@ -252,15 +252,15 @@ final class ModelManager: ObservableObject {
     private func loadCustomRegisteredModels() {
         let fileManager = FileManager.default
         guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        
+
         // Ensure parent directories exist
         let modelsDir = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
         try? fileManager.createDirectory(at: modelsDir, withIntermediateDirectories: true)
-        
+
         let customModelsURL = modelsDir.appendingPathComponent("custom_models.json")
-        
+
         guard fileManager.fileExists(atPath: customModelsURL.path) else { return }
-        
+
         do {
             let data = try Data(contentsOf: customModelsURL)
             struct CustomModelDecodable: Decodable {
@@ -273,14 +273,14 @@ final class ModelManager: ObservableObject {
                 let gpuMemoryUsage: Int64?
                 let minimumProfile: String
             }
-            
+
             let decoded = try JSONDecoder().decode([CustomModelDecodable].self, from: data)
-            
+
             for item in decoded {
                 let family = ModelFamily(rawValue: item.modelFamily) ?? .gemma4Generative
                 let size = ModelSizeCategory(rawValue: item.sizeCategory) ?? .medium
                 let profile = HardwareProfile(rawValue: item.minimumProfile) ?? .base
-                
+
                 let customModel = RegisteredModel(
                     key: item.key,
                     displayName: item.displayName,
@@ -291,7 +291,7 @@ final class ModelManager: ObservableObject {
                     gpuMemoryUsage: item.gpuMemoryUsage,
                     minimumProfile: profile
                 )
-                
+
                 // Add to registeredModels if not already present
                 if !registeredModels.contains(where: { $0.key == customModel.key }) {
                     registeredModels.append(customModel)
@@ -409,7 +409,7 @@ final class ModelManager: ObservableObject {
             let isCancelled = self.shouldCancelDownload(for: key) ||
                              error is CancellationError ||
                              (error as? URLError)?.code == .cancelled
-            
+
             if isCancelled {
                 if key == "gte-large" {
                     cleanupGTELargeFiles()
@@ -494,13 +494,13 @@ final class ModelManager: ObservableObject {
 
             let fileWeight = Double(approximateSize)
             let baseProgress = completedWeight
-            
+
             try await downloadLargeFile(from: sourceURL, to: destURL, modelKey: modelKey, expectedContentLength: approximateSize) { [weak self] fileProgress in
                 let overall = (baseProgress + fileProgress * fileWeight) / totalWeight
                 guard let self = self else { return }
                 guard !self.shouldCancelDownload(for: modelKey) else { return }
                 self.modelStates[modelKey] = .downloading(progress: overall)
-                
+
                 let fileWritten = Int64(fileProgress * fileWeight)
                 let totalWritten = Int64(baseProgress) + fileWritten
                 self.onGTELargeProgress?(overall, totalWritten, Int64(totalWeight))
@@ -541,10 +541,10 @@ final class ModelManager: ObservableObject {
                 let config = URLSessionConfiguration.default
                 config.timeoutIntervalForRequest = 25.0
                 config.timeoutIntervalForResource = 3600.0
-                
+
                 let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
                 let task = session.downloadTask(with: sourceURL)
-                
+
                 self.activeDownloadTask = task
                 task.resume()
             }
@@ -884,7 +884,7 @@ final class GTEDownloadDelegate: NSObject, URLSessionDownloadDelegate {
                     didFinishDownloadingTo location: URL) {
         guard !hasResumed else { return }
         session.finishTasksAndInvalidate()
-        
+
         guard let response = downloadTask.response as? HTTPURLResponse,
               response.statusCode == 200 else {
             let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
@@ -909,7 +909,7 @@ final class GTEDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard !hasResumed else { return }
         session.invalidateAndCancel()
-        
+
         if let error = error {
             hasResumed = true
             continuation.resume(throwing: error)

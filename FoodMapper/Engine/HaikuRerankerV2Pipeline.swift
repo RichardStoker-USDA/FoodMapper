@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "haiku-v2-pip
 /// Stage 1: GTE-Large embedding retrieval (same as v1).
 /// Stage 2: Anthropic Batch API with productionV2 prompt strategy.
 ///   - Long system prompt (~2,200 tokens) with 5 worked examples, cached via cache_control
-///   - Minimal user message (~50 tokens): just the food description + numbered candidates
+///   - Minimal user message (~50 tokens): food description + numbered candidates
 ///   - max_tokens capped at 20 (response is always 1-3 tokens)
 final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
     let pipelineType: PipelineType = .gteLargeHaikuV2

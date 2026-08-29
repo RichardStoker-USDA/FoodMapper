@@ -668,7 +668,7 @@ struct ReviewInspectorPanel: View {
 
     // MARK: - Inspector Card
 
-    /// Premium container for grouping related inspector content (matches Behind the Research theme).
+    /// Container for grouped inspector content that matches the Behind the Research theme.
     @ViewBuilder
     private func inspectorCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         let cornerRadius: CGFloat = 10

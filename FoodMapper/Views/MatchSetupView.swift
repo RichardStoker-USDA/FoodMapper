@@ -102,7 +102,7 @@ struct MatchSetupView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.xl)
-            .premiumMaterialStyle(cornerRadius: 6)
+            .panelMaterialStyle(cornerRadius: 6)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(
@@ -205,7 +205,7 @@ struct MatchSetupView: View {
                 appState.inputFile = nil
                 appState.selectedColumn = nil
             } label: {
-                Image(systemName: "xmark.circle.fill")
+                Image(systemName: "xmark.circle")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -213,7 +213,7 @@ struct MatchSetupView: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Inline Config Bar
@@ -283,7 +283,7 @@ struct MatchSetupView: View {
             .tutorialAnchor("setupDatabaseSection")
         }
         .padding(.vertical, Spacing.sm)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Embedding Mismatch Notice
@@ -346,7 +346,7 @@ struct MatchSetupView: View {
             }
         }
         .padding(Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Simple Matching Options
@@ -595,7 +595,7 @@ struct MatchSetupView: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .polishedBadge(tone: .neutral, cornerRadius: 999)
+                    .appBadgeStyle(tone: .neutral, cornerRadius: 999)
                 }
             }
             .toggleStyle(.switch)
@@ -1287,7 +1287,7 @@ struct MatchSetupView: View {
             }
         }
         .padding(Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Preview Table (both columns populated)
@@ -1315,7 +1315,7 @@ struct MatchSetupView: View {
                     )
                 }
             }
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1)
@@ -1376,7 +1376,7 @@ struct MatchSetupView: View {
                     )
                 }
             }
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1)
@@ -1569,7 +1569,7 @@ private struct InlineModelStatusView: View {
             .help("Download model")
 
         case .loading:
-            // Indeterminate polished bar
+            // Indeterminate progress bar
             VStack(alignment: .leading, spacing: 4) {
                 Text("Preparing...")
                     .font(.caption2.weight(.medium))

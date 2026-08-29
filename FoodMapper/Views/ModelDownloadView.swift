@@ -32,12 +32,12 @@ struct ModelDownloadView: View {
             VStack(spacing: Spacing.md) {
                 if case .downloading(let progress) = appState.modelStatus {
                     VStack(spacing: Spacing.md) {
-                        // Progress bar with rounded, premium native style
+                        // Rounded native progress bar
                         ProgressView(value: progress)
                             .progressViewStyle(.linear)
                             .tint(Color.accentColor)
                             .frame(width: 320)
-                            .scaleEffect(x: 1, y: 1.2, anchor: .center) // Slight weight for visual premium feel
+                            .scaleEffect(x: 1, y: 1.2, anchor: .center) // Add visual weight.
                             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: progress)
 
                         // Real-time metadata grid
@@ -51,7 +51,7 @@ struct ModelDownloadView: View {
                                     .font(.system(.body, design: .monospaced).weight(.semibold))
                                     .foregroundStyle(.primary)
                             }
-                            
+
                             // Speed and Time remaining
                             HStack {
                                 Label(formatDownloadSpeed(appState.downloadSpeedBytesPerSecond), systemImage: "arrow.down.circle")
@@ -60,7 +60,7 @@ struct ModelDownloadView: View {
                             }
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            
+
                             HStack {
                                 Text("\(formatBytes(appState.downloadBytesWritten)) of \(formatBytes(appState.downloadBytesTotal))")
                                     .font(.caption.monospacedDigit())
@@ -70,7 +70,7 @@ struct ModelDownloadView: View {
                             .foregroundStyle(.tertiary)
                         }
                         .frame(width: 320)
-                        
+
                         // Cancel button for high-end control
                         Button(action: {
                             appState.cancelDownload()
@@ -157,7 +157,7 @@ struct ModelDownloadView: View {
         .padding(Spacing.xxl)
     }
 
-    // MARK: - Premium UI Formatters
+    // MARK: - Display Formatters
 
     private func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()

@@ -330,7 +330,7 @@ struct ModelRow: View {
 
         case .downloaded:
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark.circle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.green)
                     .frame(width: 20, height: 20)
@@ -350,7 +350,7 @@ struct ModelRow: View {
 
         case .loaded:
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark.circle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.green)
                     .frame(width: 20, height: 20)
@@ -365,7 +365,7 @@ struct ModelRow: View {
 
         case .error(let message):
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.red)
                     .help(message)

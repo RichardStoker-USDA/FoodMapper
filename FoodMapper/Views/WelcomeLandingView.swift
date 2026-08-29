@@ -318,7 +318,7 @@ struct CompactSessionRow: View {
                     .padding(.horizontal, Spacing.xs)
                     .padding(.vertical, 2)
                     .lineLimit(1)
-                    .polishedBadge(tone: .accentStrong, cornerRadius: 4)
+                    .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
 
                 // Threshold
                 Text("@ \(session.threshold, format: .percent.precision(.fractionLength(0)))")

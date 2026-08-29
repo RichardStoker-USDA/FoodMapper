@@ -20,7 +20,7 @@ struct UnifiedStatusPill: View {
 
     private var displayIcon: String {
         switch category {
-        case .match, .confirmedMatch: return "checkmark.circle.fill"
+        case .match, .confirmedMatch: return "checkmark.circle"
         case .needsReview: return "questionmark.circle"
         case .noMatch, .confirmedNoMatch: return "xmark.circle"
         }
@@ -69,7 +69,7 @@ struct UnifiedStatusPill: View {
         guard let status = reviewStatus else { return nil }
         switch status {
         case .accepted, .rejected:
-            return "person.fill"
+            return "person"
         case .overridden:
             return "arrow.triangle.swap"
         default:

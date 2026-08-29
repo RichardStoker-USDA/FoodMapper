@@ -574,7 +574,7 @@ struct ProgressToolbarItem: View {
                     .clipShape(Capsule())
                     .allowsHitTesting(false)
                 }
-                .polishedShine(cornerRadius: 100)
+                .rotatingBorderShine(cornerRadius: 100)
                 .onContinuousHover { phase in
                     switch phase {
                     case .active(let point):
@@ -593,7 +593,7 @@ struct ProgressToolbarItem: View {
                     Capsule()
                         .fill(Color.secondary.opacity(0.12))
                 )
-                .polishedShine(cornerRadius: 100)
+                .rotatingBorderShine(cornerRadius: 100)
         }
     }
 }
@@ -1001,12 +1001,12 @@ private struct ForceToolbarSeparator: ViewModifier {
 
 // MARK: - Toolbar Buttons
 
-/// Polished "Match" button.
+/// Primary "Match" button.
 /// - Tahoe: Faux-glass capsule (material + accent tint + specular highlight + edge glow
-///   + multi-layer shadow + cursor-tracking glow + polished shine). Uses .ultraThinMaterial
+///   + multi-layer shadow + cursor-tracking glow + rotating border). Uses .ultraThinMaterial
 ///   instead of .glassEffect because glass-on-glass (inside the Liquid Glass toolbar) can't
 ///   sample through to window content, making it look flat. Material CAN sample through.
-/// - Sequoia/Sonoma: Solid accent capsule with shadow + polished shine border
+/// - Sequoia/Sonoma: Solid accent capsule with shadow + rotating border
 private struct MatchButton: View {
     let action: () -> Void
     let disabled: Bool
@@ -1137,7 +1137,7 @@ private struct MatchButton: View {
                 .clipShape(Capsule())
                 .allowsHitTesting(false)
             }
-            .polishedShine(cornerRadius: 100, isActive: !disabled, color: .white)
+            .rotatingBorderShine(cornerRadius: 100, isActive: !disabled, color: .white)
         } else {
             // Solid accent capsule with shadow and rotating shine
             Button(action: action) {
@@ -1149,7 +1149,7 @@ private struct MatchButton: View {
                             radius: isHovering ? 8 : 4,
                             y: isHovering ? 4 : 2
                         )
-                        .polishedShine(cornerRadius: 100, isActive: !disabled, color: .white)
+                        .rotatingBorderShine(cornerRadius: 100, isActive: !disabled, color: .white)
                     matchLabel
                 }
             }
@@ -1159,10 +1159,10 @@ private struct MatchButton: View {
     }
 }
 
-/// Polished "Match Complete" button.
+/// "Match Complete" button.
 /// - Tahoe: Material-based glass capsule with green tint + specular + edge glow
-///   + cursor-tracking glow + polished shine + scale on appear/hover
-/// - Sequoia/Sonoma: Solid green capsule with shadow + polished shine
+///   + cursor-tracking glow + rotating border + scale on appear/hover
+/// - Sequoia/Sonoma: Solid green capsule with shadow + rotating border
 private struct MatchCompleteButton: View {
     let action: () -> Void
 
@@ -1264,7 +1264,7 @@ private struct MatchCompleteButton: View {
                 .clipShape(Capsule())
                 .allowsHitTesting(false)
             }
-            .polishedShine(cornerRadius: 100, isActive: true, color: .white)
+            .rotatingBorderShine(cornerRadius: 100, isActive: true, color: .white)
         } else {
             Button(action: action) {
                 ZStack {
@@ -1275,7 +1275,7 @@ private struct MatchCompleteButton: View {
                             radius: isHovering ? 8 : 4,
                             y: isHovering ? 4 : 2
                         )
-                        .polishedShine(cornerRadius: 100, isActive: true, color: .white)
+                        .rotatingBorderShine(cornerRadius: 100, isActive: true, color: .white)
                     completeLabel
                 }
             }
@@ -1293,7 +1293,7 @@ private struct GuidedReviewBanner: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            Image(systemName: "play.circle.fill")
+            Image(systemName: "play.circle")
                 .font(.title2)
                 .foregroundStyle(.green)
 

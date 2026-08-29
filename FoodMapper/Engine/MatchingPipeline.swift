@@ -376,7 +376,7 @@ enum InstructionPreset: String, CaseIterable, Identifiable, Codable {
         case .preparation:
             return "You are a food science expert specializing in food preparation methods. Match the survey description to the database entry that best matches the cooking or preparation method described. Key distinctions: raw vs cooked, fresh vs frozen vs canned vs dried, baking vs frying vs grilling vs steaming. The preparation method takes priority over exact food variety."
         case .ingredient:
-            return "You are a food science expert matching raw ingredients and commodities. The survey may describe branded products, recipe components, or colloquial food names. Match to the closest standardized raw ingredient, ignoring brand names, packaging, and preparation details. Focus on what the base food commodity actually is."
+            return "You are a food science expert matching raw ingredients and commodities. The survey may describe branded products, recipe components, or colloquial food names. Match to the closest standardized raw ingredient, ignoring brand names, packaging, and preparation details. Focus on the base food commodity."
         case .nutritional:
             return "You are a nutritionist matching foods by their nutritional composition. Match the survey description to the database entry with the most similar nutritional profile. Consider food group, macronutrient balance (protein, fat, carbohydrate ratios), and caloric density. A nutritionally similar food from the same group is better than an exact name match from a different group."
         case .branded:

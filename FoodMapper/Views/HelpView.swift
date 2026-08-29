@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// In-app help and documentation view with premium card-based design.
+/// In-app help and documentation view with a card-based design.
 /// Uses the same design patterns as the Behind the Research showcase.
 struct HelpView: View {
     @State private var selectedSection: HelpSection? = .gettingStarted
@@ -496,7 +496,7 @@ func parseKeySegments(_ keys: String) -> [String] {
         return [keys]
     }
 
-    // Handle space-separated keys like "\u{2190} \u{2192}" -- just render each as its own keycap
+    // Render each space-separated key, such as "\u{2190} \u{2192}", as its own keycap.
     if keys.contains(" ") && !keys.contains("(") && !keys.contains(" - ") {
         let parts = keys.components(separatedBy: " ").filter { !$0.isEmpty }
         var segments: [String] = []
@@ -954,7 +954,7 @@ private struct HelpReviewWorkflowContent: View {
                     .italic()
                 KeyCapView(key: "\u{2318}")
                 KeyCapView(key: "Z")
-                Text("). If you accidentally confirm the wrong item, just undo. The undo stack tracks every match, no-match, override, and reset action.")
+                Text("). If you accidentally confirm the wrong item, use Undo. The undo stack tracks every match, no-match, override, and reset action.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .italic()
@@ -1294,7 +1294,7 @@ private struct HelpSessionsContent: View {
                 Text("Input Files")
                     .font(.headline)
 
-                Text("The Input Files page in the sidebar shows all files you've loaded into FoodMapper. Files are stored locally so you can reuse them across sessions. Right-click a file to use it for a new match, get info, or remove it. Adding files here doesn't start a match -- it just stores them for later.")
+                Text("The Input Files page in the sidebar shows all files you've loaded into FoodMapper. Files are stored locally so you can reuse them across sessions. Right-click a file to use it for a new match, get info, or remove it. Adding files here doesn't start a match -- it stores them for later.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1335,7 +1335,7 @@ private struct HelpSettingsContent: View {
                     Text("Models")
                         .font(.headline)
                 }
-                Text("Download and manage models. In Simple mode, you see just GTE-Large. In Advanced mode, all 8 models are listed by family (Embedding, Reranker, Generative) with download size, GPU memory estimate, and status.")
+                Text("Download and manage models. Simple mode shows GTE-Large only. Advanced mode lists all 10 models by family (GTE, Qwen3 Embedding, Qwen3 Reranker, Qwen3 Judge, and Gemma 4), with download size, GPU memory estimate, and status.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }

@@ -261,7 +261,7 @@ final class AppState: ObservableObject {
     }
 
     /// Rebuild the category counts from cachedCategories. O(n) but only runs
-    /// when categories actually change, not on every UI read.
+    /// when categories change, not on every UI read.
     func rebuildCategoryCounts() {
         var counts: [MatchCategory: Int] = [:]
         for result in results {
@@ -609,7 +609,7 @@ final class AppState: ObservableObject {
     // Model state
     @Published var modelStatus: ModelStatus = .notDownloaded
 
-    // Detailed GTE-Large onboarding download state for premium feedback
+    // Detailed GTE-Large onboarding download state
     @Published var downloadBytesWritten: Int64 = 0
     @Published var downloadBytesTotal: Int64 = 640_000_000
     @Published var downloadSpeedBytesPerSecond: Double = 0
@@ -980,9 +980,9 @@ final class AppState: ObservableObject {
 
         modelManager.onGTELargeProgress = { [weak self] progress, written, total in
             guard let self = self else { return }
-            
+
             let now = Date()
-            
+
             // Initialize calculation metrics on first callback
             if self.lastSpeedCalculationTime == .distantPast {
                 self.lastSpeedCalculationTime = now
@@ -992,29 +992,29 @@ final class AppState: ObservableObject {
                 self.downloadBytesTotal = total
                 return
             }
-            
+
             let timeDelta = now.timeIntervalSince(self.lastSpeedCalculationTime)
             if timeDelta >= 0.5 {
                 let bytesDelta = max(0, written - self.lastBytesWritten)
                 let instSpeed = Double(bytesDelta) / timeDelta
-                
+
                 // Apply Exponential Moving Average (EMA) with alpha = 0.15 for organic, steady damping
                 if self.smoothedSpeedBytesPerSecond == 0 {
                     self.smoothedSpeedBytesPerSecond = instSpeed
                 } else {
                     self.smoothedSpeedBytesPerSecond = (0.15 * instSpeed) + (0.85 * self.smoothedSpeedBytesPerSecond)
                 }
-                
+
                 self.lastBytesWritten = written
                 self.lastSpeedCalculationTime = now
             }
-            
+
             // Throttle UI metadata updates to exactly 1Hz (once per second) to prevent visual jittering
             if now.timeIntervalSince(self.lastMetadataUpdateTime) >= 1.0 || progress >= 1.0 {
                 self.downloadBytesWritten = written
                 self.downloadBytesTotal = total
                 self.downloadSpeedBytesPerSecond = self.smoothedSpeedBytesPerSecond
-                
+
                 let remainingBytes = total - written
                 if self.smoothedSpeedBytesPerSecond > 50_000 && remainingBytes > 0 {
                     self.downloadTimeRemaining = Double(remainingBytes) / self.smoothedSpeedBytesPerSecond
@@ -1058,7 +1058,7 @@ final class AppState: ObservableObject {
         }
 
         // React to searchText changes -- the local @State in ResultsToolbar already
-        // debounces keystrokes (150ms), so we just coalesce same-RunLoop updates here.
+        // debounces keystrokes (150ms), so we coalesce same-RunLoop updates here.
         searchDebounce = $searchText
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in

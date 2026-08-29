@@ -408,7 +408,7 @@ struct LLMStageSection: View {
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .polishedBadge(tone: .accentStrong, cornerRadius: 999)
+                        .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                 } else {
                     Color.clear
                         .frame(width: 58, height: 18)

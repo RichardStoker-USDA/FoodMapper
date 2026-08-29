@@ -37,7 +37,7 @@ struct TourStatistic: View {
 // MARK: - Tour Info Line
 
 /// Icon + text inline. Replaces colored .info and .privacy callouts.
-/// No background box. Just an SF Symbol and text.
+/// Uses an SF Symbol and text without a background box.
 struct TourInfoLine: View {
     let icon: String
     let text: String

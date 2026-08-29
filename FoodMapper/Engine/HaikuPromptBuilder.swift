@@ -30,7 +30,7 @@ enum HaikuPromptStrategy: String, Sendable {
 }
 
 /// Prompt construction + response parsing for Haiku pipelines.
-/// AnthropicAPIClient is just the transport; all prompt logic lives here.
+/// AnthropicAPIClient handles transport; all prompt logic lives here.
 struct HaikuPromptBuilder {
 
     /// Default system prompt for a given strategy

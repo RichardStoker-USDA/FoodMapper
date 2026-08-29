@@ -74,7 +74,7 @@ extension Color {
     static let statusMatch = Color.green
     static let statusLLM = Color.indigo
     static let statusNone = Color(nsColor: .tertiaryLabelColor)
-    static let statusError = Color.orange
+    static let statusError = Color.red
 
     // Experimental/beta badge amber -- warm, muted, not system .orange
     static let experimentalAmber = Color(red: 0.85, green: 0.55, blue: 0.15)
@@ -83,7 +83,7 @@ extension Color {
     static func scoreColor(_ score: Double) -> Color {
         switch score {
         case 0.86...:     return .green
-        case 0.80..<0.86: return .orange
+        case 0.80..<0.86: return .experimentalAmber
         default:          return Color(nsColor: .secondaryLabelColor)
         }
     }
@@ -97,7 +97,7 @@ extension Color {
     static func thresholdColor(_ value: Double) -> Color {
         if value >= 0.85 { return .green }
         if value >= 0.70 { return .yellow }
-        return .orange
+        return .experimentalAmber
     }
 
     // Semantic surface colors
@@ -105,7 +105,7 @@ extension Color {
     static let surfaceSecondary = Color(nsColor: .controlBackgroundColor)
     static let surfaceTertiary = Color(nsColor: .underPageBackgroundColor)
 
-    // Card colors with premium technical contrast
+    // Card colors used by technical panels
     static func cardBackground(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
             ? Color(white: 0.14).opacity(0.95) // Elevated gray from Research Showcase
@@ -142,7 +142,7 @@ extension Color {
         case .success:
             return colorScheme == .dark ? Color.green.opacity(0.18) : Color.green.opacity(0.14)
         case .warning:
-            return colorScheme == .dark ? Color.orange.opacity(0.22) : Color.orange.opacity(0.16)
+            return colorScheme == .dark ? Color.experimentalAmber.opacity(0.22) : Color.experimentalAmber.opacity(0.16)
         case .danger:
             return colorScheme == .dark ? Color.red.opacity(0.20) : Color.red.opacity(0.14)
         }
@@ -159,7 +159,7 @@ extension Color {
         case .success:
             return colorScheme == .dark ? Color.green.opacity(0.45) : Color.green.opacity(0.32)
         case .warning:
-            return colorScheme == .dark ? Color.orange.opacity(0.50) : Color.orange.opacity(0.34)
+            return colorScheme == .dark ? Color.experimentalAmber.opacity(0.50) : Color.experimentalAmber.opacity(0.34)
         case .danger:
             return colorScheme == .dark ? Color.red.opacity(0.52) : Color.red.opacity(0.34)
         }
@@ -176,7 +176,7 @@ extension Color {
         case .success:
             return colorScheme == .dark ? Color.green.opacity(0.96) : Color.green.opacity(0.90)
         case .warning:
-            return colorScheme == .dark ? Color.orange.opacity(0.98) : Color.orange.opacity(0.88)
+            return colorScheme == .dark ? Color.experimentalAmber.opacity(0.98) : Color.experimentalAmber.opacity(0.88)
         case .danger:
             return colorScheme == .dark ? Color.red.opacity(0.98) : Color.red.opacity(0.88)
         }
@@ -242,9 +242,9 @@ extension View {
         modifier(CardStyleModifier())
     }
 
-    /// Glassmorphic background for overlays
-    func premiumMaterialStyle(cornerRadius: CGFloat = 6) -> some View {
-        modifier(PremiumMaterialModifier(cornerRadius: cornerRadius))
+    /// Background used by overlay panels
+    func panelMaterialStyle(cornerRadius: CGFloat = 6) -> some View {
+        modifier(PanelMaterialModifier(cornerRadius: cornerRadius))
     }
 
     /// Frosted action buttons card for toolbar-adjacent panels.
@@ -260,14 +260,14 @@ extension View {
     }
 
     /// Compact rounded badge styling with semantic color tone.
-    func polishedBadge(
+    func appBadgeStyle(
         tone: AppBadgeTone = .neutral,
         cornerRadius: CGFloat = 5
     ) -> some View {
-        modifier(PolishedBadgeModifier(tone: tone, cornerRadius: cornerRadius))
+        modifier(AppBadgeModifier(tone: tone, cornerRadius: cornerRadius))
     }
 
-    /// Premium Liquid Glass button style for macOS 26 Tahoe.
+    /// Liquid Glass button style for macOS 26 Tahoe.
     /// Resembles the primary toolbar actions with material layering and depth.
     func liquidGlassButtonStyle(
         color: Color,
@@ -337,9 +337,9 @@ struct LiquidGlassButtonModifier: ViewModifier {
     }
 }
 
-// MARK: - Premium Material Modifier
+// MARK: - Panel Material Modifier
 
-struct PremiumMaterialModifier: ViewModifier {
+struct PanelMaterialModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     let cornerRadius: CGFloat
 
@@ -436,7 +436,7 @@ struct SettingsCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .premiumMaterialStyle(cornerRadius: cornerRadius)
+            .panelMaterialStyle(cornerRadius: cornerRadius)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
@@ -456,7 +456,7 @@ struct SettingsCardModifier: ViewModifier {
     }
 }
 
-struct PolishedBadgeModifier: ViewModifier {
+struct AppBadgeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     let tone: AppBadgeTone
     let cornerRadius: CGFloat
@@ -553,12 +553,12 @@ struct CardStyleModifier: ViewModifier {
     }
 }
 
-// MARK: - Polished Shine Modifier
+// MARK: - Rotating Border Modifier
 
 /// Rotating border shine for primary CTAs (Match button, Research card).
 /// TimelineView(.animation) instead of withAnimation(.repeatForever) because
 /// the latter leaks its animation into parent toolbar layout on macOS 14-15.
-struct PolishedShineModifier: ViewModifier {
+struct RotatingBorderShineModifier: ViewModifier {
     let cornerRadius: CGFloat
     let lineWidth: CGFloat
     let duration: Double
@@ -621,13 +621,13 @@ struct PolishedShineModifier: ViewModifier {
 }
 
 extension View {
-    /// Adds a polished, rotating border shine animation.
-    func polishedShine(cornerRadius: CGFloat = 12, lineWidth: CGFloat = 2.0, isActive: Bool = true, color: Color? = nil) -> some View {
-        modifier(PolishedShineModifier(cornerRadius: cornerRadius, lineWidth: lineWidth, duration: 3.5, isActive: isActive, color: color))
+    /// Adds a rotating border shine animation.
+    func rotatingBorderShine(cornerRadius: CGFloat = 12, lineWidth: CGFloat = 2.0, isActive: Bool = true, color: Color? = nil) -> some View {
+        modifier(RotatingBorderShineModifier(cornerRadius: cornerRadius, lineWidth: lineWidth, duration: 3.5, isActive: isActive, color: color))
     }
 }
 
-// MARK: - New Feature Glow Modifier (Deprecated/Replaced by PolishedShine)
+// MARK: - New Feature Glow Modifier (Deprecated)
 
 struct NewFeatureGlowModifier: ViewModifier {
     let isActive: Bool
@@ -635,8 +635,8 @@ struct NewFeatureGlowModifier: ViewModifier {
     let duration: Double?
 
     func body(content: Content) -> some View {
-        // Fallback or just pass through for now, as we migrate to PolishedShine
-        content.polishedShine(cornerRadius: cornerRadius, isActive: isActive)
+        // Compatibility wrapper for rotatingBorderShine.
+        content.rotatingBorderShine(cornerRadius: cornerRadius, isActive: isActive)
     }
 }
 

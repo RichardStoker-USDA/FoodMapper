@@ -21,9 +21,9 @@ This is [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) converte
 
 ## Model Description
 
-GTE-Large is a 335M parameter text embedding model that maps sentences to 1024-dimensional dense vectors. It excels at semantic similarity tasks, making it ideal for matching food names across different databases and nomenclatures.
+GTE-Large is a 335M parameter text embedding model that maps sentences to 1024-dimensional dense vectors. FoodMapper uses it to compare food descriptions across databases and naming systems.
 
-This conversion is optimized for Apple Silicon GPUs via [MLX-Swift](https://github.com/ml-explore/mlx-swift).
+The converted weights run on Apple Silicon through [MLX-Swift](https://github.com/ml-explore/mlx-swift).
 
 ## Intended Use
 

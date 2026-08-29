@@ -182,7 +182,7 @@ struct PipelineConfigurationView: View {
                 }
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         }
     }
 
@@ -288,7 +288,7 @@ struct PipelineConfigurationView: View {
                 }
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         }
     }
 
@@ -347,7 +347,7 @@ struct PipelineConfigurationView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 8)
+        .panelMaterialStyle(cornerRadius: 8)
     }
 
     private func thresholdRow(_ label: String, value: Double, color: Color, help: String) -> some View {
@@ -464,7 +464,7 @@ struct PipelineConfigurationView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         } else {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack {
@@ -483,7 +483,7 @@ struct PipelineConfigurationView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         }
     }
 

@@ -248,19 +248,19 @@ struct MethodsComparedSection: View {
 
     private func overallColor(_ value: Double) -> Color {
         if value >= 60 { return .green }
-        if value >= 40 { return .orange }
+        if value >= 40 { return .experimentalAmber }
         return .red
     }
 
     private func matchColor(_ value: Double) -> Color {
         if value >= 80 { return .green }
-        if value >= 50 { return .orange }
+        if value >= 50 { return .experimentalAmber }
         return .red
     }
 
     private func noMatchColor(_ value: Double) -> Color {
         if value >= 40 { return .green }
-        if value >= 20 { return .orange }
+        if value >= 20 { return .experimentalAmber }
         return .red
     }
 
