@@ -127,9 +127,9 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
 
         // Load weights from safetensors
         var weights = [String: MLXArray]()
-        let enumerator = FileManager.default.enumerator(
-            at: modelDirectory, includingPropertiesForKeys: nil)!
-        for case let url as URL in enumerator {
+        let tensorPaths = try FileManager.default.subpathsOfDirectory(atPath: modelDirectory.path)
+        for relativePath in tensorPaths {
+            let url = modelDirectory.appendingPathComponent(relativePath)
             if url.pathExtension == "safetensors" {
                 let w = try loadArrays(url: url)
                 for (key, value) in w {
@@ -158,7 +158,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
             let bits = qConfig.bits
             quantize(model: model) { path, module in
                 if weights["\(path).scales"] != nil {
-                    return (groupSize, bits)
+                    return (groupSize, bits, QuantizationMode.affine)
                 } else {
                     return nil
                 }
@@ -275,7 +275,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     ) async throws -> [[Float]] {
         let formattedTexts = texts.map { formatText($0, isQuery: isQuery) }
 
-        return try await container.perform { model, tokenizer, pooling in
+        return await container.perform { model, tokenizer, pooling in
             let embeddings = self.runModel(
                 texts: formattedTexts, model: model, tokenizer: tokenizer, pooling: pooling
             )
@@ -302,7 +302,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     ) async throws -> MLXArray {
         let formattedTexts = texts.map { formatText($0, isQuery: isQuery) }
 
-        return try await container.perform { model, tokenizer, pooling in
+        return await container.perform { model, tokenizer, pooling in
             let embeddings = self.runModel(
                 texts: formattedTexts, model: model, tokenizer: tokenizer, pooling: pooling
             )

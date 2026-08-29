@@ -11,7 +11,7 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
     case qwen3Reranker = "qwen3-reranker"
     /// Best quality: Qwen3-Embedding top-K + Qwen3-Reranker refinement
     case qwen3TwoStage = "qwen3-two-stage"
-    /// Paper hybrid: GTE-Large embedding + Claude Haiku API verification (future)
+    /// Paper hybrid: GTE-Large embedding + Claude Haiku API verification
     case gteLargeHaiku = "gte-large-haiku"
     /// Review-optimized: Qwen3-Embedding top-10 + Qwen3-Reranker with review triage
     case qwen3SmartTriage = "qwen3-smart-triage"

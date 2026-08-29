@@ -252,7 +252,7 @@ actor GenerativeJudgeModel {
         let tokenIdsCaptured = activeTokenIds
         let temp = max(temperature, 0.01)
         let noMatch = noMatchLabel
-        let result: JudgeResult = try await container.perform { context in
+        let result: JudgeResult = await container.perform { context in
             let tokenizer = context.tokenizer
             let model = context.model
             let tokens = tokenizer.encode(text: prompt)
@@ -428,7 +428,7 @@ actor GenerativeJudgeModel {
         // Official Qwen3 recommends 512+ for thinking mode reasoning chains
         let maxGenerateTokens = allowThinking ? 512 : 15
 
-        let result: JudgeResult = try await container.perform { context in
+        let result: JudgeResult = await container.perform { context in
             let tokenizer = context.tokenizer
             let model = context.model
             let tokens = tokenizer.encode(text: prompt)

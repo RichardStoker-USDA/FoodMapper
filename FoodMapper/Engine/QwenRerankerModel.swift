@@ -147,7 +147,7 @@ actor QwenRerankerModel {
         let prompts = candidates.map { formatPrompt(query: query, document: $0, instruction: inst) }
 
         // Phase 1: Pre-tokenize all candidates in one container.perform call
-        let allTokens: [[Int]] = try await container.perform { context in
+        let allTokens: [[Int]] = await container.perform { context in
             prompts.map { context.tokenizer.encode(text: $0) }
         }
 
@@ -158,7 +158,7 @@ actor QwenRerankerModel {
         for (index, tokens) in allTokens.enumerated() {
             try Task.checkCancellation()
 
-            let score: Float = try await container.perform { context in
+            let score: Float = await container.perform { context in
                 let model = context.model
                 let inputArray = MLXArray(tokens).reshaped(1, tokens.count)
 
@@ -229,7 +229,7 @@ actor QwenRerankerModel {
         let prompts = candidates.map { formatPrompt(query: query, document: $0, instruction: inst) }
 
         // Tokenize, pad, forward pass, and extract scores in one container.perform call
-        let scores: [RerankerScore] = try await container.perform { context in
+        let scores: [RerankerScore] = await container.perform { context in
             let tokenizer = context.tokenizer
             let model = context.model
 

@@ -296,7 +296,7 @@ struct AnimatedCounter: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xxs) {
             Group {
-                if let numericValue, hasAppeared {
+                if numericValue != nil, hasAppeared {
                     Text(formatValue(displayedValue, target: targetValue))
                         .contentTransition(.numericText())
                 } else {

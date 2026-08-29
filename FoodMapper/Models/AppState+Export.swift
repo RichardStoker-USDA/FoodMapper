@@ -287,11 +287,12 @@ extension AppState {
                     try? csv.write(to: fileURL, atomically: true, encoding: .utf8)
                     exported += 1
                 }
-                logger.info("Exported \(exported) of \(sessionCount) sessions to folder.")
+                let exportedCount = exported
+                logger.info("Exported \(exportedCount) of \(sessionCount) sessions to folder.")
                 await MainActor.run { [weak self] in
-                    if exported > 0 {
+                    if exportedCount > 0 {
                         self?.presentExportToast(
-                            filename: "\(exported) of \(sessionCount) sessions to \(folderURL.lastPathComponent)"
+                            filename: "\(exportedCount) of \(sessionCount) sessions to \(folderURL.lastPathComponent)"
                         )
                     } else {
                         self?.error = AppError.exportFailed("No sessions could be exported. Session data may be corrupted.")

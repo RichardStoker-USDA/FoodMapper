@@ -514,7 +514,7 @@ struct TryItSection: View {
             if isBatchPhase {
                 TourTechnicalDetail(title: "About the Batches API") {
                     VStack(alignment: .leading, spacing: Spacing.md) {
-                        Text("The Batches API submits all matching requests at once. Anthropic processes them on available compute capacity. Unlike real-time API calls, completion time depends on current demand, so there's no progress bar for this stage.")
+                        Text("The Batches API submits all matching requests at once. Anthropic processes them on available compute capacity. Unlike synchronous API calls, completion time depends on current demand, so there's no progress bar for this stage.")
                             .font(.body)
                             .fixedSize(horizontal: false, vertical: true)
                         Text("For details on pricing, rate limits, and how the Batches API works, see Implementation Notes below.")
@@ -991,7 +991,7 @@ struct TryItSection: View {
 
             TourInfoLine(
                 icon: "lock.shield",
-                text: "Your API key is stored locally on this Mac only. It is never sent anywhere except directly to Anthropic's API."
+                text: "Your API key is stored in your Mac's Keychain. It is only sent directly to Anthropic's API when you run hybrid matching."
             )
         }
     }
@@ -1204,7 +1204,13 @@ struct TryItSection: View {
         apiKeyError = nil
 
         Task {
-            APIKeyStorage.setAnthropicAPIKey(trimmed)
+            guard APIKeyStorage.setAnthropicAPIKey(trimmed) else {
+                await MainActor.run {
+                    apiKeyValidating = false
+                    apiKeyError = "Couldn't store key"
+                }
+                return
+            }
             appState.refreshAPIKeyState()
 
             do {
@@ -1218,8 +1224,8 @@ struct TryItSection: View {
                         apiKeyInput = ""
                         apiKeyError = nil
                     } else {
-                        apiKeyError = "Invalid key"
-                        APIKeyStorage.deleteAnthropicAPIKey()
+                        let removed = APIKeyStorage.deleteAnthropicAPIKey()
+                        apiKeyError = removed ? "Invalid key" : "Invalid key; couldn't remove it"
                         appState.refreshAPIKeyState()
                     }
                 }
@@ -1227,7 +1233,6 @@ struct TryItSection: View {
                 await MainActor.run {
                     apiKeyValidating = false
                     apiKeyError = "Validation failed"
-                    APIKeyStorage.deleteAnthropicAPIKey()
                     appState.refreshAPIKeyState()
                 }
             }

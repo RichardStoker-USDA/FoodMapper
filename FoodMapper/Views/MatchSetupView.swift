@@ -783,7 +783,7 @@ struct MatchSetupView: View {
                         .font(.callout)
                 }
 
-                Text("The key starts with sk-ant- and is stored locally on your Mac.")
+                Text("The key starts with sk-ant- and is stored in your Mac's Keychain.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -811,7 +811,13 @@ struct MatchSetupView: View {
         inlineAPIKeyStatus = .validating
 
         Task {
-            APIKeyStorage.setAnthropicAPIKey(key)
+            guard APIKeyStorage.setAnthropicAPIKey(key) else {
+                await MainActor.run {
+                    isValidatingInlineKey = false
+                    inlineAPIKeyStatus = .invalid("Couldn't store key")
+                }
+                return
+            }
             appState.refreshAPIKeyState()
 
             do {
@@ -824,8 +830,10 @@ struct MatchSetupView: View {
                         inlineAPIKeyStatus = .valid
                         inlineAPIKeyInput = ""
                     } else {
-                        inlineAPIKeyStatus = .invalid("Invalid key")
-                        APIKeyStorage.deleteAnthropicAPIKey()
+                        let removed = APIKeyStorage.deleteAnthropicAPIKey()
+                        inlineAPIKeyStatus = .invalid(
+                            removed ? "Invalid key" : "Invalid key; couldn't remove it"
+                        )
                         appState.refreshAPIKeyState()
                     }
                 }
@@ -833,7 +841,6 @@ struct MatchSetupView: View {
                 await MainActor.run {
                     isValidatingInlineKey = false
                     inlineAPIKeyStatus = .invalid("Validation failed")
-                    APIKeyStorage.deleteAnthropicAPIKey()
                     appState.refreshAPIKeyState()
                 }
             }

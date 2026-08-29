@@ -398,9 +398,23 @@ final class AppState: ObservableObject {
         ModelFamily.qwen3Reranker.modelKey(for: selectedRerankerSize) ?? "qwen3-reranker-0.6b"
     }
 
-    /// Resolved generative judge model key based on selected size
+    /// Resolved Qwen generative judge model key based on selected size.
     var selectedGenerativeModelKey: String {
         ModelFamily.qwen3Generative.modelKey(for: selectedGenerativeSize) ?? "qwen3-judge-4b-4bit"
+    }
+
+    /// Resolved generative judge model key for the selected pipeline.
+    var generativeModelKeyForCurrentPipeline: String {
+        let family: ModelFamily
+        switch selectedPipelineType {
+        case .gemma4LLMOnly, .gemma4TwoStage:
+            family = .gemma4Generative
+        default:
+            family = .qwen3Generative
+        }
+        return family.modelKey(for: selectedGenerativeSize)
+            ?? family.modelKey(for: .medium)
+            ?? selectedGenerativeModelKey
     }
 
     /// Required model keys for the current pipeline type + selected sizes.
@@ -414,10 +428,10 @@ final class AppState: ObservableObject {
         case .qwen3TwoStage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
         case .gteLargeHaiku, .gteLargeHaikuV2: return ["gte-large"]
         case .qwen3SmartTriage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
-        case .qwen3LLMOnly: return [selectedGenerativeModelKey]
-        case .embeddingLLM: return [selectedEmbeddingModelKey, selectedGenerativeModelKey]
-        case .gemma4LLMOnly: return [selectedGenerativeModelKey]
-        case .gemma4TwoStage: return [selectedEmbeddingModelKey, selectedGenerativeModelKey]
+        case .qwen3LLMOnly: return [generativeModelKeyForCurrentPipeline]
+        case .embeddingLLM: return [selectedEmbeddingModelKey, generativeModelKeyForCurrentPipeline]
+        case .gemma4LLMOnly: return [generativeModelKeyForCurrentPipeline]
+        case .gemma4TwoStage: return [selectedEmbeddingModelKey, generativeModelKeyForCurrentPipeline]
         }
     }
 
@@ -839,6 +853,7 @@ final class AppState: ObservableObject {
         let search = searchText
         let searchLower = search.lowercased()
         let order = sortOrder
+        let categorySnapshot = cachedCategories
 
         if allResults.count > 2_000 {
             isSorting = true
@@ -856,8 +871,7 @@ final class AppState: ObservableObject {
                         cats[result.id] = MatchCategory.from(result: result, decision: decisions[result.id], profile: profile)
                     }
                 } else {
-                    // Snapshot current cache (safe since we captured before detach)
-                    cats = await MainActor.run { self?.cachedCategories ?? [:] }
+                    cats = categorySnapshot
                 }
 
                 let filtered = allResults.filter { result in
@@ -873,18 +887,15 @@ final class AppState: ObservableObject {
                     return true
                 }
                 let sorted = filtered.sorted(using: order)
-                let shouldResetPage = resetPage
-                await MainActor.run { [weak self] in
-                    guard let self, self.filterVersion == capturedVersion else { return }
-                    if needsCategoryRebuild {
-                        self.cachedCategories = cats
-                        self.rebuildCategoryCounts()
-                    }
-                    if shouldResetPage { self.currentPage = 0 }
-                    self.cachedUnsortedFilteredResults = filtered
-                    self.cachedFilteredResults = sorted
-                    self.isSorting = false
-                }
+                guard let appState = self else { return }
+                await appState.finishBackgroundFilter(
+                    capturedVersion: capturedVersion,
+                    needsCategoryRebuild: needsCategoryRebuild,
+                    categories: cats,
+                    filtered: filtered,
+                    sorted: sorted,
+                    resetPage: resetPage
+                )
             }
         } else {
             // Small datasets: rebuild on main thread (fast enough).
@@ -911,6 +922,25 @@ final class AppState: ObservableObject {
             }
             applySortOrder()
         }
+    }
+
+    private func finishBackgroundFilter(
+        capturedVersion: Int,
+        needsCategoryRebuild: Bool,
+        categories: [UUID: MatchCategory],
+        filtered: [MatchResult],
+        sorted: [MatchResult],
+        resetPage: Bool
+    ) {
+        guard filterVersion == capturedVersion else { return }
+        if needsCategoryRebuild {
+            cachedCategories = categories
+            rebuildCategoryCounts()
+        }
+        if resetPage { currentPage = 0 }
+        cachedUnsortedFilteredResults = filtered
+        cachedFilteredResults = sorted
+        isSorting = false
     }
 
     /// Apply sort order to the cached unsorted filtered results.
@@ -1048,8 +1078,8 @@ final class AppState: ObservableObject {
         navigationHistory = [NavigationSnapshot(sidebarSelection: .home, showMatchSetup: false, viewingResults: false, selectedPipelineMode: .standard)]
         navigationHistoryIndex = 0
 
-        // Migrate API key from Keychain if this is the first launch after the switch
-        APIKeyStorage.migrateFromKeychainIfNeeded()
+        // Move keys saved by FoodMapper 0.1.x out of UserDefaults.
+        APIKeyStorage.migrateToKeychainIfNeeded()
 
         // Cache API key presence
         refreshAPIKeyState()

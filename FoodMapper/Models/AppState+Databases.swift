@@ -245,7 +245,7 @@ extension AppState {
     /// Embed a custom database with progress reporting
     /// Database is only added to the list after successful embedding
     func embedDatabaseAsync(_ database: CustomDatabase) {
-        embeddingTask = Task {
+        embeddingTask = Task { [self] in
             do {
                 let engine = try await getOrCreateEngine()
                 let startTime = Date()
@@ -426,7 +426,7 @@ extension AppState {
         guard let embeddingKey = selectedPipelineType.embeddingModelKey else { return }
         guard !databaseEmbeddingStatus.isEmbedding else { return }
 
-        embeddingTask = Task {
+        embeddingTask = Task { [self] in
             do {
                 let engine = try await getOrCreateEngine()
                 let startTime = Date()

@@ -81,9 +81,9 @@ extension AppState {
         let pipelineType = selectedPipelineType
         let embeddingKey = embeddingModelKeyForCurrentPipeline
         let rerankerKey = selectedRerankerModelKey
-        let generativeKey = selectedGenerativeModelKey
+        let generativeKey = generativeModelKeyForCurrentPipeline
 
-        matchingTask = Task {
+        matchingTask = Task { [self] in
             do {
                 let engine = try await getOrCreateEngine()
 
@@ -151,11 +151,9 @@ extension AppState {
                             // Persist batchId when batch is submitted
                             if case .batchSubmitted = phase {
                                 if let haikuPipeline = pipeline as? HaikuRerankerPipeline {
-                                    Task {
+                                    Task { [weak self] in
                                         if let batchId = await haikuPipeline.getActiveBatchId() {
-                                            await MainActor.run {
-                                                self?.persistBatchState(batchId: batchId)
-                                            }
+                                            self?.persistBatchState(batchId: batchId)
                                         }
                                     }
                                 }

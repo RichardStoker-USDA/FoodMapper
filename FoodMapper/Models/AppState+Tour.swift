@@ -60,7 +60,7 @@ extension AppState {
         tourEmbeddingProgress = 0
         tourEmbeddingError = nil
 
-        Task {
+        Task { [self] in
             do {
                 // Check model availability before attempting to load
                 let modelState = self.modelManager.state(for: "gte-large")
@@ -126,7 +126,7 @@ extension AppState {
         tourHybridPhase = .idle
         tourHybridError = nil
 
-        tourHybridTask = Task {
+        tourHybridTask = Task { [self] in
             do {
                 // Load tour items
                 let tourItems = try await TourDataLoader.shared.loadFullBenchmarkItems()

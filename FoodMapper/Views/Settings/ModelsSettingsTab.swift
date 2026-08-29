@@ -21,7 +21,9 @@ struct ModelsSettingsTab: View {
     }
 
     private var generativeModels: [RegisteredModel] {
-        allModels.filter { $0.modelFamily == .qwen3Generative }
+        allModels.filter {
+            $0.modelFamily == .qwen3Generative || $0.modelFamily == .gemma4Generative
+        }
     }
 
     private var gteModel: RegisteredModel? {

@@ -806,6 +806,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -822,6 +823,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1022,7 +1024,7 @@
 			repositoryURL = "https://github.com/huggingface/swift-transformers";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 1.1.6;
+				minimumVersion = 1.1.9;
 			};
 		};
 		6F6F6E6DE50EF1962B87553C /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
@@ -1030,7 +1032,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.30.3;
+				minimumVersion = 0.30.6;
 			};
 		};
 		PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
@@ -1038,7 +1040,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 2.30.3;
+				minimumVersion = 2.30.6;
 			};
 		};
 		SPARKLE001PKGREF0000 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -1046,7 +1048,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.0.0;
+				minimumVersion = 2.9.6;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

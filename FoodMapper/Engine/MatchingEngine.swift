@@ -373,10 +373,9 @@ actor MatchingEngine {
 
         let rawContent = try String(contentsOf: url, encoding: .utf8)
         let content = CSVParser.stripBOM(rawContent)
-        let lines = content.components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let records = try CSVParser.parseRecords(content: content, delimiter: ",")
 
-        guard lines.count > 1 else {
+        guard records.count > 1 else {
             throw MatchingError.emptyDatabase
         }
 
@@ -384,7 +383,7 @@ actor MatchingEngine {
         var entries: [DatabaseEntry] = []
 
         // Parse header and normalize column names (trim whitespace/BOM remnants)
-        let header = CSVParser.parseCSVLine(lines[0]).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let header = records[0].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
         let idIdx: Int
         if let idCol = database.idColumn?.trimmingCharacters(in: .whitespacesAndNewlines) {
@@ -399,8 +398,8 @@ actor MatchingEngine {
             throw MatchingError.columnNotFound(database.textColumn)
         }
 
-        for i in 1..<lines.count {
-            let values = CSVParser.parseCSVLine(lines[i])
+        for i in 1..<records.count {
+            let values = records[i]
             guard values.count > max(idIdx, textIdx) else { continue }
 
             var additionalFields: [String: String] = [:]
@@ -430,19 +429,15 @@ actor MatchingEngine {
 
         let rawContent = try String(contentsOf: url, encoding: .utf8)
         let content = CSVParser.stripBOM(rawContent)
-        let lines = content.components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let format = DataFileFormat.detect(from: content)
+        let records = try CSVParser.parseRecords(content: content, delimiter: format.delimiter)
 
-        guard lines.count > 1 else {
+        guard records.count > 1 else {
             throw MatchingError.emptyDatabase
         }
 
-        // Detect delimiter from header line (custom DBs can be CSV or TSV)
-        let format = DataFileFormat.detect(from: lines[0])
-        let delimiter = format.delimiter
-
         // Parse header and normalize column names (trim whitespace/BOM remnants)
-        let header = CSVParser.parseCSVLine(lines[0], delimiter: delimiter).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let header = records[0].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let trimmedTextColumn = database.textColumn.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let textColumnIndex = header.firstIndex(of: trimmedTextColumn) else {
             throw MatchingError.columnNotFound(database.textColumn)
@@ -451,8 +446,8 @@ actor MatchingEngine {
         let idColumnIndex = database.idColumn.flatMap { header.firstIndex(of: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
 
         var entries: [DatabaseEntry] = []
-        for i in 1..<lines.count {
-            let values = CSVParser.parseCSVLine(lines[i], delimiter: delimiter)
+        for i in 1..<records.count {
+            let values = records[i]
             guard textColumnIndex < values.count else { continue }
 
             let id: String
