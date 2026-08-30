@@ -136,8 +136,7 @@ actor QwenRerankerModel {
 
         let inst = instruction ?? Self.defaultInstruction
 
-        logger.info("[Model] QwenReranker | rerank() | Instruction: \(inst.prefix(100))")
-        logger.info("[Model] QwenReranker | rerank() | Query: \(query.prefix(80)) | Candidates: \(candidates.count)")
+        logger.info("[Model] QwenReranker | rerank() | Candidates: \(candidates.count) | Custom instruction: \(instruction != nil)")
 
         // Capture token IDs locally to avoid actor isolation in @Sendable closures
         let yesId = self.yesTokenId
@@ -222,8 +221,7 @@ actor QwenRerankerModel {
         let yesId = self.yesTokenId
         let noId = self.noTokenId
 
-        logger.info("[Model] QwenReranker | batchRerank() | Instruction: \(inst.prefix(100))")
-        logger.info("[Model] QwenReranker | batchRerank() | Query: \(query.prefix(80)) | Candidates: \(candidates.count)")
+        logger.info("[Model] QwenReranker | batchRerank() | Candidates: \(candidates.count) | Custom instruction: \(instruction != nil)")
 
         // Build all prompts
         let prompts = candidates.map { formatPrompt(query: query, document: $0, instruction: inst) }

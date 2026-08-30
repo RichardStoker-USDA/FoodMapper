@@ -244,9 +244,7 @@ actor GenerativeJudgeModel {
             allowThinking: allowThinking
         )
 
-        logger.info("[Model] GenerativeJudge | judge() | Format: \(responseFormat.rawValue) | Think: \(allowThinking)")
-        logger.info("[Model] GenerativeJudge | judge() | Query: \(query.prefix(80)) | Candidates: \(candidateCount)")
-        logger.info("[Model] GenerativeJudge | judge() | Additional instruction: \(instruction?.prefix(100) ?? "(none -- using defaultSystemPrompt only)")")
+        logger.info("[Model] GenerativeJudge | judge() | Format: \(responseFormat.rawValue) | Think: \(allowThinking) | Candidates: \(candidateCount) | Custom instruction: \(instruction != nil)")
 
         // Tokenize and run forward pass
         let tokenIdsCaptured = activeTokenIds
@@ -416,9 +414,7 @@ actor GenerativeJudgeModel {
             allowThinking: allowThinking
         )
 
-        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Format: \(responseFormat.rawValue) | Think: \(allowThinking)")
-        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Query: \(query.prefix(80)) | Candidates: \(candidateCount)")
-        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Additional instruction: \(instruction?.prefix(100) ?? "(none -- using defaultSystemPrompt only)")")
+        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Format: \(responseFormat.rawValue) | Think: \(allowThinking) | Candidates: \(candidateCount) | Custom instruction: \(instruction != nil)")
 
         // Capture label token IDs before entering the perform closure
         let capturedLabelTokenIds = self.labelTokenIds
@@ -513,8 +509,6 @@ actor GenerativeJudgeModel {
 
             // Decode generated text
             let generatedText = tokenizer.decode(tokens: generatedTokens).trimmingCharacters(in: .whitespacesAndNewlines)
-            logger.debug("[Model] GenerativeJudge | Generated: \(generatedText.prefix(200))")
-
             // Parse the response based on format
             let parsedIndex: Int?
             switch responseFormat {

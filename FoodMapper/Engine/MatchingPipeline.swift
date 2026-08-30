@@ -443,6 +443,14 @@ enum InstructionPreset: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Decides whether the Haiku pipelines have qualified work to submit.
+/// Inputs with no qualified candidates are finalized before the batch stage.
+enum HaikuBatchSubmission {
+    static func shouldSubmit(taskCount: Int) -> Bool {
+        taskCount > 0
+    }
+}
+
 /// End-to-end matching pipeline protocol.
 /// Each pipeline type trades off accuracy vs speed differently.
 protocol MatchingPipelineProtocol {

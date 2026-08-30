@@ -71,8 +71,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
             ? basePrompt + "\n\nAdditional matching context: " + rerankerInstruction!
             : basePrompt
 
-        logger.info("[Pipeline] HaikuRerankerV2 | Stage: embedding | Instruction: (none -- GTE-Large is symmetric)")
-        logger.info("[Pipeline] HaikuRerankerV2 | Stage: haiku | rerankerInstruction: \(rerankerInstruction?.prefix(100) ?? "(none)")")
+        logger.info("[Pipeline] HaikuRerankerV2 | Stage: embedding | Instruction: none")
+        logger.info("[Pipeline] HaikuRerankerV2 | Stage: haiku | Custom context: \(rerankerInstruction != nil)")
         logger.info("[Pipeline] HaikuRerankerV2 | \(totalInputs) inputs, top-\(self.topK) candidates each")
 
         // Stage 1: GTE-Large embedding retrieval
@@ -169,6 +169,21 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                 scores: scores
             )
             return (customId: "task-\(task.originalIndex)", userMessage: userMessage)
+        }
+
+        guard HaikuBatchSubmission.shouldSubmit(taskCount: batchTasks.count) else {
+            logger.info("Stage 2 skipped: no qualified candidates")
+            let results = finalResults.enumerated().map { index, result in
+                result ?? MatchResult(
+                    inputText: inputs[index],
+                    inputRow: index,
+                    score: 0,
+                    status: .error,
+                    scoreType: .noScore
+                )
+            }
+            onProgress(totalInputs)
+            return results
         }
 
         // Submit batch with prompt caching enabled

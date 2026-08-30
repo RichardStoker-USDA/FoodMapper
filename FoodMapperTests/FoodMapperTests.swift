@@ -91,3 +91,17 @@ final class CSVParserTests: XCTestCase {
         XCTAssertGreaterThan(estimate.estimatedRowCount, 0)
     }
 }
+
+final class HaikuBatchSubmissionTests: XCTestCase {
+    func testV1SkipsSubmissionWhenAllCandidatesAreBelowTheFloor() {
+        XCTAssertFalse(HaikuBatchSubmission.shouldSubmit(taskCount: 0))
+    }
+
+    func testV2SkipsSubmissionWhenAllCandidatesAreBelowTheFloor() {
+        XCTAssertFalse(HaikuBatchSubmission.shouldSubmit(taskCount: 0))
+    }
+
+    func testSubmitsQualifiedCandidates() {
+        XCTAssertTrue(HaikuBatchSubmission.shouldSubmit(taskCount: 1))
+    }
+}
