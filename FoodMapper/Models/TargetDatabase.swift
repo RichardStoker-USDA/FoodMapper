@@ -345,59 +345,6 @@ enum SecureFileAccess {
     }
 }
 
-enum FoodMapperStorage {
-    private final class RootStore: @unchecked Sendable {
-        let lock = NSLock()
-        var override: URL?
-    }
-
-    private static let rootStore = RootStore()
-    private static let testApplicationSupportURL: URL = {
-        URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            .appendingPathComponent("foodmapper-xctest-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
-    }()
-
-    static var applicationSupportOverride: URL? {
-        get {
-            rootStore.lock.lock()
-            defer { rootStore.lock.unlock() }
-            return rootStore.override
-        }
-        set {
-            rootStore.lock.lock()
-            rootStore.override = newValue
-            rootStore.lock.unlock()
-        }
-    }
-
-    static var applicationSupportURL: URL {
-        if let override = applicationSupportOverride {
-            enforceTestStorageIsolation(override)
-            return override
-        }
-        // XCTest launches the host application before individual test setup.
-        // Direct all app-level storage to a per-process directory so startup
-        // discovery and GTE checks cannot touch the user's Application Support.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            enforceTestStorageIsolation(testApplicationSupportURL)
-            return testApplicationSupportURL
-        }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    }
-
-    static func isAllowedTestStorageURL(_ url: URL) -> Bool {
-        let live = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .standardizedFileURL.path
-        return url.standardizedFileURL.path != live
-    }
-
-    private static func enforceTestStorageIsolation(_ url: URL) {
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil || isAllowedTestStorageURL(url) else {
-            preconditionFailure("Tests must not use the user's Application Support directory")
-        }
-    }
-}
-
 // MARK: - Food Database Protocol
 
 /// Protocol for any food database (built-in or custom)

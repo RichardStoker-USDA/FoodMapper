@@ -116,21 +116,7 @@ final class HaikuBatchSubmissionTests: XCTestCase {
 }
 
 final class CustomDatabaseValidationTests: XCTestCase {
-    private var isolatedApplicationSupport: URL!
-
-    override func setUpWithError() throws {
-        isolatedApplicationSupport = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            .appendingPathComponent("foodmapper-app-support-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: isolatedApplicationSupport.path)
-        FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
-        _ = CacheRecoveryState.consumeFailure()
-    }
-
-    override func tearDownWithError() throws {
-        FoodMapperStorage.applicationSupportOverride = nil
-        try? FileManager.default.removeItem(at: isolatedApplicationSupport)
-    }
+    override func setUpWithError() throws { _ = CacheRecoveryState.consumeFailure() }
     private func writeDatabase(_ content: String, extension fileExtension: String = "csv") throws -> URL {
         let url = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-database-\(UUID().uuidString).\(fileExtension)")
@@ -139,11 +125,8 @@ final class CustomDatabaseValidationTests: XCTestCase {
     }
 
     func testExplicitStorageOverrideKeepsTestsOutOfUserSupport() {
-        XCTAssertTrue(FoodMapperStorage.applicationSupportURL.path.hasPrefix("/private/tmp/"))
-        XCTAssertFalse(FoodMapperStorage.applicationSupportURL.path.contains("/Library/Application Support/"))
-        let live = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        XCTAssertFalse(FoodMapperStorage.isAllowedTestStorageURL(live))
-        XCTAssertTrue(FoodMapperStorage.isAllowedTestStorageURL(FoodMapperStorage.applicationSupportURL))
+        XCTAssertTrue(FoodMapperStorage.isIsolatedTestStorage)
+        XCTAssertNotEqual(FoodMapperStorage.applicationSupportURL, FoodMapperStorage.liveApplicationSupportURL)
     }
 
     func testRejectsDuplicateAndBlankIDs() throws {
@@ -557,21 +540,7 @@ final class ModelSnapshotTests: XCTestCase {
 
 @MainActor
 final class DatabaseOperationAdmissionTests: XCTestCase {
-    private var isolatedApplicationSupport: URL!
-
-    override func setUpWithError() throws {
-        isolatedApplicationSupport = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            .appendingPathComponent("foodmapper-operation-support-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: isolatedApplicationSupport.path)
-        FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
-        _ = CacheRecoveryState.consumeFailure()
-    }
-
-    override func tearDownWithError() throws {
-        FoodMapperStorage.applicationSupportOverride = nil
-        try? FileManager.default.removeItem(at: isolatedApplicationSupport)
-    }
+    override func setUpWithError() throws { _ = CacheRecoveryState.consumeFailure() }
 
     func testMatchingAndDatabaseOperationsSerializeByGeneration() {
         let state = AppState()

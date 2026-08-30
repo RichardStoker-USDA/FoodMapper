@@ -83,7 +83,7 @@ extension AppState {
     // MARK: - Settings
 
     func loadSettings() {
-        if let data = UserDefaults.standard.data(forKey: "appSettings"),
+        if let data = FoodMapperStorage.defaults.data(forKey: "appSettings"),
            let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
             threshold = settings.defaultThreshold
             advancedSettings = settings.advancedSettings
@@ -94,12 +94,12 @@ extension AppState {
     func saveSettings() {
         let settings = AppSettings(
             defaultThreshold: threshold,
-            appearance: UserDefaults.standard.string(forKey: "appearance") ?? "system",
+            appearance: FoodMapperStorage.defaults.string(forKey: "appearance") ?? "system",
             advancedSettings: advancedSettings
         )
 
         if let data = try? JSONEncoder().encode(settings) {
-            UserDefaults.standard.set(data, forKey: "appSettings")
+            FoodMapperStorage.defaults.set(data, forKey: "appSettings")
         }
     }
 
@@ -133,24 +133,24 @@ extension AppState {
     /// Persist active batch ID and start time to disk for resume after force-quit
     func persistBatchState(batchId: String) {
         activeBatchId = batchId
-        UserDefaults.standard.set(batchId, forKey: Self.batchIdKey)
+        FoodMapperStorage.defaults.set(batchId, forKey: Self.batchIdKey)
         if let startTime = batchStartTime {
-            UserDefaults.standard.set(startTime.timeIntervalSince1970, forKey: Self.batchStartTimeKey)
+            FoodMapperStorage.defaults.set(startTime.timeIntervalSince1970, forKey: Self.batchStartTimeKey)
         }
     }
 
     /// Clear persisted batch state (on completion, cancellation, or error)
     func clearPersistedBatchState() {
-        UserDefaults.standard.removeObject(forKey: Self.batchIdKey)
-        UserDefaults.standard.removeObject(forKey: Self.batchStartTimeKey)
+        FoodMapperStorage.defaults.removeObject(forKey: Self.batchIdKey)
+        FoodMapperStorage.defaults.removeObject(forKey: Self.batchStartTimeKey)
     }
 
     /// Load persisted batch state on launch (for resume after force-quit)
     func loadPersistedBatchState() -> (batchId: String, startTime: Date)? {
-        guard let batchId = UserDefaults.standard.string(forKey: Self.batchIdKey) else {
+        guard let batchId = FoodMapperStorage.defaults.string(forKey: Self.batchIdKey) else {
             return nil
         }
-        let startTimeInterval = UserDefaults.standard.double(forKey: Self.batchStartTimeKey)
+        let startTimeInterval = FoodMapperStorage.defaults.double(forKey: Self.batchStartTimeKey)
         let startTime = startTimeInterval > 0 ? Date(timeIntervalSince1970: startTimeInterval) : Date()
         return (batchId, startTime)
     }
@@ -169,7 +169,7 @@ extension AppState {
 
         // Clear UserDefaults
         if let bundleID = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            FoodMapperStorage.defaults.removePersistentDomain(forName: bundleID)
         }
 
         // Spawn a background shell script that waits for this process to exit,

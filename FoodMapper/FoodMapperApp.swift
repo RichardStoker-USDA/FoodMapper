@@ -25,14 +25,14 @@ struct FoodMapperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
     @StateObject private var helpRequests = HelpRequestCoordinator()
-    @AppStorage("appearance") private var appearance = "system"
+    @AppStorage("appearance", store: FoodMapperStorage.defaults) private var appearance = "system"
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
     )
 
     init() {
         // Register Sparkle defaults: check automatically, but do not download automatically
-        UserDefaults.standard.register(defaults: [
+        FoodMapperStorage.defaults.register(defaults: [
             "SUEnableAutomaticChecks": true,
             "SUAutomaticallyUpdate": false
         ])

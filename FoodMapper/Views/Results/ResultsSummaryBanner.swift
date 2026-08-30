@@ -35,7 +35,7 @@ struct ResultsSummaryBanner: View {
                 Menu {
                     ForEach([200, 500, 1000, 2000], id: \.self) { size in
                         Button {
-                            UserDefaults.standard.set(size, forKey: "pageSize")
+                            FoodMapperStorage.defaults.set(size, forKey: "pageSize")
                         } label: {
                             if appState.pageSize == size {
                                 Label("\(size)", systemImage: "checkmark")

@@ -195,23 +195,23 @@ final class AppState: ObservableObject {
     let maxUndoStackSize = 50
     /// User override for match threshold (nil = use profile defaults).
     /// Uses a new key to avoid loading stale values from the old 3-zone system.
-    @Published var userMatchThreshold: Double? = UserDefaults.standard.object(forKey: "userMatchThreshold_v2") as? Double {
+    @Published var userMatchThreshold: Double? = FoodMapperStorage.defaults.object(forKey: "userMatchThreshold_v2") as? Double {
         didSet {
             if let value = userMatchThreshold {
-                UserDefaults.standard.set(value, forKey: "userMatchThreshold_v2")
+                FoodMapperStorage.defaults.set(value, forKey: "userMatchThreshold_v2")
             } else {
-                UserDefaults.standard.removeObject(forKey: "userMatchThreshold_v2")
+                FoodMapperStorage.defaults.removeObject(forKey: "userMatchThreshold_v2")
             }
         }
     }
     /// User override for the lowest threshold boundary (nil = use profile defaults).
     /// Uses a new key to avoid loading stale values from the old 3-zone system.
-    @Published var userRejectThreshold: Double? = UserDefaults.standard.object(forKey: "userRejectThreshold_v2") as? Double {
+    @Published var userRejectThreshold: Double? = FoodMapperStorage.defaults.object(forKey: "userRejectThreshold_v2") as? Double {
         didSet {
             if let value = userRejectThreshold {
-                UserDefaults.standard.set(value, forKey: "userRejectThreshold_v2")
+                FoodMapperStorage.defaults.set(value, forKey: "userRejectThreshold_v2")
             } else {
-                UserDefaults.standard.removeObject(forKey: "userRejectThreshold_v2")
+                FoodMapperStorage.defaults.removeObject(forKey: "userRejectThreshold_v2")
             }
         }
     }
@@ -325,7 +325,7 @@ final class AppState: ObservableObject {
 
     // Pagination state
     @Published var currentPage: Int = 0
-    @Published var pageSize: Int = UserDefaults.standard.integer(forKey: "pageSize").nonZeroOr(200)
+    @Published var pageSize: Int = FoodMapperStorage.defaults.integer(forKey: "pageSize").nonZeroOr(200)
 
     // Hardware configuration (detected at launch)
     @Published var hardwareConfig: HardwareConfig
@@ -334,9 +334,9 @@ final class AppState: ObservableObject {
     @Published var modelManager: ModelManager
 
     // Simple/Advanced toggle (persisted via UserDefaults)
-    @Published var isAdvancedMode: Bool = UserDefaults.standard.bool(forKey: "isAdvancedMode") {
+    @Published var isAdvancedMode: Bool = FoodMapperStorage.defaults.bool(forKey: "isAdvancedMode") {
         didSet {
-            UserDefaults.standard.set(isAdvancedMode, forKey: "isAdvancedMode")
+            FoodMapperStorage.defaults.set(isAdvancedMode, forKey: "isAdvancedMode")
             // Navigate away from advanced-only pages when switching to simple mode
             if !isAdvancedMode, let sel = sidebarSelection, !sel.isVisibleInSimpleMode {
                 sidebarSelection = .home
@@ -347,47 +347,47 @@ final class AppState: ObservableObject {
     // Smart auto-match thresholds for embedding-only pipelines (persisted via UserDefaults)
     // When the top candidate scores above the floor AND the gap to #2 exceeds minGap,
     // the result is auto-marked as Match instead of Needs Review. Tuned for GTE-Large.
-    @Published var autoMatchScoreFloor: Double = UserDefaults.standard.object(forKey: "autoMatchScoreFloor") as? Double ?? 0.95 {
-        didSet { UserDefaults.standard.set(autoMatchScoreFloor, forKey: "autoMatchScoreFloor") }
+    @Published var autoMatchScoreFloor: Double = FoodMapperStorage.defaults.object(forKey: "autoMatchScoreFloor") as? Double ?? 0.95 {
+        didSet { FoodMapperStorage.defaults.set(autoMatchScoreFloor, forKey: "autoMatchScoreFloor") }
     }
-    @Published var autoMatchMinGap: Double = UserDefaults.standard.object(forKey: "autoMatchMinGap") as? Double ?? 0.01 {
-        didSet { UserDefaults.standard.set(autoMatchMinGap, forKey: "autoMatchMinGap") }
+    @Published var autoMatchMinGap: Double = FoodMapperStorage.defaults.object(forKey: "autoMatchMinGap") as? Double ?? 0.01 {
+        didSet { FoodMapperStorage.defaults.set(autoMatchMinGap, forKey: "autoMatchMinGap") }
     }
 
     // Claude model version (persisted via UserDefaults)
     @Published var selectedClaudeModel: ClaudeModelVersion = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedHaikuModel"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedHaikuModel"),
            let version = ClaudeModelVersion(rawValue: raw) {
             return version
         }
         return .haiku3
     }() {
-        didSet { UserDefaults.standard.set(selectedClaudeModel.rawValue, forKey: "selectedHaikuModel") }
+        didSet { FoodMapperStorage.defaults.set(selectedClaudeModel.rawValue, forKey: "selectedHaikuModel") }
     }
 
     // Model size selection (persisted via UserDefaults)
     @Published var selectedEmbeddingSize: ModelSize = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedEmbeddingSize"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedEmbeddingSize"),
            let size = ModelSize(rawValue: raw) { return size }
         return .medium
     }() {
-        didSet { UserDefaults.standard.set(selectedEmbeddingSize.rawValue, forKey: "selectedEmbeddingSize") }
+        didSet { FoodMapperStorage.defaults.set(selectedEmbeddingSize.rawValue, forKey: "selectedEmbeddingSize") }
     }
 
     @Published var selectedRerankerSize: ModelSize = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedRerankerSize"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedRerankerSize"),
            let size = ModelSize(rawValue: raw) { return size }
         return .small
     }() {
-        didSet { UserDefaults.standard.set(selectedRerankerSize.rawValue, forKey: "selectedRerankerSize") }
+        didSet { FoodMapperStorage.defaults.set(selectedRerankerSize.rawValue, forKey: "selectedRerankerSize") }
     }
 
     @Published var selectedGenerativeSize: ModelSize = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedGenerativeSize"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedGenerativeSize"),
            let size = ModelSize(rawValue: raw) { return size }
         return .medium
     }() {
-        didSet { UserDefaults.standard.set(selectedGenerativeSize.rawValue, forKey: "selectedGenerativeSize") }
+        didSet { FoodMapperStorage.defaults.set(selectedGenerativeSize.rawValue, forKey: "selectedGenerativeSize") }
     }
 
     /// Resolved embedding model key based on selected size
@@ -546,7 +546,7 @@ final class AppState: ObservableObject {
     /// Per-pipeline performance overrides, keyed by PipelineType.rawValue.
     /// nil values within each config fall back to pipeline+model defaults.
     @Published var pipelinePerformanceOverrides: [String: PipelinePerformanceConfig] = {
-        guard let data = UserDefaults.standard.data(forKey: "pipelinePerformanceOverrides"),
+        guard let data = FoodMapperStorage.defaults.data(forKey: "pipelinePerformanceOverrides"),
               let decoded = try? JSONDecoder().decode([String: PipelinePerformanceConfig].self, from: data) else {
             return [:]
         }
@@ -604,7 +604,7 @@ final class AppState: ObservableObject {
 
     func savePipelinePerformanceOverrides() {
         if let data = try? JSONEncoder().encode(pipelinePerformanceOverrides) {
-            UserDefaults.standard.set(data, forKey: "pipelinePerformanceOverrides")
+            FoodMapperStorage.defaults.set(data, forKey: "pipelinePerformanceOverrides")
         }
     }
 
@@ -1071,10 +1071,10 @@ final class AppState: ObservableObject {
         // One-time migration: clean up old 3-zone threshold keys
         // The old system used "reviewAutoAcceptThreshold" (default 0.78) and "reviewAutoRejectThreshold" (default 0.50).
         // These values would poison the new 4-zone system (0.78 < 0.85 likelyMatch threshold = broken hierarchy).
-        if !UserDefaults.standard.bool(forKey: "thresholdMigration_v2_done") {
-            UserDefaults.standard.removeObject(forKey: "reviewAutoAcceptThreshold")
-            UserDefaults.standard.removeObject(forKey: "reviewAutoRejectThreshold")
-            UserDefaults.standard.set(true, forKey: "thresholdMigration_v2_done")
+        if !FoodMapperStorage.defaults.bool(forKey: "thresholdMigration_v2_done") {
+            FoodMapperStorage.defaults.removeObject(forKey: "reviewAutoAcceptThreshold")
+            FoodMapperStorage.defaults.removeObject(forKey: "reviewAutoRejectThreshold")
+            FoodMapperStorage.defaults.set(true, forKey: "thresholdMigration_v2_done")
         }
 
         // Load saved settings (including advanced settings)
@@ -1092,7 +1092,7 @@ final class AppState: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
-                let newPageSize = UserDefaults.standard.integer(forKey: "pageSize").nonZeroOr(200)
+                let newPageSize = FoodMapperStorage.defaults.integer(forKey: "pageSize").nonZeroOr(200)
                 if self.pageSize != newPageSize {
                     self.pageSize = newPageSize
                     self.resetPagination()

@@ -4,8 +4,8 @@ import Sparkle
 /// General settings: appearance, display, and update options
 struct GeneralSettingsTab: View {
     let updater: SPUUpdater
-    @AppStorage("appearance") private var appearance = "system"
-    @AppStorage("pageSize") private var pageSize = 200
+    @AppStorage("appearance", store: FoodMapperStorage.defaults) private var appearance = "system"
+    @AppStorage("pageSize", store: FoodMapperStorage.defaults) private var pageSize = 200
 
     private var automaticallyChecksForUpdates: Binding<Bool> {
         Binding(

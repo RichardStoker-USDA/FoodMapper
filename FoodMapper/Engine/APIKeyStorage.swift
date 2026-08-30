@@ -1,5 +1,4 @@
 import Foundation
-import Security
 import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "api-key-storage")
@@ -14,15 +13,6 @@ enum APIKeyStorage {
     private static let legacyUserDefaultsKey = "anthropic_api_key"
     private static let legacyMigrationFlag = "api_key_migrated_from_keychain"
 
-    private static var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-    }
-
     // MARK: - Anthropic API Key
 
     /// Store or replace an Anthropic API key.
@@ -30,24 +20,13 @@ enum APIKeyStorage {
     static func setAnthropicAPIKey(_ key: String) -> Bool {
         guard let data = key.data(using: .utf8), !data.isEmpty else { return false }
 
-        let updateStatus = SecItemUpdate(
-            baseQuery as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-
-        let status: OSStatus
-        if updateStatus == errSecItemNotFound {
-            var addQuery = baseQuery
-            addQuery[kSecValueData as String] = data
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            addQuery[kSecAttrLabel as String] = "FoodMapper Anthropic API key"
-            status = SecItemAdd(addQuery as CFDictionary, nil)
-        } else {
-            status = updateStatus
-        }
-
-        guard status == errSecSuccess else {
-            logger.error("Unable to store Anthropic API key (status: \(status, privacy: .public))")
+        guard FoodMapperStorage.credentialStore.set(
+            data,
+            service: service,
+            account: account,
+            label: "FoodMapper Anthropic API key"
+        ) else {
+            logger.error("Unable to store Anthropic API key")
             return false
         }
 
@@ -58,19 +37,9 @@ enum APIKeyStorage {
 
     /// Retrieve the stored Anthropic API key, or nil if none exists.
     static func getAnthropicAPIKey() -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess,
-              let data = result as? Data,
+        guard let data = FoodMapperStorage.credentialStore.value(service: service, account: account),
               let key = String(data: data, encoding: .utf8),
               !key.isEmpty else {
-            if status != errSecItemNotFound {
-                logger.error("Unable to read Anthropic API key (status: \(status, privacy: .public))")
-            }
             return nil
         }
         return key
@@ -82,11 +51,10 @@ enum APIKeyStorage {
 
     @discardableResult
     static func deleteAnthropicAPIKey() -> Bool {
-        let status = SecItemDelete(baseQuery as CFDictionary)
         removeLegacyUserDefaultsValue()
 
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            logger.error("Unable to delete Anthropic API key (status: \(status, privacy: .public))")
+        guard FoodMapperStorage.credentialStore.remove(service: service, account: account) else {
+            logger.error("Unable to delete Anthropic API key")
             return false
         }
 
@@ -104,9 +72,9 @@ enum APIKeyStorage {
             return
         }
 
-        guard let legacyKey = UserDefaults.standard.string(forKey: legacyUserDefaultsKey),
+        guard let legacyKey = FoodMapperStorage.defaults.string(forKey: legacyUserDefaultsKey),
               !legacyKey.isEmpty else {
-            UserDefaults.standard.removeObject(forKey: legacyMigrationFlag)
+            FoodMapperStorage.defaults.removeObject(forKey: legacyMigrationFlag)
             return
         }
 
@@ -118,7 +86,7 @@ enum APIKeyStorage {
     }
 
     private static func removeLegacyUserDefaultsValue() {
-        UserDefaults.standard.removeObject(forKey: legacyUserDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: legacyMigrationFlag)
+        FoodMapperStorage.defaults.removeObject(forKey: legacyUserDefaultsKey)
+        FoodMapperStorage.defaults.removeObject(forKey: legacyMigrationFlag)
     }
 }

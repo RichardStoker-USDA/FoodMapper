@@ -310,7 +310,7 @@ extension AppState {
         sessions: [MatchingSession],
         sessionsDirectory: URL
     ) -> Int {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDir = FoodMapperStorage.temporaryURL.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         let formatter = DateFormatter()
