@@ -169,6 +169,17 @@ final class CustomDatabaseValidationTests: XCTestCase {
 }
 
 final class ModelSnapshotTests: XCTestCase {
+    func testTrackedQwenTrustManifestIsBundledAndComplete() throws {
+        let url = try XCTUnwrap(ResourceBundle.bundle.url(
+            forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"
+        ))
+        let manifest = try JSONDecoder().decode(TrustedQwenSnapshotManifest.self, from: Data(contentsOf: url))
+        XCTAssertEqual(manifest.version, 1)
+        XCTAssertEqual(manifest.models.count, 7)
+        XCTAssertEqual(manifest.models.flatMap(\.artifacts).count, 63)
+        XCTAssertTrue(manifest.models.allSatisfy { !$0.revision.contains("main") })
+    }
+
     func testPartialSnapshotIsNotInstalled() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-model-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

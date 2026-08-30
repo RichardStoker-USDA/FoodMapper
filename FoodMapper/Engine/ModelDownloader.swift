@@ -13,6 +13,26 @@ struct LocalModelSnapshotManifest: Codable {
     let artifacts: [String: String]
 }
 
+struct TrustedQwenSnapshotManifest: Decodable {
+    struct Model: Decodable {
+        struct Artifact: Decodable {
+            let path: String
+            let byteSize: Int64
+            let sha256: String
+            let roles: [String]
+
+            enum CodingKeys: String, CodingKey {
+                case path, byteSize = "byte_size", sha256, roles
+            }
+        }
+        let repo: String
+        let revision: String
+        let artifacts: [Artifact]
+    }
+    let version: Int
+    let models: [Model]
+}
+
 /// HuggingFace Hub model downloads.
 /// Stored in ~/Library/Application Support/FoodMapper/Models/ (Hub cache layout).
 actor ModelDownloader {
@@ -111,16 +131,24 @@ actor ModelDownloader {
 
     private func writeManifest(repository: String, revision: String, directory: URL) throws {
         let fileManager = FileManager.default
-        guard let paths = try? fileManager.subpathsOfDirectory(atPath: directory.path) else {
+        guard let expected = Self.trustedModel(repository: repository, revision: revision) else {
+            throw ModelDownloaderError.untrustedRevision
+        }
+        let allowedPaths = Set(expected.artifacts.map(\.path))
+        guard allowedPaths.allSatisfy({ Self.isSafeRelativePath($0) }) else {
             throw ModelDownloaderError.invalidSnapshot
         }
-        let artifacts = try Dictionary(uniqueKeysWithValues: paths.compactMap { path -> (String, String)? in
-            guard path != "foodmapper_snapshot_manifest.json",
-                  path.hasSuffix(".json") || path.hasSuffix(".safetensors") else { return nil }
-            let data = try Data(contentsOf: directory.appendingPathComponent(path))
-            return (path, Self.digest(data))
+        let artifacts = try Dictionary(uniqueKeysWithValues: expected.artifacts.map { artifact -> (String, String) in
+            let url = directory.appendingPathComponent(artifact.path)
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true,
+                  Int64(values.fileSize ?? -1) == artifact.byteSize else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+            let data = try Data(contentsOf: url)
+            guard Self.digest(data) == artifact.sha256 else { throw ModelDownloaderError.invalidSnapshot }
+            return (artifact.path, artifact.sha256)
         })
-        guard !artifacts.isEmpty else { throw ModelDownloaderError.invalidSnapshot }
         let manifest = LocalModelSnapshotManifest(
             version: LocalModelSnapshotManifest.currentVersion,
             repository: repository,
@@ -137,6 +165,18 @@ actor ModelDownloader {
 
     nonisolated private static func digest(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated private static func trustedModel(repository: String, revision: String) -> TrustedQwenSnapshotManifest.Model? {
+        guard let url = ResourceBundle.bundle.url(forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"),
+              let data = try? Data(contentsOf: url),
+              let manifest = try? JSONDecoder().decode(TrustedQwenSnapshotManifest.self, from: data),
+              manifest.version == 1 else { return nil }
+        return manifest.models.first { $0.repo == repository && $0.revision == revision }
+    }
+
+    nonisolated private static func isSafeRelativePath(_ path: String) -> Bool {
+        !path.isEmpty && !path.hasPrefix("/") && !path.contains("..") && !path.contains("//")
     }
 
     /// Calculate the disk space used by a cached model (approximate)
@@ -171,6 +211,12 @@ actor ModelDownloader {
 
 enum ModelDownloaderError: LocalizedError {
     case invalidSnapshot
+    case untrustedRevision
 
-    var errorDescription: String? { "Downloaded model files are incomplete or changed." }
+    var errorDescription: String? {
+        switch self {
+        case .invalidSnapshot: return "Downloaded model files are incomplete or changed."
+        case .untrustedRevision: return "This model revision is not approved for installation."
+        }
+    }
 }
