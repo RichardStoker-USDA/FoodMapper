@@ -178,6 +178,10 @@ final class ModelSnapshotTests: XCTestCase {
         XCTAssertEqual(manifest.models.count, 7)
         XCTAssertEqual(manifest.models.flatMap(\.artifacts).count, 63)
         XCTAssertTrue(manifest.models.allSatisfy { !$0.revision.contains("main") })
+        XCTAssertTrue(manifest.models.flatMap(\.artifacts).allSatisfy {
+            !$0.path.hasPrefix("/") && !$0.path.contains("..") && $0.byteSize > 0 &&
+            $0.sha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil && !$0.roles.isEmpty
+        })
     }
 
     func testPartialSnapshotIsNotInstalled() throws {
