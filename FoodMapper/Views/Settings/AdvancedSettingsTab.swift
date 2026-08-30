@@ -43,7 +43,7 @@ struct AdvancedSettingsTab: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This will permanently delete:\n\n- Downloaded embedding model (~640 MB)\n- All match history and saved sessions\n- Custom databases and cached embeddings\n- All preferences and settings\n\nExport any results you want to keep before continuing.")
+            Text("This will permanently remove:\n\n- Downloaded models\n- Saved sessions and review decisions\n- Custom databases and cached embeddings\n- Stored input files and FoodMapper preferences\n\nYour Anthropic API key stays in your Mac's Keychain. Export any results you want to keep before continuing.")
         }
         .alert("Are you sure?", isPresented: $showingFinalConfirmation) {
             Button("Reset and Restart", role: .destructive) {
@@ -51,7 +51,7 @@ struct AdvancedSettingsTab: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This cannot be undone. FoodMapper will restart as if it were a fresh install.")
+            Text("This cannot be undone. FoodMapper will restart with its Application Support data and preferences cleared. Your Anthropic API key stays in Keychain.")
         }
     }
 
@@ -240,7 +240,7 @@ struct AdvancedSettingsTab: View {
             Text("Reset")
                 .technicalLabel()
 
-            Text("Removes all data, downloaded models, match history, and preferences. Restores FoodMapper to its original state.")
+            Text("Removes FoodMapper Application Support data and preferences, then restarts the app. The Anthropic API key in Keychain stays in place.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

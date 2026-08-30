@@ -33,6 +33,7 @@
 		B259B4F7194B9E2513F7560F /* MLXEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */; };
 		BBC18C9D20BA1A5DD87D3DA0 /* TargetDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */; };
 		C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */; };
+		A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5EC71000000000000002 /* HelpSectionTests.swift */; };
 		C5A2F572155A82FFBBC9201A /* FoodMapperApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19B3EAF237E39DA12E71979 /* FoodMapperApp.swift */; };
 		CF168F5398114B7D20C0F37D /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = A9493989579DD61D47B78934 /* Transformers */; };
 		CF54982618A1BF1CF3F73D79 /* Databases in Resources */ = {isa = PBXBuildFile; fileRef = 652E572F57B1EC6B9506993B /* Databases */; };
@@ -170,6 +171,7 @@
 		AS009TOUFILEREF0000 /* AppState+Tour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Tour.swift"; sourceTree = "<group>"; };
 		9933B444A1891354E1FCCA49 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperTests.swift; sourceTree = "<group>"; };
+		A11E5EC71000000000000002 /* HelpSectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpSectionTests.swift; sourceTree = "<group>"; };
 		9DAC23B2D730F805E8CD3F8A /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXEmbeddingModel.swift; sourceTree = "<group>"; };
 		A4FEAEF5A5867F164E2245D6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -437,6 +439,7 @@
 			children = (
 				A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */,
 				9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */,
+				A11E5EC71000000000000002 /* HelpSectionTests.swift */,
 			);
 			path = FoodMapperTests;
 			sourceTree = "<group>";
@@ -631,6 +634,7 @@
 			files = (
 				DAE269FBCC22D19C44D342EC /* EmbeddingTests.swift in Sources */,
 				C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */,
+				A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

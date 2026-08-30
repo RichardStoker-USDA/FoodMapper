@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Preview Mock State Factories
 // Reusable AppState configurations for SwiftUI #Preview blocks.
-// Stripped from release builds. See Xcode MCP preview workflow in memory.
+// Used by SwiftUI previews.
 
 @MainActor
 enum PreviewHelpers {

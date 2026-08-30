@@ -3,18 +3,24 @@ import SwiftUI
 /// Main content view with navigation
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject private var helpRequests: HelpRequestCoordinator
     @Environment(\.openWindow) private var openWindow
     @State private var showExportFormatPicker = false
 
     var body: some View {
-        if appState.isInResearchShowcase {
-            ResearchShowcaseView()
-                .environmentObject(appState)
-                // Lock window to the default app size (sidebar + toolbar included).
-                // Content was designed for this exact size.
-                .frame(minWidth: 1357, maxWidth: 1357, minHeight: 812, maxHeight: 812)
-        } else {
-            mainNavigationView
+        Group {
+            if appState.isInResearchShowcase {
+                ResearchShowcaseView()
+                    .environmentObject(appState)
+                    // Lock window to the default app size (sidebar + toolbar included).
+                    // Content was designed for this exact size.
+                    .frame(minWidth: 1357, maxWidth: 1357, minHeight: 812, maxHeight: 812)
+            } else {
+                mainNavigationView
+            }
+        }
+        .onChange(of: helpRequests.requestID) { _, _ in
+            openWindow(id: "help")
         }
     }
 
@@ -309,10 +315,6 @@ struct ContentView: View {
         // Listen for restart tutorial notification
         .onReceive(NotificationCenter.default.publisher(for: .restartTutorial)) { _ in
             appState.restartTutorial()
-        }
-        // Listen for help window notification (from menu commands)
-        .onReceive(NotificationCenter.default.publisher(for: .showHelp)) { _ in
-            openWindow(id: "help")
         }
         .sheet(isPresented: $appState.showSplashScreen) {
             SplashScreenView(isPresented: $appState.showSplashScreen)
@@ -1404,12 +1406,14 @@ private struct ExportFormatRow: View {
 #Preview("Home - Light") {
     ContentView()
         .environmentObject(PreviewHelpers.emptyState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
 }
 
 #Preview("Home - Dark") {
     ContentView()
         .environmentObject(PreviewHelpers.emptyState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
         .preferredColorScheme(.dark)
 }
@@ -1417,11 +1421,13 @@ private struct ExportFormatRow: View {
 #Preview("Results") {
     ContentView()
         .environmentObject(PreviewHelpers.resultsState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
 }
 
 #Preview("Processing") {
     ContentView()
         .environmentObject(PreviewHelpers.processingEmbeddingState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
 }

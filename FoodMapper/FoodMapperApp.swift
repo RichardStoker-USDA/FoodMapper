@@ -24,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct FoodMapperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
+    @StateObject private var helpRequests = HelpRequestCoordinator()
     @AppStorage("appearance") private var appearance = "system"
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
@@ -49,6 +50,7 @@ struct FoodMapperApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(helpRequests)
                 .onAppear {
                     NSApp.appearance = nsAppearance
                 }
@@ -285,6 +287,8 @@ struct FoodMapperApp: App {
 
         Window("FoodMapper Help", id: "help") {
             HelpView()
+                .environmentObject(appState)
+                .environmentObject(helpRequests)
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
