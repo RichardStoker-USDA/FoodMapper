@@ -93,14 +93,14 @@ extension AppState {
 
         matchingTask = Task { [self] in
             do {
-                // Capture the immutable bytes before the engine opens the target.
-                // The pipeline below reads this snapshot, so session provenance and
-                // manual search refer to the same rows used for matching.
+                // Capture immutable target bytes for session provenance and full
+                // target manual search. V1 still receives its original database:
+                // built-in precomputed embeddings, custom cache identities, and
+                // parser/ID behavior remain unchanged.
                 let snapshot = try await TargetSnapshotStore.shared.capture(database: database)
                 try Task.checkCancellation()
                 guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
                 self.activeTargetSnapshot = snapshot.reference
-                let matchingDatabase = AnyDatabase.snapshot(snapshot)
                 let engine = try await getOrCreateEngine()
 
                 // Load the correct embedding model via ModelManager (uses selected size)
@@ -146,7 +146,7 @@ extension AppState {
 
                 let matchResults = try await pipeline.match(
                     inputs: inputs,
-                    database: matchingDatabase,
+                    database: database,
                     threshold: threshold,
                     hardwareConfig: hwConfig,
                     instruction: self.resolvedEmbeddingInstruction,
@@ -394,6 +394,8 @@ extension AppState {
                     self.batchStartTime = nil
                     self.activeBatchId = nil
                     self.clearPersistedBatchState()
+                    self.activeTargetSnapshot = nil
+                    self.reconcileTargetSnapshots()
 
                     // Unload models to free GPU memory
                     Task {
@@ -415,6 +417,8 @@ extension AppState {
                     self.batchStartTime = nil
                     self.activeBatchId = nil
                     self.clearPersistedBatchState()
+                    self.activeTargetSnapshot = nil
+                    self.reconcileTargetSnapshots()
 
                     // Unload models to free GPU memory
                     Task {

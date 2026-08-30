@@ -181,6 +181,114 @@ final class TargetSnapshotTests: XCTestCase {
         XCTAssertEqual(first.manifest.rowCount, 1)
     }
 
+    func testSnapshotIdentityBindsSourceAndMatchingPolicy() async throws {
+        let source = try sourceURL("id,description,alternate\n1,Milk,Whole milk\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let first = try await store.capture(
+            sourceURL: source, databaseIdentity: "target-a", displayName: "Target A",
+            sourceKind: .custom, textColumn: "description", idColumn: "id",
+            selectedFields: ["description"], requireSourceOwner: true
+        )
+        let second = try await store.capture(
+            sourceURL: source, databaseIdentity: "target-b", displayName: "Target B",
+            sourceKind: .custom, textColumn: "alternate", idColumn: "id",
+            selectedFields: ["alternate"], requireSourceOwner: true
+        )
+        XCTAssertEqual(first.reference.sourceDigest, second.reference.sourceDigest)
+        XCTAssertNotEqual(first.reference.digest, second.reference.digest)
+    }
+
+    func testSnapshotParserMatchesBlankAndPostQuoteWhitespaceRules() async throws {
+        let source = try sourceURL("id,description\n\n1,\"Broccoli soup\"   \n \n2,\"Milk\" \n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let input = try CSVParser.parse(content: String(contentsOf: source), url: source)
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "parser", displayName: "Parser",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        XCTAssertEqual(snapshot.manifest.rowCount, input.rowCount)
+        XCTAssertEqual(try await store.search(reference: snapshot.reference, query: "broccoli soup").first?.matchID, "1")
+    }
+
+    func testManualSelectionBindsDuplicateIDToExactSnapshotRow() async throws {
+        let source = try sourceURL("id,description,energy\n9,Broccoli soup,44\n9,Broccoli soup,61\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "duplicate-id", displayName: "Duplicate ID",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let rows = try await store.search(reference: snapshot.reference, query: "broccoli soup")
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].matchID, rows[1].matchID)
+        XCTAssertNotEqual(rows[0].selection.sourceRow, rows[1].selection.sourceRow)
+        XCTAssertNotEqual(rows[0].selection.fields, rows[1].selection.fields)
+        try await store.validate(selection: rows[1].selection, reference: snapshot.reference)
+
+        var fabricated = rows[1].selection
+        fabricated = TargetSnapshotSelection(
+            snapshotDigest: fabricated.snapshotDigest,
+            sourceRow: fabricated.sourceRow,
+            matchText: fabricated.matchText,
+            matchID: fabricated.matchID,
+            fields: ["id": "9", "description": "Broccoli soup", "energy": "999"]
+        )
+        await XCTAssertThrowsErrorAsync {
+            try await store.validate(selection: fabricated, reference: snapshot.reference)
+        }
+
+        let otherSnapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "duplicate-id-other", displayName: "Duplicate ID Other",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        await XCTAssertThrowsErrorAsync {
+            try await store.validate(selection: rows[1].selection, reference: otherSnapshot.reference)
+        }
+    }
+
+    func testExportUsesReviewedCandidateIndexForDuplicateIDs() {
+        let first = MatchCandidate(matchText: "Broccoli soup", matchID: "9", score: 0.8, additionalFields: ["energy": "44"])
+        let second = MatchCandidate(matchText: "Broccoli soup", matchID: "9", score: 0.7, additionalFields: ["energy": "61"])
+        let result = MatchResult(
+            inputText: "broccoli soup", inputRow: 0, matchText: first.matchText, matchID: first.matchID,
+            score: first.score, status: .match, matchAdditionalFields: first.additionalFields,
+            candidates: [first, second]
+        )
+        let decision = ReviewDecision(
+            status: .overridden, overrideMatchText: second.matchText, overrideMatchID: second.matchID,
+            overrideScore: second.score, note: nil, reviewedAt: nil, selectedCandidateIndex: 1
+        )
+        let csv = CSVExporter.export(
+            results: [result], pipelineName: "Test", selectedColumn: "input",
+            targetTextColumn: "description", targetIdColumn: "id",
+            targetColumnNames: ["id", "description", "energy"], reviewDecisions: [result.id: decision]
+        )
+        XCTAssertTrue(csv.contains("9,Broccoli soup,61"))
+        XCTAssertFalse(csv.contains("9,Broccoli soup,44"))
+    }
+
+    func testRetentionKeepsReferencedSnapshotsAndRemovesUnreferenced() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "retention-\(UUID().uuidString)"])
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let store = TargetSnapshotStore(root: root)
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "retention", displayName: "Retention",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        try await store.reconcile(retaining: [snapshot.reference])
+        XCTAssertEqual(try await store.search(reference: snapshot.reference, query: "milk").count, 1)
+        try await store.reconcile(retaining: [])
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.search(reference: snapshot.reference, query: "milk")
+        }
+    }
+
     func testSnapshotRejectsMalformedRowsAndSymbolicSources() async throws {
         let malformed = try sourceURL("id,description\n1,Milk,extra\n")
         let symbolic = URL(fileURLWithPath: "/private/tmp", isDirectory: true)

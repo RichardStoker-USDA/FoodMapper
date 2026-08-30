@@ -343,17 +343,34 @@ extension AppState {
         saveReviewDecisions()
     }
 
-    /// Apply a target-row selection from TargetSnapshotStore. The row was not
-    /// scored by the matching pipeline, so no override score is persisted.
+    /// Apply a target-row selection from TargetSnapshotStore. The row is
+    /// reopened and checked against the active immutable snapshot before it is
+    /// written to review storage. It was not scored by the pipeline, so no
+    /// override score is persisted.
     func setManualTargetSelection(_ selection: TargetSnapshotSelection, for resultId: UUID) {
-        setReviewDecision(
-            .overridden,
-            for: resultId,
-            overrideText: selection.matchText,
-            overrideID: selection.matchID,
-            overrideScore: nil,
-            manualTargetSelection: selection
-        )
+        guard let snapshot = activeTargetSnapshot,
+              selection.snapshotDigest == snapshot.digest else {
+            error = AppError.fileLoadFailed(TargetSnapshotError.invalidSelection.localizedDescription)
+            return
+        }
+        Task { [weak self] in
+            do {
+                try await TargetSnapshotStore.shared.validate(selection: selection, reference: snapshot)
+                guard let self,
+                      self.activeTargetSnapshot == snapshot else { return }
+                self.setReviewDecision(
+                    .overridden,
+                    for: resultId,
+                    overrideText: selection.matchText,
+                    overrideID: selection.matchID,
+                    overrideScore: nil,
+                    manualTargetSelection: selection
+                )
+            } catch {
+                guard let self else { return }
+                self.error = AppError.fileLoadFailed(error.localizedDescription)
+            }
+        }
     }
 
     /// Undo the last review decision. Returns the result ID that was undone (for selection).

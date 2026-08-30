@@ -37,7 +37,10 @@ enum SecureFileAccess {
 
         let parentDescriptor = try openDirectory(components: parent)
         defer { close(parentDescriptor) }
-        let descriptor = openat(parentDescriptor, leaf, O_RDONLY | O_NOFOLLOW)
+        // Open nonblocking first. A path can name a FIFO or device while it is
+        // still untrusted; opening it in blocking mode would let validation hang
+        // before we learn that it is not a regular file.
+        let descriptor = openat(parentDescriptor, leaf, O_RDONLY | O_NONBLOCK | O_NOFOLLOW)
         guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
         var info = stat()
         guard fstat(descriptor, &info) == 0,
@@ -51,6 +54,11 @@ enum SecureFileAccess {
         if let maximumSize, info.st_size > off_t(maximumSize) {
             close(descriptor)
             throw CustomDatabaseValidationError.importTooLarge(actual: Int64(info.st_size), limit: Int(maximumSize))
+        }
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+            close(descriptor)
+            throw MatchingError.databaseNotFound
         }
         return descriptor
     }

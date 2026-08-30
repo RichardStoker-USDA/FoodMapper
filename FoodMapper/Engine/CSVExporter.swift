@@ -73,10 +73,7 @@ enum CSVExporter {
 
         // Determine which candidate's data to use
         let useOverride = decision?.status == .overridden
-        let overrideCandidate: MatchCandidate? = {
-            guard useOverride, let overrideID = decision?.overrideMatchID else { return nil }
-            return result.candidates?.first(where: { $0.matchID == overrideID })
-        }()
+        let overrideCandidate = overrideCandidate(for: result, decision: decision)
 
         let manualFields = useOverride ? decision?.manualTargetSelection?.fields : nil
 
@@ -360,11 +357,7 @@ enum CSVExporter {
                     csv += row.joined(separator: delimStr) + "\n"
                     continue
                 }
-                let overrideCandidate: MatchCandidate? = {
-                    guard decision?.status == .overridden,
-                          let overrideID = decision?.overrideMatchID else { return nil }
-                    return result.candidates?.first(where: { $0.matchID == overrideID })
-                }()
+                let overrideCandidate = overrideCandidate(for: result, decision: decision)
 
                 for key in additionalKeys {
                     if let candidate = overrideCandidate {
@@ -382,6 +375,20 @@ enum CSVExporter {
     }
 
     // MARK: - Helpers
+
+    /// A target identifier can legitimately occur in more than one source row.
+    /// Preserve the reviewed candidate's original position when it is present;
+    /// older decisions fall back to the historic ID lookup.
+    private static func overrideCandidate(for result: MatchResult, decision: ReviewDecision?) -> MatchCandidate? {
+        guard decision?.status == .overridden else { return nil }
+        if let index = decision?.selectedCandidateIndex,
+           let candidates = result.candidates,
+           candidates.indices.contains(index) {
+            return candidates[index]
+        }
+        guard let overrideID = decision?.overrideMatchID else { return nil }
+        return result.candidates?.first(where: { $0.matchID == overrideID })
+    }
 
     /// Collect all unique additional field keys from results, sorted alphabetically
     private static func collectAdditionalFieldKeys(from results: [MatchResult]) -> [String] {

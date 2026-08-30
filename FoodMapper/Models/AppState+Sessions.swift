@@ -29,6 +29,7 @@ extension AppState {
         resultsByID.removeAll()
         allUniqueCandidates.removeAll()
         activeTargetSnapshot = nil
+        reconcileTargetSnapshots()
         reviewUndoStack.removeAll()
         isReviewMode = false
         showInspector = false
@@ -169,11 +170,15 @@ extension AppState {
     // MARK: - Session Management
 
     func loadSessionsIndex() {
-        guard FileManager.default.fileExists(atPath: sessionsIndexURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: sessionsIndexURL.path) else {
+            reconcileTargetSnapshots()
+            return
+        }
         do {
             let data = try Data(contentsOf: sessionsIndexURL)
             sessions = try JSONDecoder().decode([MatchingSession].self, from: data)
             sessions.sort { $0.date > $1.date }
+            reconcileTargetSnapshots()
         } catch {
             logger.error("Failed to load sessions index: \(error)")
         }
@@ -183,8 +188,23 @@ extension AppState {
         do {
             let data = try JSONEncoder().encode(sessions)
             try data.write(to: sessionsIndexURL, options: .atomic)
+            reconcileTargetSnapshots()
         } catch {
             logger.error("Failed to save sessions index: \(error)")
+        }
+    }
+
+    /// Keep only immutable target snapshots referenced by saved sessions or
+    /// the active match. This runs after index writes, so deleting or clearing
+    /// history cannot leave an orphaned copy, while a live run stays retained.
+    func reconcileTargetSnapshots() {
+        let references = Set(sessions.compactMap(\.targetSnapshot)).union(activeTargetSnapshot.map { [$0] } ?? [])
+        Task {
+            do {
+                try await TargetSnapshotStore.shared.reconcile(retaining: references)
+            } catch {
+                logger.error("Failed to reconcile target snapshots: \(error.localizedDescription)")
+            }
         }
     }
 
