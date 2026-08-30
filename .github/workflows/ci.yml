@@ -25,10 +25,7 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
-          case "$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)" in
-            "Xcode 26.6"*) ;;
-            *) exit 1 ;;
-          esac
+          test "$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)" = "Xcode 26.6"
 
       - name: Check CI scripts and public files
         run: |
@@ -38,29 +35,61 @@ jobs:
 
       - name: Resolve Swift packages
         run: |
+          for path in \
+            "$RUNNER_TEMP/foodmapper-source-packages" \
+            "$RUNNER_TEMP/foodmapper-package-cache" \
+            "$RUNNER_TEMP/foodmapper-swiftpm-home" \
+            "$RUNNER_TEMP/foodmapper-resolve-tmp"; do
+            test ! -L "$path"
+            mkdir -p -m 700 "$path"
+            chmod 700 "$path"
+            test ! -L "$path"
+          done
+          HOME="$RUNNER_TEMP/foodmapper-swiftpm-home" \
+          TMPDIR="$RUNNER_TEMP/foodmapper-resolve-tmp" \
           arch -arm64 "$DEVELOPER_DIR/usr/bin/xcodebuild" -resolvePackageDependencies \
             -project FoodMapper.xcodeproj \
             -scheme FoodMapper \
-            -clonedSourcePackagesDirPath "$RUNNER_TEMP/foodmapper-source-packages"
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/foodmapper-source-packages" \
+            -packageCachePath "$RUNNER_TEMP/foodmapper-package-cache" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates
 
-      - name: Run isolated Debug tests
+      - name: Run isolated ad hoc Debug tests
         run: scripts/run-isolated-tests.sh
 
       - name: Build arm64 Release app without signing
         run: |
+          test ! -L "$RUNNER_TEMP/foodmapper-release-tmp"
+          test ! -L "$RUNNER_TEMP/foodmapper-release-derived-data"
+          mkdir -p -m 700 \
+            "$RUNNER_TEMP/foodmapper-release-tmp" \
+            "$RUNNER_TEMP/foodmapper-release-derived-data"
+          test ! -L "$RUNNER_TEMP/foodmapper-release-tmp"
+          test ! -L "$RUNNER_TEMP/foodmapper-release-derived-data"
+          chmod 700 \
+            "$RUNNER_TEMP/foodmapper-release-tmp" \
+            "$RUNNER_TEMP/foodmapper-release-derived-data"
+          HOME="$RUNNER_TEMP/foodmapper-swiftpm-home" \
+          TMPDIR="$RUNNER_TEMP/foodmapper-release-tmp" \
           arch -arm64 "$DEVELOPER_DIR/usr/bin/xcodebuild" build \
             -project FoodMapper.xcodeproj \
             -scheme FoodMapper \
             -configuration Release \
             -arch arm64 \
             -derivedDataPath "$RUNNER_TEMP/foodmapper-release-derived-data" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/foodmapper-source-packages" \
+            -packageCachePath "$RUNNER_TEMP/foodmapper-package-cache" \
+            -disableAutomaticPackageResolution \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY=""
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: site/package-lock.json
 
@@ -69,7 +98,7 @@ jobs:
         run: |
           npm ci
           npm run build -- --outDir "$RUNNER_TEMP/foodmapper-site"
-          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=low
 
       - name: Check repository state
         run: |

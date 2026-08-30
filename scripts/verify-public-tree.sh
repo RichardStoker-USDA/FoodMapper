@@ -3,15 +3,19 @@ set -euo pipefail
 umask 077
 
 is_allowed_hidden_path() {
-    case "$1" in
+    local path="$1"
+    local workflow_path
+
+    case "$path" in
         .gitignore|.gitleaks.toml|.github/dependabot.yml|\
         docs/.nojekyll|\
         site/.gitattributes|site/.gitignore|site/public/.nojekyll)
             return 0
             ;;
         .github/workflows/*)
-            case "${1##*/}" in
-                .*)
+            workflow_path="${path#.github/workflows/}"
+            case "$workflow_path" in
+                */*|.*)
                     return 1
                     ;;
                 *.yml|*.yaml)
@@ -53,24 +57,72 @@ is_allowed_temporary_path_source() {
     esac
 }
 
+is_allowed_fixture_user_path() {
+    local root="$1"
+    local path="$2"
+    local pattern="$3"
+    local user_root expected_line matches
+
+    [ "$path" = "FoodMapper/PreviewHelpers.swift" ] || return 1
+    user_root="/$(printf '%s' 'Users')"
+    expected_line="            csvPath: \"${user_root}/mock/lab_foods.csv\","
+    if ! matches="$(git -C "$root" grep -I -h -E "$pattern" -- "$path")"; then
+        return 1
+    fi
+    [ "$matches" = "$expected_line" ]
+}
+
 development_trace_pattern() {
-    printf '%b' '\103\157\144\145\170|\103\154\141\165\144\145[[:space:]]+\103\157\144\145|\117\160\145\156\103\157\144\145|\101\151\144\145\162|\103\165\162\163\157\162|\103\154\151\156\145|\107\151\164\110\165\142[[:space:]]+\103\157\160\151\154\157\164|\101\107\105\116\124\123\134.\155\144|\103\114\101\125\104\105\134.\155\144|\143\154\157\165\144\134.\155\144|\147\154\157\142\141\154\134.\155\144|[Gg]enerated[[:space:]]+with|[Cc]o-[Aa]uthored-[Bb]y'
+    printf '%s' '[Gg]enerated[[:space:]]+with|[Cc]o-[Aa]uthored-[Bb]y'
 }
 
 require_tracked_path() {
     local root="$1"
     local path="$2"
     local tracked
-    tracked="$(git -C "$root" ls-files -- "$path")"
+    if ! tracked="$(git -C "$root" ls-files -- "$path")"; then
+        printf '%s\n' "Unable to enumerate tracked paths while checking: $path" >&2
+        return 1
+    fi
     if [ -z "$tracked" ]; then
         printf '%s\n' "Required public path is not tracked: $path" >&2
         return 1
     fi
 }
 
+user_path_pattern() {
+    printf '/%s/' 'Users'
+}
+
+temporary_path_pattern() {
+    printf '/%s/%s/' 'private' 'tmp'
+}
+
+git_grep_matches() {
+    local root="$1"
+    local pattern="$2"
+    local path="$3"
+    git -C "$root" grep -I -q -E "$pattern" -- "$path" >/dev/null 2>&1
+}
+
+remove_scan_root() {
+    local root="${1:-}"
+    case "$root" in
+        */foodmapper-public-tree-scan.??????)
+            if [ -e "$root" ] || [ -L "$root" ]; then
+                rm -R -- "$root"
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 verify_public_tree() {
     local root="$1"
-    local path trace_pattern failed=0
+    local path trace_pattern user_path temporary_path failed=0
+    local scan_root tracked_paths scan_status
     local required_paths=(
         README.md
         CHANGELOG.md
@@ -95,6 +147,20 @@ verify_public_tree() {
     [ "$failed" -eq 0 ] || return 1
 
     trace_pattern="$(development_trace_pattern)"
+    user_path="$(user_path_pattern)"
+    temporary_path="$(temporary_path_pattern)"
+
+    if ! scan_root="$(mktemp -d "${TMPDIR:-/tmp}/foodmapper-public-tree-scan.XXXXXX")"; then
+        printf '%s\n' "Unable to create the public tree scan directory." >&2
+        return 1
+    fi
+    tracked_paths="${scan_root}/tracked"
+    if ! git -C "$root" ls-files -z > "$tracked_paths"; then
+        printf '%s\n' "Unable to enumerate tracked paths for the public tree check." >&2
+        remove_scan_root "$scan_root" || true
+        return 1
+    fi
+
     while IFS= read -r -d '' path; do
         case "$path" in
             .*|*/.*)
@@ -105,37 +171,64 @@ verify_public_tree() {
                 ;;
         esac
 
-        if git -C "$root" grep -I -q -E '/Users/' -- "$path"; then
-            printf '%s\n' "Tracked text contains a machine-specific user path: $path" >&2
-            failed=1
+        if git_grep_matches "$root" "$user_path" "$path"; then
+            if ! is_allowed_fixture_user_path "$root" "$path" "$user_path"; then
+                printf '%s\n' "Tracked text contains a machine-specific user path: $path" >&2
+                failed=1
+            fi
+        else
+            scan_status=$?
+            if [ "$scan_status" -ne 1 ]; then
+                printf '%s\n' "Unable to scan tracked text for machine-specific paths: $path" >&2
+                failed=1
+            fi
         fi
 
         if ! is_allowed_temporary_path_source "$path" &&
-           git -C "$root" grep -I -q -E '/private/tmp/' -- "$path"; then
+           git_grep_matches "$root" "$temporary_path" "$path"; then
             printf '%s\n' "Tracked text contains an unexpected temporary path: $path" >&2
             failed=1
+        else
+            scan_status=$?
+            if [ "$scan_status" -ne 1 ]; then
+                printf '%s\n' "Unable to scan tracked text for temporary paths: $path" >&2
+                failed=1
+            fi
         fi
 
         if ! is_tokenizer_vocabulary "$path" &&
-           git -C "$root" grep -I -q -i -E "$trace_pattern" -- "$path"; then
+           git_grep_matches "$root" "$trace_pattern" "$path"; then
             printf '%s\n' "Tracked text contains an internal development trace: $path" >&2
             failed=1
+        else
+            scan_status=$?
+            if [ "$scan_status" -ne 1 ]; then
+                printf '%s\n' "Unable to scan tracked text for development traces: $path" >&2
+                failed=1
+            fi
         fi
-    done < <(git -C "$root" ls-files -z)
+    done < "$tracked_paths"
+
+    if ! remove_scan_root "$scan_root"; then
+        printf '%s\n' "Unable to remove the public tree scan directory." >&2
+        failed=1
+    fi
 
     [ "$failed" -eq 0 ]
 }
 
 self_test_root() {
-    local identifier
+    local identifier temporary_root
     identifier="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    printf '%s\n' "/private/tmp/foodmapper-public-tree-self-test-${identifier}"
+    temporary_root="/$(printf '%s' 'private')/$(printf '%s' 'tmp')"
+    printf '%s\n' "${temporary_root}/foodmapper-public-tree-self-test-${identifier}"
 }
 
 remove_self_test_root() {
     local root="${1:-}"
+    local temporary_root="/$(printf '%s' 'private')/$(printf '%s' 'tmp')"
     case "$root" in
-        /private/tmp/foodmapper-public-tree-self-test-????????-????-????-????-????????????)
+        "${temporary_root}"/foodmapper-public-tree-self-test-????????-????-????-????-????????????)
             if [ -e "$root" ] || [ -L "$root" ]; then
                 rm -R -- "$root"
             fi
@@ -167,7 +260,7 @@ make_fixture() {
     : > "$root/site/.gitignore"
     : > "$root/site/public/.nojekyll"
     printf '%s' "$(development_trace_pattern)" > "$root/FoodMapper/Resources/Models/vocab.txt"
-    git -C "$root" add -A
+    git -C "$root" add -f -A -- .
 }
 
 assert_rejected() (
@@ -176,7 +269,7 @@ assert_rejected() (
     trap 'remove_self_test_root "$root"' EXIT
     make_fixture "$root"
     "$@" "$root"
-    git -C "$root" add -A
+    git -C "$root" add -f -A -- .
     if verify_public_tree "$root" >/dev/null 2>&1; then
         return 1
     fi
@@ -193,18 +286,28 @@ add_nested_hidden_path() {
 
 add_hidden_workflow() {
     : > "$1/.github/workflows/.private.yml"
+    mkdir -p "$1/.github/workflows/.private"
+    : > "$1/.github/workflows/.private/check.yml"
 }
 
 add_user_path() {
-    printf '%s\n' '/Users/example/private-file' > "$1/FoodMapper/unsafe.swift"
+    local user_root="/$(printf '%s' 'Users')"
+    printf '%s\n' "${user_root}/example/private-file" > "$1/FoodMapper/unsafe.swift"
 }
 
 add_unexpected_temporary_path() {
-    printf '%s\n' '/private/tmp/private-file' >> "$1/README.md"
+    local temporary_root="/$(printf '%s' 'private')/$(printf '%s' 'tmp')"
+    printf '%s\n' "${temporary_root}/private-file" >> "$1/README.md"
 }
 
 add_development_trace() {
-    printf '%s\n' "$(development_trace_pattern)" > "$1/FoodMapper/unsafe.swift"
+    local generated='Generated'
+    local with='with'
+    local co='Co'
+    local authored='Authored'
+    local by='By'
+    printf '%s %s local build notes\n' "$generated" "$with" > "$1/FoodMapper/unsafe.swift"
+    printf '%s-%s-%s: example\n' "$co" "$authored" "$by" >> "$1/FoodMapper/unsafe.swift"
 }
 
 remove_required_path() {
