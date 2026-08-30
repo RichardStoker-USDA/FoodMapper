@@ -132,7 +132,8 @@ final class CustomDatabaseValidationTests: XCTestCase {
         let url = try writeDatabase("description\tnote\nMilk\tfresh\nCheese\taged\n", extension: "tsv")
         defer { try? FileManager.default.removeItem(at: url) }
         let validated = try CustomDatabaseValidator.load(url: url, textColumn: "description", idColumn: nil)
-        XCTAssertEqual(validated.entries.map(\.id), ["1", "2"])
+        XCTAssertEqual(validated.entries.map(\.id).count, 2)
+        XCTAssertTrue(validated.entries.allSatisfy { $0.id.hasPrefix("row-") })
         XCTAssertEqual(validated.entries.map(\.text), ["Milk", "Cheese"])
     }
 

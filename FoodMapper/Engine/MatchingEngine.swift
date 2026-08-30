@@ -119,6 +119,7 @@ enum CustomDatabaseValidator {
         var entries: [DatabaseEntry] = []
         entries.reserveCapacity(records.count - 1)
         var ids = [String: Int]()
+        var generatedIDCounts = [String: Int]()
         var normalizedRows: [String] = []
         normalizedRows.reserveCapacity(records.count - 1)
 
@@ -145,7 +146,12 @@ enum CustomDatabaseValidator {
                 }
                 ids[id] = rowNumber
             } else {
-                id = "\(recordIndex)"
+                let normalizedRow = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .joined(separator: "\u{1F}")
+                let baseID = "row-\(digest(normalizedRow).prefix(24))"
+                let collision = generatedIDCounts[baseID, default: 0]
+                generatedIDCounts[baseID] = collision + 1
+                id = collision == 0 ? baseID : "\(baseID)-\(collision + 1)"
             }
 
             var additionalFields: [String: String] = [:]
@@ -427,13 +433,17 @@ actor MatchingEngine {
         // 1. Check for model-versioned cached embeddings
         let versionedURL = Self.customEmbeddingsDir.appendingPathComponent("\(database.id)_embeddings_\(modelKey).bin")
         let metadataURL = database.cacheMetadataURL(for: modelKey)
-        if FileManager.default.fileExists(atPath: versionedURL.path),
-           let cachedMetadata = try? decodeCacheMetadata(at: metadataURL),
-           cachedMetadata.matchesIdentity(metadata),
-           cachedMetadata.embeddingDigest == CustomDatabaseValidator.digest((try? Data(contentsOf: versionedURL)) ?? Data()) {
+        if FileManager.default.fileExists(atPath: versionedURL.path) {
             do {
-                let matrix = try loadBinaryEmbeddingsAsMatrix(from: versionedURL, count: entries.count, embeddingDim: embeddingDim)
-                return DatabaseLoadResult(entries: entries, matrix: matrix, embeddings: nil)
+                let cachedMetadata = try decodeCacheMetadata(at: metadataURL)
+                if cachedMetadata.matchesIdentity(metadata) {
+                    let cacheData = try Data(contentsOf: versionedURL)
+                    guard cachedMetadata.embeddingDigest == CustomDatabaseValidator.digest(cacheData) else {
+                        throw MatchingError.invalidEmbeddingsFile
+                    }
+                    let matrix = try loadBinaryEmbeddingsAsMatrix(from: versionedURL, count: entries.count, embeddingDim: embeddingDim)
+                    return DatabaseLoadResult(entries: entries, matrix: matrix, embeddings: nil)
+                }
             } catch {
                 logger.warning("Ignoring invalid custom embedding cache for \(database.displayName): \(error.localizedDescription)")
             }
@@ -655,6 +665,10 @@ actor MatchingEngine {
             throw MatchingError.invalidEmbeddingsFile
         }
 
+        guard data.withUnsafeBytes({ buffer in buffer.bindMemory(to: Float.self).allSatisfy(\.isFinite) }) else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
+
         var embeddings: [[Float]] = []
         data.withUnsafeBytes { buffer in
             let floats = buffer.bindMemory(to: Float.self)
@@ -675,6 +689,9 @@ actor MatchingEngine {
         let data = try Data(contentsOf: url)
         let expectedSize = count * embeddingDim * MemoryLayout<Float>.size
         guard data.count == expectedSize else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
+        guard data.withUnsafeBytes({ buffer in buffer.bindMemory(to: Float.self).allSatisfy(\.isFinite) }) else {
             throw MatchingError.invalidEmbeddingsFile
         }
         return MLXArray(data, [count, embeddingDim], type: Float.self)

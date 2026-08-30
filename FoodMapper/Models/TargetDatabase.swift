@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // MARK: - Food Database Protocol
 
@@ -239,7 +240,21 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Whether embeddings exist for a specific model key
     func hasEmbeddings(for modelKey: String) -> Bool {
-        FileManager.default.fileExists(atPath: cacheURL(for: modelKey).path)
+        let cacheURL = cacheURL(for: modelKey)
+        let metadataURL = cacheMetadataURL(for: modelKey)
+        guard let metadataData = try? Data(contentsOf: metadataURL),
+              let metadata = try? JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData),
+              metadata.version == CustomDatabaseCacheMetadata.currentVersion,
+              metadata.databaseID == id,
+              metadata.modelKey == modelKey,
+              let data = try? Data(contentsOf: cacheURL),
+              data.count == metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size,
+              SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == metadata.embeddingDigest else {
+            return false
+        }
+        return data.withUnsafeBytes { buffer in
+            buffer.bindMemory(to: Float.self).allSatisfy { $0.isFinite }
+        }
     }
 
     /// Size of the embedding cache file for a specific model

@@ -1,6 +1,7 @@
 import SwiftUI
 import MLX
 import os
+import Darwin
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "state")
 
@@ -172,7 +173,8 @@ extension AppState {
                     continue
                 }
                 do {
-                    try copyDatabaseSourceAtomically(customDatabases[i])
+                    let stagedURL = try stageDatabaseSource(customDatabases[i])
+                    try commitStagedDatabaseSource(stagedURL, for: customDatabases[i])
                 } catch {
                     logger.warning("Migration: failed to copy CSV for \(self.customDatabases[i].displayName): \(error)")
                     continue
@@ -226,16 +228,31 @@ extension AppState {
         try data.write(to: customDatabasesURL, options: [.atomic])
     }
 
-    private func copyDatabaseSourceAtomically(_ database: CustomDatabase) throws {
+    private func stageDatabaseSource(_ database: CustomDatabase) throws -> URL {
         let sourceURL = URL(fileURLWithPath: database.csvPath)
         let destinationURL = database.storedCsvURL
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourceURL.path) else { throw MatchingError.databaseNotFound }
+        let descriptor = open(sourceURL.path, O_RDONLY | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_nlink == 1 else { throw MatchingError.databaseNotFound }
         try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: destinationURL.deletingLastPathComponent().path)
         let stagedURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
-        defer { try? fileManager.removeItem(at: stagedURL) }
-        try fileManager.copyItem(at: sourceURL, to: stagedURL)
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        guard let data = try handle.readToEnd() else { throw MatchingError.databaseNotFound }
+        try data.write(to: stagedURL, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagedURL.path)
+        return stagedURL
+    }
+
+    private func commitStagedDatabaseSource(_ stagedURL: URL, for database: CustomDatabase) throws {
+        let destinationURL = database.storedCsvURL
+        let fileManager = FileManager.default
         if fileManager.fileExists(atPath: destinationURL.path) {
             _ = try fileManager.replaceItemAt(destinationURL, withItemAt: stagedURL)
         } else {
@@ -251,11 +268,12 @@ extension AppState {
             return
         }
         do {
-            let sourceURL = URL(fileURLWithPath: database.csvPath)
+            let stagedSourceURL = try stageDatabaseSource(database)
+            defer { try? FileManager.default.removeItem(at: stagedSourceURL) }
             let validated = try CustomDatabaseValidator.load(
-                url: sourceURL, textColumn: database.textColumn, idColumn: database.idColumn
+                url: stagedSourceURL, textColumn: database.textColumn, idColumn: database.idColumn
             )
-            let sourceContent = try String(contentsOf: sourceURL, encoding: .utf8)
+            let sourceContent = try String(contentsOf: stagedSourceURL, encoding: .utf8)
             var finalDatabase = database
             finalDatabase.fileFormat = DataFileFormat.detect(from: CSVParser.stripBOM(sourceContent))
             finalDatabase.itemCount = validated.entries.count
@@ -264,7 +282,7 @@ extension AppState {
                 content: CSVParser.stripBOM(sourceContent),
                 delimiter: finalDatabase.fileFormat.delimiter
             ).first?.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            try copyDatabaseSourceAtomically(finalDatabase)
+            try commitStagedDatabaseSource(stagedSourceURL, for: finalDatabase)
             do {
                 let updatedDatabases = customDatabases + [finalDatabase]
                 try persistCustomDatabases(updatedDatabases)
