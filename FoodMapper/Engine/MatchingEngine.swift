@@ -7,6 +7,25 @@ import Darwin
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
+enum CacheRecoveryState {
+    private static let lock = NSLock()
+    private static var requiresUserReview = false
+
+    static func markFailure() {
+        lock.lock()
+        requiresUserReview = true
+        lock.unlock()
+    }
+
+    static func consumeFailure() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let value = requiresUserReview
+        requiresUserReview = false
+        return value
+    }
+}
+
 struct CustomDatabaseCacheMetadata: Codable, Equatable {
     static let currentVersion = 1
 
@@ -737,56 +756,34 @@ actor MatchingEngine {
         metadataURL: URL
     ) throws {
         try Task.checkCancellation()
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cacheURL.deletingLastPathComponent().path)
-        let stagingCacheURL = cacheURL.deletingLastPathComponent()
+        let directory = cacheURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: directory.path)
+        try SecureFileAccess.validateStorageDirectory(directory)
+        let stagingCacheURL = directory
             .appendingPathComponent(".\(cacheURL.lastPathComponent).\(UUID().uuidString).stage")
-        let stagingMetadataURL = metadataURL.deletingLastPathComponent()
+        let stagingMetadataURL = directory
             .appendingPathComponent(".\(metadataURL.lastPathComponent).\(UUID().uuidString).stage")
-        defer {
-            try? fileManager.removeItem(at: stagingCacheURL)
-            try? fileManager.removeItem(at: stagingMetadataURL)
-        }
-        try data.write(to: stagingCacheURL, options: [.atomic])
+        try SecureFileAccess.writePrivateFile(data, named: stagingCacheURL.lastPathComponent, in: directory)
         try Task.checkCancellation()
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingCacheURL.path)
-        try synchronizeFile(stagingCacheURL)
         let expectedSize = try Self.expectedEmbeddingByteCount(
             entries: metadata.entryCount, dimensions: metadata.embeddingDimensions
         )
-        let stagedSize = try stagingCacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
-        guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
-        try JSONEncoder().encode(metadata).write(to: stagingMetadataURL, options: [.atomic])
+        let stagedDescriptor = try SecureFileAccess.openRegularFile(
+            stagingCacheURL, under: directory, maximumSize: Int64(expectedSize)
+        )
+        defer { close(stagedDescriptor) }
+        var stagedInfo = stat()
+        guard fstat(stagedDescriptor, &stagedInfo) == 0, stagedInfo.st_size == off_t(expectedSize) else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
+        try SecureFileAccess.writePrivateFile(
+            try JSONEncoder().encode(metadata), named: stagingMetadataURL.lastPathComponent, in: directory
+        )
         try Task.checkCancellation()
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingMetadataURL.path)
-        try synchronizeFile(stagingMetadataURL)
         _ = try decodeCacheMetadata(at: stagingMetadataURL)
 
         try commitCacheTransaction(stagingCacheURL, stagingMetadataURL, cacheURL: cacheURL, metadataURL: metadataURL)
-    }
-
-    private func replaceAtomically(_ stagedURL: URL, at destinationURL: URL) throws {
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: stagedURL)
-        } else {
-            try fileManager.moveItem(at: stagedURL, to: destinationURL)
-        }
-    }
-
-    private func synchronizeFile(_ url: URL) throws {
-        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw MatchingError.invalidEmbeddingsFile }
-        defer { close(descriptor) }
-        guard fsync(descriptor) == 0 else { throw MatchingError.invalidEmbeddingsFile }
-    }
-
-    private func synchronizeDirectory(_ url: URL) throws {
-        let descriptor = open(url.path, O_RDONLY)
-        guard descriptor >= 0 else { throw MatchingError.invalidEmbeddingsFile }
-        defer { close(descriptor) }
-        guard fsync(descriptor) == 0 else { throw MatchingError.invalidEmbeddingsFile }
     }
 
     private func commitCacheTransaction(
@@ -796,48 +793,53 @@ actor MatchingEngine {
         metadataURL: URL,
         cancellationCheck: (() throws -> Void)? = nil
     ) throws {
-        let fileManager = FileManager.default
         let directory = cacheURL.deletingLastPathComponent()
         let transaction = directory.appendingPathComponent(".cache-transaction-\(UUID().uuidString)")
         let backupCache = transaction.appendingPathComponent("cache.backup")
         let backupMetadata = transaction.appendingPathComponent("metadata.backup")
-        try fileManager.createDirectory(at: transaction, withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
+        try SecureFileAccess.validateStorageDirectory(directory)
+        try SecureFileAccess.createPrivateDirectory(transaction.lastPathComponent, in: directory)
         let stagedMetadataValue = try decodeCacheMetadata(at: stagedMetadata)
         let journal = CacheCommitJournal(
             cacheName: cacheURL.lastPathComponent, metadataName: metadataURL.lastPathComponent,
             metadata: stagedMetadataValue
         )
         let journalURL = transaction.appendingPathComponent("journal.json")
-        try JSONEncoder().encode(journal).write(to: journalURL, options: [.atomic])
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
-        try synchronizeDirectory(transaction)
+        try SecureFileAccess.writePrivateFile(try JSONEncoder().encode(journal), named: journalURL.lastPathComponent, in: transaction)
+        try SecureFileAccess.synchronize(transaction, directory: true)
         do {
             try Task.checkCancellation()
             try cancellationCheck?()
-            if fileManager.fileExists(atPath: cacheURL.path) { try fileManager.moveItem(at: cacheURL, to: backupCache) }
-            if fileManager.fileExists(atPath: metadataURL.path) { try fileManager.moveItem(at: metadataURL, to: backupMetadata) }
-            try synchronizeDirectory(directory)
+            _ = try SecureFileAccess.renameRegularFileIfPresent(
+                cacheURL.lastPathComponent, from: directory, to: backupCache.lastPathComponent, in: transaction
+            )
+            _ = try SecureFileAccess.renameRegularFileIfPresent(
+                metadataURL.lastPathComponent, from: directory, to: backupMetadata.lastPathComponent, in: transaction
+            )
             try Task.checkCancellation()
             try cancellationCheck?()
-            try fileManager.moveItem(at: stagedCache, to: cacheURL)
+            try SecureFileAccess.renameRegularFile(
+                stagedCache.lastPathComponent, from: directory, to: cacheURL.lastPathComponent, in: directory
+            )
             try Task.checkCancellation()
             try cancellationCheck?()
-            try fileManager.moveItem(at: stagedMetadata, to: metadataURL)
-            try synchronizeDirectory(directory)
+            try SecureFileAccess.renameRegularFile(
+                stagedMetadata.lastPathComponent, from: directory, to: metadataURL.lastPathComponent, in: directory
+            )
             try Task.checkCancellation()
             try cancellationCheck?()
-            try fileManager.removeItem(at: transaction)
-            try synchronizeDirectory(directory)
+            try Self.removeCacheTransaction(transaction, in: directory)
         } catch {
             do {
-                if fileManager.fileExists(atPath: cacheURL.path) { try fileManager.removeItem(at: cacheURL) }
-                if fileManager.fileExists(atPath: metadataURL.path) { try fileManager.removeItem(at: metadataURL) }
-                if fileManager.fileExists(atPath: backupCache.path) { try fileManager.moveItem(at: backupCache, to: cacheURL) }
-                if fileManager.fileExists(atPath: backupMetadata.path) { try fileManager.moveItem(at: backupMetadata, to: metadataURL) }
-                try synchronizeDirectory(directory)
-                try fileManager.removeItem(at: transaction)
-                try synchronizeDirectory(directory)
+                _ = try SecureFileAccess.removeRegularFileIfPresent(cacheURL.lastPathComponent, from: directory)
+                _ = try SecureFileAccess.removeRegularFileIfPresent(metadataURL.lastPathComponent, from: directory)
+                _ = try SecureFileAccess.renameRegularFileIfPresent(
+                    backupCache.lastPathComponent, from: transaction, to: cacheURL.lastPathComponent, in: directory
+                )
+                _ = try SecureFileAccess.renameRegularFileIfPresent(
+                    backupMetadata.lastPathComponent, from: transaction, to: metadataURL.lastPathComponent, in: directory
+                )
+                try Self.removeCacheTransaction(transaction, in: directory)
             } catch {
                 // Keep the journal and backups for launch recovery. Removing them
                 // here could discard the last complete cache pair.
@@ -900,23 +902,34 @@ actor MatchingEngine {
                     // only recoverable copy after an interrupted filesystem update.
                     throw MatchingError.invalidEmbeddingsFile
                 }
-                try SecureFileAccess.synchronize(directory, directory: true)
-                try FileManager.default.removeItem(at: transaction)
-                try SecureFileAccess.synchronize(directory, directory: true)
+                try Self.removeCacheTransaction(transaction, in: directory)
             } catch {
                 quarantine(transaction, in: directory)
             }
         }
         for stage in items where stage.lastPathComponent.hasPrefix(".") && stage.lastPathComponent.hasSuffix(".stage") {
-            try? FileManager.default.removeItem(at: stage)
+            _ = try? SecureFileAccess.removeRegularFileIfPresent(stage.lastPathComponent, from: directory)
         }
+    }
+
+    private nonisolated static func removeCacheTransaction(_ transaction: URL, in directory: URL) throws {
+        guard transaction.deletingLastPathComponent() == directory else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
+        for leaf in ["cache.backup", "metadata.backup", "journal.json"] {
+            _ = try SecureFileAccess.removeRegularFileIfPresent(leaf, from: transaction)
+        }
+        try SecureFileAccess.remove(transaction.lastPathComponent, from: directory, directoryEntry: true)
     }
 
     private nonisolated static func quarantine(_ transaction: URL, in directory: URL) {
         let destination = directory.appendingPathComponent(".cache-quarantine-\(UUID().uuidString)", isDirectory: true)
         do {
-            try FileManager.default.moveItem(at: transaction, to: destination)
-            try SecureFileAccess.synchronize(directory, directory: true)
+            try SecureFileAccess.rename(
+                transaction.lastPathComponent, from: directory,
+                to: destination.lastPathComponent, in: directory
+            )
+            CacheRecoveryState.markFailure()
         } catch {
             logger.error("Could not quarantine interrupted cache transaction: \(error.localizedDescription)")
         }
@@ -973,18 +986,31 @@ actor MatchingEngine {
     ) throws {
         // A source and destination can be the same live file. Only remove a
         // destination when it is a different inode/path than the verified source.
-        let manager = FileManager.default
-        if sourceCache.path != destinationCache.path, manager.fileExists(atPath: destinationCache.path) {
-            try manager.removeItem(at: destinationCache)
+        guard sourceCache.deletingLastPathComponent() == directory ||
+              sourceCache.deletingLastPathComponent().deletingLastPathComponent() == directory,
+              sourceMetadata.deletingLastPathComponent() == directory ||
+              sourceMetadata.deletingLastPathComponent().deletingLastPathComponent() == directory else {
+            throw MatchingError.invalidEmbeddingsFile
         }
-        if sourceMetadata.path != destinationMetadata.path, manager.fileExists(atPath: destinationMetadata.path) {
-            try manager.removeItem(at: destinationMetadata)
-        }
+        let sourceCacheDirectory = sourceCache.deletingLastPathComponent()
+        let sourceMetadataDirectory = sourceMetadata.deletingLastPathComponent()
         if sourceCache.path != destinationCache.path {
-            try manager.moveItem(at: sourceCache, to: destinationCache)
+            _ = try SecureFileAccess.removeRegularFileIfPresent(destinationCache.lastPathComponent, from: directory)
         }
         if sourceMetadata.path != destinationMetadata.path {
-            try manager.moveItem(at: sourceMetadata, to: destinationMetadata)
+            _ = try SecureFileAccess.removeRegularFileIfPresent(destinationMetadata.lastPathComponent, from: directory)
+        }
+        if sourceCache.path != destinationCache.path {
+            try SecureFileAccess.renameRegularFile(
+                sourceCache.lastPathComponent, from: sourceCacheDirectory,
+                to: destinationCache.lastPathComponent, in: directory
+            )
+        }
+        if sourceMetadata.path != destinationMetadata.path {
+            try SecureFileAccess.renameRegularFile(
+                sourceMetadata.lastPathComponent, from: sourceMetadataDirectory,
+                to: destinationMetadata.lastPathComponent, in: directory
+            )
         }
         guard isValidCachePair(destinationCache, destinationMetadata) else {
             throw MatchingError.invalidEmbeddingsFile
@@ -1394,6 +1420,7 @@ actor MatchingEngine {
         let stagingDirectory = stagingURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingDirectory.path)
+        try SecureFileAccess.validateStorageDirectory(stagingDirectory)
         let stagingDescriptor = try SecureFileAccess.createPrivateFile(stagingURL.lastPathComponent, in: stagingDirectory)
         let fileHandle = FileHandle(fileDescriptor: stagingDescriptor, closeOnDealloc: false)
 
@@ -1435,16 +1462,18 @@ actor MatchingEngine {
                 Memory.clearCache()
             }
 
+            try fileHandle.synchronize()
             try fileHandle.close()
-            try synchronizeFile(stagingURL)
             let expectedSize = try Self.expectedEmbeddingByteCount(entries: totalCount, dimensions: model.info.dimensions)
-            let stagedSize = try stagingURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
-            guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
             try checkRun(runID)
             let descriptor = try SecureFileAccess.openRegularFile(
                 stagingURL, under: stagingURL.deletingLastPathComponent(), maximumSize: Int64(expectedSize)
             )
             defer { close(descriptor) }
+            var stagedInfo = stat()
+            guard fstat(descriptor, &stagedInfo) == 0, stagedInfo.st_size == off_t(expectedSize) else {
+                throw MatchingError.invalidEmbeddingsFile
+            }
             let stagedData = try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: expectedSize) {
                 Task.isCancelled
             }
@@ -1457,7 +1486,7 @@ actor MatchingEngine {
             )
         } catch {
             try? fileHandle.close()
-            try? FileManager.default.removeItem(at: stagingURL)
+            _ = try? SecureFileAccess.removeRegularFileIfPresent(stagingURL.lastPathComponent, from: stagingDirectory)
             throw error
         }
     }
@@ -1471,22 +1500,26 @@ actor MatchingEngine {
     ) throws {
         let metadataStage = metadataURL.deletingLastPathComponent()
             .appendingPathComponent(".\(metadataURL.lastPathComponent).\(UUID().uuidString).stage")
-        defer {
-            try? FileManager.default.removeItem(at: metadataStage)
-            try? FileManager.default.removeItem(at: stagingURL)
-        }
         try checkRun(runID)
-        try JSONEncoder().encode(metadata).write(to: metadataStage, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metadataStage.path)
-        try synchronizeFile(metadataStage)
+        try SecureFileAccess.writePrivateFile(
+            try JSONEncoder().encode(metadata), named: metadataStage.lastPathComponent,
+            in: metadataStage.deletingLastPathComponent()
+        )
         _ = try decodeCacheMetadata(at: metadataStage)
 
-        try checkRun(runID)
-        try commitCacheTransaction(
-            stagingURL, metadataStage, cacheURL: cacheURL, metadataURL: metadataURL,
-            cancellationCheck: { try self.checkRun(runID) }
-        )
-        try checkRun(runID)
+        do {
+            try checkRun(runID)
+            try commitCacheTransaction(
+                stagingURL, metadataStage, cacheURL: cacheURL, metadataURL: metadataURL,
+                cancellationCheck: { try self.checkRun(runID) }
+            )
+            try checkRun(runID)
+        } catch {
+            let directory = metadataStage.deletingLastPathComponent()
+            _ = try? SecureFileAccess.removeRegularFileIfPresent(metadataStage.lastPathComponent, from: directory)
+            _ = try? SecureFileAccess.removeRegularFileIfPresent(stagingURL.lastPathComponent, from: directory)
+            throw error
+        }
     }
 
     /// Cancel ongoing embedding or matching

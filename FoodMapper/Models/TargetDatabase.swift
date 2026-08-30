@@ -6,6 +6,10 @@ enum SecureFileAccess {
     static let storageDirectoryPermissions: mode_t = 0o700
     static let privateFilePermissions: mode_t = 0o600
 
+    #if DEBUG
+    nonisolated(unsafe) static var beforeRenameRegularFileForTesting: (() -> Void)?
+    #endif
+
     /// Opens a regular file after checking every path component with lstat. The
     /// returned descriptor remains the authority for the subsequent read.
     static func openRegularFile(
@@ -163,6 +167,9 @@ enum SecureFileAccess {
               (sourceInfo.st_mode & S_IWOTH) == 0 else {
             throw MatchingError.databaseNotFound
         }
+        #if DEBUG
+        beforeRenameRegularFileForTesting?()
+        #endif
         guard renameat(sourceDirectoryDescriptor, source, destinationDirectoryDescriptor, destination) == 0 else {
             throw MatchingError.databaseNotFound
         }
@@ -189,6 +196,109 @@ enum SecureFileAccess {
         close(descriptor)
         guard file >= 0 else { throw MatchingError.databaseNotFound }
         return file
+    }
+
+    static func createPrivateDirectory(_ leaf: String, in directory: URL) throws {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        try validateStorageDirectory(directory)
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(descriptor) }
+        if mkdirat(descriptor, leaf, storageDirectoryPermissions) != 0, errno != EEXIST {
+            throw MatchingError.databaseNotFound
+        }
+        let child = openat(descriptor, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard child >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(child) }
+        var info = stat()
+        guard fstat(child, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid(),
+              (info.st_mode & 0o077) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(directory, directory: true)
+    }
+
+    static func writePrivateFile(_ data: Data, named leaf: String, in directory: URL) throws {
+        let descriptor = try createPrivateFile(leaf, in: directory)
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            _ = try? removeRegularFileIfPresent(leaf, from: directory)
+            throw error
+        }
+        try synchronize(directory, directory: true)
+    }
+
+    @discardableResult
+    static func renameRegularFileIfPresent(
+        _ source: String, from sourceDirectory: URL,
+        to destination: String, in destinationDirectory: URL
+    ) throws -> Bool {
+        guard safeLeaf(source), safeLeaf(destination) else { throw MatchingError.databaseNotFound }
+        let sourceDirectoryDescriptor = try openDirectory(components: pathComponents(for: sourceDirectory))
+        defer { close(sourceDirectoryDescriptor) }
+        let destinationDirectoryDescriptor = try openDirectory(components: pathComponents(for: destinationDirectory))
+        defer { close(destinationDirectoryDescriptor) }
+        let sourceDescriptor = openat(sourceDirectoryDescriptor, source, O_RDONLY | O_NOFOLLOW)
+        if sourceDescriptor < 0 {
+            if errno == ENOENT { return false }
+            throw MatchingError.databaseNotFound
+        }
+        defer { close(sourceDescriptor) }
+        var sourceInfo = stat()
+        guard fstat(sourceDescriptor, &sourceInfo) == 0,
+              (sourceInfo.st_mode & S_IFMT) == S_IFREG,
+              sourceInfo.st_nlink == 1,
+              sourceInfo.st_uid == getuid(),
+              (sourceInfo.st_mode & S_IWOTH) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        guard renameat(sourceDirectoryDescriptor, source, destinationDirectoryDescriptor, destination) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        let destinationDescriptor = openat(destinationDirectoryDescriptor, destination, O_RDONLY | O_NOFOLLOW)
+        guard destinationDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(destinationDescriptor) }
+        var destinationInfo = stat()
+        guard fstat(destinationDescriptor, &destinationInfo) == 0,
+              destinationInfo.st_dev == sourceInfo.st_dev,
+              destinationInfo.st_ino == sourceInfo.st_ino else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(sourceDirectory, directory: true)
+        if sourceDirectory.path != destinationDirectory.path {
+            try synchronize(destinationDirectory, directory: true)
+        }
+        return true
+    }
+
+    @discardableResult
+    static func removeRegularFileIfPresent(_ leaf: String, from directory: URL) throws -> Bool {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        let directoryDescriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(directoryDescriptor) }
+        let fileDescriptor = openat(directoryDescriptor, leaf, O_RDONLY | O_NOFOLLOW)
+        if fileDescriptor < 0 {
+            if errno == ENOENT { return false }
+            throw MatchingError.databaseNotFound
+        }
+        defer { close(fileDescriptor) }
+        var info = stat()
+        guard fstat(fileDescriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_nlink == 1,
+              info.st_uid == getuid(),
+              (info.st_mode & S_IWOTH) == 0,
+              unlinkat(directoryDescriptor, leaf, 0) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(directory, directory: true)
+        return true
     }
 
     static func remove(_ leaf: String, from directory: URL, directoryEntry: Bool = false) throws {
@@ -261,14 +371,30 @@ enum FoodMapperStorage {
     }
 
     static var applicationSupportURL: URL {
-        if let override = applicationSupportOverride { return override }
+        if let override = applicationSupportOverride {
+            enforceTestStorageIsolation(override)
+            return override
+        }
         // XCTest launches the host application before individual test setup.
         // Direct all app-level storage to a per-process directory so startup
         // discovery and GTE checks cannot touch the user's Application Support.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            enforceTestStorageIsolation(testApplicationSupportURL)
             return testApplicationSupportURL
         }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    }
+
+    static func isAllowedTestStorageURL(_ url: URL) -> Bool {
+        let live = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .standardizedFileURL.path
+        return url.standardizedFileURL.path != live
+    }
+
+    private static func enforceTestStorageIsolation(_ url: URL) {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil || isAllowedTestStorageURL(url) else {
+            preconditionFailure("Tests must not use the user's Application Support directory")
+        }
     }
 }
 

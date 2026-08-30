@@ -1135,11 +1135,14 @@ final class AppState: ObservableObject {
 }
 
 enum DatabaseRecoveryIssue: Equatable {
+    case cache
     case registryWrite
     case deletion(String)
 
     var message: String {
         switch self {
+        case .cache:
+            return "FoodMapper kept an incomplete embedding cache separate from your databases. Rebuild that cache before using it."
         case .registryWrite:
             return "FoodMapper kept files from an interrupted database-list update. The previous list remains in use."
         case let .deletion(name):

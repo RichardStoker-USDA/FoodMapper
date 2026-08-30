@@ -513,6 +513,9 @@ extension AppState {
             return engine
         }
         let engine = try await MatchingEngine()
+        if CacheRecoveryState.consumeFailure() {
+            databaseRecoveryIssue = .cache
+        }
         matchingEngine = engine
         return engine
     }
@@ -523,6 +526,9 @@ extension AppState {
             return engine
         }
         let engine = try await MatchingEngine()
+        if CacheRecoveryState.consumeFailure() {
+            databaseRecoveryIssue = .cache
+        }
         tourEngine = engine
         return engine
     }

@@ -454,7 +454,6 @@ extension AppState {
 
     private func commitStagedDatabaseSource(_ stagedURL: URL, for database: CustomDatabase) throws {
         let destinationURL = database.storedCsvURL
-        let fileManager = FileManager.default
         try SecureFileAccess.validateStorageDirectory(destinationURL.deletingLastPathComponent())
         let stagedDescriptor = try SecureFileAccess.openRegularFile(stagedURL, under: destinationURL.deletingLastPathComponent(), maximumSize: Int64(CustomDatabaseValidator.maximumImportBytes))
         defer { close(stagedDescriptor) }

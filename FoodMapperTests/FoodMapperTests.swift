@@ -123,6 +123,7 @@ final class CustomDatabaseValidationTests: XCTestCase {
             .appendingPathComponent("foodmapper-app-support-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
         FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
+        _ = CacheRecoveryState.consumeFailure()
     }
 
     override func tearDownWithError() throws {
@@ -139,6 +140,9 @@ final class CustomDatabaseValidationTests: XCTestCase {
     func testExplicitStorageOverrideKeepsTestsOutOfUserSupport() {
         XCTAssertTrue(FoodMapperStorage.applicationSupportURL.path.hasPrefix("/private/tmp/"))
         XCTAssertFalse(FoodMapperStorage.applicationSupportURL.path.contains("/Library/Application Support/"))
+        let live = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        XCTAssertFalse(FoodMapperStorage.isAllowedTestStorageURL(live))
+        XCTAssertTrue(FoodMapperStorage.isAllowedTestStorageURL(FoodMapperStorage.applicationSupportURL))
     }
 
     func testRejectsDuplicateAndBlankIDs() throws {
@@ -363,6 +367,46 @@ final class CustomDatabaseValidationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
     }
 
+    func testCacheRecoveryKeepsCompletedNewPairAndRemovesBackups() async throws {
+        let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let transaction = directory.appendingPathComponent(".cache-transaction-complete", isDirectory: true)
+        try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
+        let cacheName = "database_embeddings_model.bin"
+        let metadataName = "database_embeddings_model.json"
+        let newData = [Float(3), 4].withUnsafeBufferPointer { Data(buffer: $0) }
+        let oldData = [Float(1), 2].withUnsafeBufferPointer { Data(buffer: $0) }
+        let metadata = CustomDatabaseCacheMetadata(
+            version: 1, databaseID: "database", sourceHash: String(repeating: "b", count: 64),
+            schemaHash: String(repeating: "c", count: 64), rowOrderHash: String(repeating: "d", count: 64),
+            textColumn: "description", idColumn: "id", modelKey: "model",
+            modelArtifactFingerprint: String(repeating: "a", count: 64), entryCount: 1,
+            embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(newData)
+        )
+        try newData.write(to: directory.appendingPathComponent(cacheName))
+        try JSONEncoder().encode(metadata).write(to: directory.appendingPathComponent(metadataName))
+        try oldData.write(to: transaction.appendingPathComponent("cache.backup"))
+        try JSONEncoder().encode(metadata.withEmbeddingDigest(CustomDatabaseValidator.digest(oldData)))
+            .write(to: transaction.appendingPathComponent("metadata.backup"))
+        try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName, metadata: metadata))
+            .write(to: transaction.appendingPathComponent("journal.json"))
+        for url in [
+            directory.appendingPathComponent(cacheName), directory.appendingPathComponent(metadataName),
+            transaction.appendingPathComponent("cache.backup"), transaction.appendingPathComponent("metadata.backup"),
+            transaction.appendingPathComponent("journal.json")
+        ] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+
+        _ = try await MatchingEngine()
+
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(cacheName)), newData)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+        XCTAssertFalse(CacheRecoveryState.consumeFailure())
+    }
+
     func testGiantCacheJournalIsQuarantinedBeforeReadingCache() async throws {
         let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -459,6 +503,55 @@ final class ModelSnapshotTests: XCTestCase {
         XCTAssertFalse(CustomDatabase.isSafeModelKey("../../outside"))
         XCTAssertFalse(CustomDatabase.isSafeModelKey("model/key"))
     }
+
+    func testDescriptorMoveRejectsSymlinkAndHardlinkSources() throws {
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-secure-moves-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let target = directory.appendingPathComponent("target.bin")
+        let symlink = directory.appendingPathComponent("symlink.bin")
+        let hardlink = directory.appendingPathComponent("hardlink.bin")
+        try Data([1]).write(to: target)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+        XCTAssertThrowsError(try SecureFileAccess.renameRegularFile(
+            symlink.lastPathComponent, from: directory, to: "moved-symlink.bin", in: directory
+        ))
+        try FileManager.default.linkItem(at: target, to: hardlink)
+        XCTAssertThrowsError(try SecureFileAccess.renameRegularFile(
+            hardlink.lastPathComponent, from: directory, to: "moved-hardlink.bin", in: directory
+        ))
+    }
+
+    func testDescriptorMoveRejectsPathSwapAfterIdentityCapture() throws {
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-path-swap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let source = directory.appendingPathComponent("source.bin")
+        let replacement = directory.appendingPathComponent("replacement.bin")
+        try Data([1]).write(to: source)
+        try Data([2]).write(to: replacement)
+        for url in [source, replacement] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        #if DEBUG
+        SecureFileAccess.beforeRenameRegularFileForTesting = {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.createSymbolicLink(at: source, withDestinationURL: replacement)
+        }
+        defer { SecureFileAccess.beforeRenameRegularFileForTesting = nil }
+        XCTAssertThrowsError(try SecureFileAccess.renameRegularFile(
+            source.lastPathComponent, from: directory, to: "destination.bin", in: directory
+        ))
+        XCTAssertThrowsError(try SecureFileAccess.openRegularFile(
+            directory.appendingPathComponent("destination.bin"), under: directory
+        ))
+        #endif
+    }
 }
 
 @MainActor
@@ -470,6 +563,7 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
             .appendingPathComponent("foodmapper-operation-support-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
         FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
+        _ = CacheRecoveryState.consumeFailure()
     }
 
     override func tearDownWithError() throws {
@@ -595,6 +689,22 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: cache.appendingPathComponent(files[1])), Data([9]))
         let names = try FileManager.default.contentsOfDirectory(atPath: cache.path)
         XCTAssertTrue(names.contains { $0.hasPrefix(".delete-quarantine-") })
+    }
+
+    func testQuarantinedCacheIsVisibleInDatabaseManagementState() async throws {
+        let cache = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cache.path)
+        let interrupted = cache.appendingPathComponent(".cache-transaction-invalid", isDirectory: true)
+        try FileManager.default.createDirectory(at: interrupted, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: interrupted.path)
+
+        let state = AppState()
+        _ = try await state.getOrCreateEngine()
+
+        XCTAssertEqual(state.databaseRecoveryIssue, .cache)
+        let names = try FileManager.default.contentsOfDirectory(atPath: cache.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix(".cache-quarantine-") })
     }
 
     private func deletionJournalData(
