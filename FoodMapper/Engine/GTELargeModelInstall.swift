@@ -212,7 +212,12 @@ enum GTELargeSecurePath {
         }
         defer { closedir(stream) }
         var entries: [URL] = []
-        while let entry = readdir(stream) {
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else {
+                guard errno == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                break
+            }
             let name = withUnsafePointer(to: entry.pointee.d_name) {
                 $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
                     String(cString: $0)
@@ -309,7 +314,9 @@ enum GTELargeSecurePath {
             }
             entries += 1
             if (status.st_mode & S_IFMT) == S_IFREG {
-                let (next, overflow) = bytes.addingReportingOverflow(Int64(status.st_size))
+                let size = Int64(truncatingIfNeeded: status.st_size)
+                guard size >= 0 else { throw GTELargeModelInstallError.unsafePath }
+                let (next, overflow) = bytes.addingReportingOverflow(size)
                 guard !overflow, next <= maximumBytes else {
                     throw GTELargeModelInstallError.unsafePath
                 }
@@ -331,7 +338,9 @@ enum GTELargeSecurePath {
             }
             entries += 1
             guard (status.st_mode & S_IFMT) == S_IFREG else { return }
-            let (next, overflow) = bytes.addingReportingOverflow(Int64(status.st_size))
+            let size = Int64(truncatingIfNeeded: status.st_size)
+            guard size >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            let (next, overflow) = bytes.addingReportingOverflow(size)
             guard !overflow, next <= maximumBytes else {
                 throw GTELargeModelInstallError.unsafePath
             }
@@ -357,13 +366,13 @@ enum GTELargeSecurePath {
             guard name.withCString({ fstatat(parent, $0, &root, AT_SYMLINK_NOFOLLOW) }) == 0 else {
                 throw GTELargeModelInstallError.unsafePath
             }
-            let rootIdentity = identity(from: root)
             let rootType = root.st_mode & S_IFMT
             guard root.st_uid == getuid(),
                   (rootType == S_IFREG && root.st_nlink == 1 && (root.st_mode & 0o777) == privateFileMode) ||
                     (rootType == S_IFDIR && (root.st_mode & 0o777) == privateDirectoryMode) else {
                 throw GTELargeModelInstallError.unsafePath
             }
+            let rootIdentity = identity(from: root)
             var budget = PrivateTreeBudget(
                 maximumEntries: maximumEntries,
                 maximumDepth: maximumDepth,
@@ -422,7 +431,12 @@ enum GTELargeSecurePath {
         }
         defer { closedir(stream) }
         var children: [GTELargePrivateTreeEntry] = []
-        while let entry = readdir(stream) {
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else {
+                guard errno == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                break
+            }
             let child = withUnsafePointer(to: entry.pointee.d_name) {
                 $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
                     String(cString: $0)
@@ -490,7 +504,12 @@ enum GTELargeSecurePath {
             throw GTELargeModelInstallError.unreadableInstall
         }
         defer { closedir(stream) }
-        while let entry = readdir(stream) {
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else {
+                guard errno == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                break
+            }
             let child = withUnsafePointer(to: entry.pointee.d_name) {
                 $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
                     String(cString: $0)
@@ -590,7 +609,7 @@ enum GTELargeSecurePath {
         }
         let expectedNames = Set(children.map(\.name))
         guard expectedNames.count == children.count,
-              try directoryEntryNames(descriptor) == expectedNames else {
+              try directoryEntryNames(descriptor, maximumEntries: children.count) == expectedNames else {
             throw GTELargeModelInstallError.unsafePath
         }
         for child in children {
@@ -638,7 +657,7 @@ enum GTELargeSecurePath {
         }
         let expectedNames = Set(children.map(\.name))
         guard expectedNames.count == children.count,
-              try directoryEntryNames(descriptor) == expectedNames else {
+              try directoryEntryNames(descriptor, maximumEntries: children.count) == expectedNames else {
             throw GTELargeModelInstallError.unsafePath
         }
         for child in children {
@@ -659,14 +678,14 @@ enum GTELargeSecurePath {
 
     private static func snapshotStatus(for entry: GTELargePrivateTreeEntry) throws -> stat {
         var status = stat()
-        status.st_size = off_t(entry.identity.size)
-        status.st_dev = dev_t(entry.identity.device)
-        status.st_ino = ino_t(entry.identity.inode)
-        status.st_ctimespec.tv_sec = time_t(entry.identity.changeSeconds)
-        status.st_ctimespec.tv_nsec = Int(entry.identity.changeNanoseconds)
-        status.st_nlink = nlink_t(entry.identity.linkCount)
-        status.st_mode = mode_t(entry.identity.mode) | (entry.isDirectory ? S_IFDIR : S_IFREG)
-        status.st_uid = uid_t(entry.identity.owner)
+        status.st_size = off_t(truncatingIfNeeded: entry.identity.size)
+        status.st_dev = dev_t(truncatingIfNeeded: entry.identity.device)
+        status.st_ino = ino_t(truncatingIfNeeded: entry.identity.inode)
+        status.st_ctimespec.tv_sec = time_t(truncatingIfNeeded: entry.identity.changeSeconds)
+        status.st_ctimespec.tv_nsec = Int(truncatingIfNeeded: entry.identity.changeNanoseconds)
+        status.st_nlink = nlink_t(truncatingIfNeeded: entry.identity.linkCount)
+        status.st_mode = mode_t(truncatingIfNeeded: entry.identity.mode) | (entry.isDirectory ? S_IFDIR : S_IFREG)
+        status.st_uid = uid_t(truncatingIfNeeded: entry.identity.owner)
         return status
     }
 
@@ -682,26 +701,53 @@ enum GTELargeSecurePath {
         }
     }
 
-    private static func directoryEntryNames(_ descriptor: Int32) throws -> Set<String> {
+    private static func directoryEntryNames(_ descriptor: Int32, maximumEntries: Int) throws -> Set<String> {
+        try directoryEntryNames(descriptor, maximumEntries: maximumEntries, read: readdir)
+    }
+
+    private static func directoryEntryNames(
+        _ descriptor: Int32,
+        maximumEntries: Int,
+        read: (UnsafeMutablePointer<DIR>) -> UnsafeMutablePointer<dirent>?
+    ) throws -> Set<String> {
+        guard maximumEntries >= 0 else { throw GTELargeModelInstallError.unsafePath }
         guard let stream = fdopendir(dup(descriptor)) else {
             throw GTELargeModelInstallError.unreadableInstall
         }
         defer { closedir(stream) }
         var names = Set<String>()
-        while let entry = readdir(stream) {
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else {
+                guard errno == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                break
+            }
             let name = withUnsafePointer(to: entry.pointee.d_name) {
                 $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
                     String(cString: $0)
                 }
             }
             guard name != ".", name != "..",
-                  !name.contains("/"), !name.contains("\\"),
+                  !name.contains("/"), !name.contains("\\") else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            guard names.count < maximumEntries,
                   names.insert(name).inserted else {
                 throw GTELargeModelInstallError.unsafePath
             }
         }
         return names
     }
+
+    #if DEBUG
+    static func directoryEntryNamesForTesting(
+        _ descriptor: Int32,
+        maximumEntries: Int,
+        read: (UnsafeMutablePointer<DIR>) -> UnsafeMutablePointer<dirent>?
+    ) throws -> Set<String> {
+        try directoryEntryNames(descriptor, maximumEntries: maximumEntries, read: read)
+    }
+    #endif
 
     private static func unlinkQuarantinedPrivateEntry(
         parent: Int32,
@@ -745,8 +791,8 @@ enum GTELargeSecurePath {
         guard quarantinedName.withCString({ fstatat(parent, $0, &moved, AT_SYMLINK_NOFOLLOW) }) == 0,
               sameObject(expected, moved),
               moved.st_uid == getuid(),
-              moved.st_size == off_t(recordedIdentity.size),
-              moved.st_nlink == nlink_t(recordedIdentity.linkCount),
+              moved.st_size == off_t(truncatingIfNeeded: recordedIdentity.size),
+              moved.st_nlink == nlink_t(truncatingIfNeeded: recordedIdentity.linkCount),
               (type == S_IFREG && (moved.st_mode & S_IFMT) == S_IFREG && moved.st_nlink == 1 && (moved.st_mode & 0o777) == privateFileMode) ||
               (type == S_IFDIR && (moved.st_mode & S_IFMT) == S_IFDIR && (moved.st_mode & 0o777) == privateDirectoryMode),
               fsync(parent) == 0 else {
@@ -1055,16 +1101,22 @@ enum GTELargeSecurePath {
         }
     }
 
+    private static func unsignedBits<T: FixedWidthInteger>(_ value: T) -> UInt64 {
+        let bits = UInt64(truncatingIfNeeded: value)
+        guard T.bitWidth < UInt64.bitWidth else { return bits }
+        return bits & ((UInt64(1) << T.bitWidth) - 1)
+    }
+
     static func identity(from status: stat) -> GTELargeFileIdentity {
         GTELargeFileIdentity(
-            size: Int64(status.st_size),
-            device: UInt64(status.st_dev),
-            inode: UInt64(status.st_ino),
-            changeSeconds: Int64(status.st_ctimespec.tv_sec),
-            changeNanoseconds: Int64(status.st_ctimespec.tv_nsec),
-            linkCount: UInt64(status.st_nlink),
-            mode: UInt16(status.st_mode & 0o777),
-            owner: UInt32(status.st_uid)
+            size: Int64(truncatingIfNeeded: status.st_size),
+            device: unsignedBits(status.st_dev),
+            inode: unsignedBits(status.st_ino),
+            changeSeconds: Int64(truncatingIfNeeded: status.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(truncatingIfNeeded: status.st_ctimespec.tv_nsec),
+            linkCount: unsignedBits(status.st_nlink),
+            mode: UInt16(truncatingIfNeeded: status.st_mode & 0o777),
+            owner: UInt32(truncatingIfNeeded: unsignedBits(status.st_uid))
         )
     }
 

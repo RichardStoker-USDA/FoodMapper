@@ -570,6 +570,48 @@ final class GTELargeModelInstallTests: XCTestCase {
         ))
     }
 
+    func testPrivateTreeRejectsExcessiveEntriesBeforeBuildingAnUnboundedSnapshot() throws {
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        let children = (0..<3).map { artifact.appendingPathComponent("entry-\($0)") }
+        for child in children {
+            try Data("x".utf8).write(to: child)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: child.path)
+        }
+
+        XCTAssertThrowsError(try GTELargeSecurePath.privateTree(
+            at: artifact,
+            maximumEntries: 3,
+            maximumDepth: 1,
+            maximumBytes: 3
+        )) { error in
+            XCTAssertTrue(error is GTELargeModelInstallError)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertTrue(children.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    #if DEBUG
+    func testDirectoryEntryNamesReportsReaddirError() throws {
+        let descriptor = try GTELargeSecurePath.openDirectoryDescriptor(at: root)
+        defer { close(descriptor) }
+
+        XCTAssertThrowsError(try GTELargeSecurePath.directoryEntryNamesForTesting(
+            descriptor,
+            maximumEntries: 1,
+            read: { _ in
+                errno = EIO
+                return nil
+            }
+        )) { error in
+            guard case GTELargeModelInstallError.unreadableInstall = error else {
+                return XCTFail("Expected unreadableInstall, got \(error)")
+            }
+        }
+    }
+    #endif
+
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
         try writeLegacyFixture()
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
@@ -956,6 +998,47 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: displaced.path))
     }
 
+    func testPrivateTreeRemovalRejectsAddedDescendantAfterSnapshot() throws {
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        let payload = artifact.appendingPathComponent("payload")
+        try Data("one".utf8).write(to: payload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payload.path)
+        let tree = try GTELargeSecurePath.privateTree(at: artifact, maximumEntries: 2, maximumDepth: 1, maximumBytes: 3)
+
+        let added = artifact.appendingPathComponent("added")
+        try Data("two".utf8).write(to: added)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: added.path)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.removePrivateTree(at: artifact, tree: tree, maximumDepth: 1)) { error in
+            XCTAssertTrue(error is GTELargeModelInstallError)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: payload.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: added.path))
+    }
+
+    func testPrivateTreeRemovalRejectsRemovedDescendantAfterSnapshot() throws {
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        let children = [artifact.appendingPathComponent("first"), artifact.appendingPathComponent("second")]
+        for child in children {
+            try Data("x".utf8).write(to: child)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: child.path)
+        }
+        let tree = try GTELargeSecurePath.privateTree(at: artifact, maximumEntries: 3, maximumDepth: 1, maximumBytes: 2)
+
+        try FileManager.default.removeItem(at: children[1])
+
+        XCTAssertThrowsError(try GTELargeSecurePath.removePrivateTree(at: artifact, tree: tree, maximumDepth: 1)) { error in
+            XCTAssertTrue(error is GTELargeModelInstallError)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: children[0].path))
+    }
+
     func testPrivateTreeRejectsFIFO() throws {
         let fifo = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)")
         guard mkfifo(fifo.path, 0o600) == 0 else {
@@ -966,7 +1049,9 @@ final class GTELargeModelInstallTests: XCTestCase {
             maximumEntries: 1,
             maximumDepth: 0,
             maximumBytes: 0
-        ))
+        )) { error in
+            XCTAssertTrue(error is GTELargeModelInstallError)
+        }
     }
 
     func testPrivateTreeRejectsCharacterDevice() throws {
@@ -975,7 +1060,20 @@ final class GTELargeModelInstallTests: XCTestCase {
             maximumEntries: 1,
             maximumDepth: 0,
             maximumBytes: 0
-        ))
+        )) { error in
+            XCTAssertTrue(error is GTELargeModelInstallError)
+        }
+    }
+
+    func testIdentityConvertsUnusualDarwinMetadataWithoutTrapping() {
+        var status = stat()
+        status.st_dev = -1
+        status.st_ino = UInt64.max
+
+        let identity = GTELargeSecurePath.identity(from: status)
+
+        XCTAssertEqual(identity.device, UInt64(UInt32.max))
+        XCTAssertEqual(identity.inode, UInt64.max)
     }
 
     func testPrivateTreeRejectsBlockDeviceWhenTheHostAllowsCreation() throws {
@@ -1151,16 +1249,7 @@ final class GTELargeModelInstallTests: XCTestCase {
     private func directoryIdentity(_ url: URL) throws -> GTELargeFileIdentity {
         var value = stat()
         guard lstat(url.path, &value) == 0 else { throw CocoaError(.fileNoSuchFile) }
-        return GTELargeFileIdentity(
-            size: Int64(value.st_size),
-            device: UInt64(value.st_dev),
-            inode: UInt64(value.st_ino),
-            changeSeconds: Int64(value.st_ctimespec.tv_sec),
-            changeNanoseconds: Int64(value.st_ctimespec.tv_nsec),
-            linkCount: UInt64(value.st_nlink),
-            mode: UInt16(value.st_mode & 0o777),
-            owner: UInt32(value.st_uid)
-        )
+        return GTELargeSecurePath.identity(from: value)
     }
 
     private var fixtureManifest: GTELargeModelManifest {
