@@ -289,6 +289,12 @@ final class TargetSnapshotTests: XCTestCase {
         }
     }
 
+    func testV1MatchingKeepsTheOriginalDatabaseIdentity() {
+        let database = AnyDatabase.builtIn(.fooDB)
+        XCTAssertEqual(AppState.v1MatchingDatabase(database).id, database.id)
+        XCTAssertEqual(AppState.v1MatchingDatabase(database).csvURL, database.csvURL)
+    }
+
     func testSnapshotRejectsMalformedRowsAndSymbolicSources() async throws {
         let malformed = try sourceURL("id,description\n1,Milk,extra\n")
         let symbolic = URL(fileURLWithPath: "/private/tmp", isDirectory: true)

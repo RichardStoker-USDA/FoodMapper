@@ -6,6 +6,13 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "state")
 
 extension AppState {
 
+    /// V1 always uses its selected database. A target snapshot is retained for
+    /// provenance and manual search only, never substituted into the legacy
+    /// embedding/cache path.
+    nonisolated static func v1MatchingDatabase(_ database: AnyDatabase) -> AnyDatabase {
+        database
+    }
+
     // MARK: - File Operations
 
     func openFilePicker() {
@@ -146,7 +153,7 @@ extension AppState {
 
                 let matchResults = try await pipeline.match(
                     inputs: inputs,
-                    database: database,
+                    database: Self.v1MatchingDatabase(database),
                     threshold: threshold,
                     hardwareConfig: hwConfig,
                     instruction: self.resolvedEmbeddingInstruction,
