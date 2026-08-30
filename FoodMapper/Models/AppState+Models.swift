@@ -15,6 +15,10 @@ extension AppState {
 
     func downloadModel() async {
         await modelManager.awaitStartupRecoveryForUserAction()
+        guard modelManager.retryState(for: "gte-large") != .cancelling else {
+            modelStatus = .cancelling
+            return
+        }
         // Check if model already exists
         if MLXEmbeddingModel.isModelAvailable {
             isVerifyingModelAfterDownload = true
@@ -85,6 +89,10 @@ extension AppState {
     /// Called automatically via Combine subscription on modelManager.$modelStates,
     /// and explicitly during checkModelStatus().
     func syncModelStatus() {
+        if modelStatus == .cancelling,
+           modelManager.retryState(for: "gte-large") == .cancelling {
+            return
+        }
         let gteState = modelManager.state(for: "gte-large")
         switch gteState {
         case .downloaded, .loaded:

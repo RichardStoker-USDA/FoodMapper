@@ -434,6 +434,25 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
     }
 
+    func testRecoveryDoesNotPromotePointerWithoutVerifiedPayload() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let temporary = root.appendingPathComponent(".gte-large-current-\(UUID().uuidString)")
+        let value = GTELargeInstallPointer(
+            schema: 1,
+            directoryName: fixtureManifest.installationDirectoryName,
+            record: GTELargeModelInstallRecord(manifest: fixtureManifest)
+        )
+        try JSONEncoder().encode(value).write(to: temporary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+        try FileManager.default.removeItem(at: installer.installedDirectory)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+        XCTAssertNil(installer.availableDirectory())
+    }
+
     func testRecoveryCleansBoundedCompleteStagingOrphan() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
