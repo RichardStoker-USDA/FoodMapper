@@ -301,17 +301,30 @@ extension AppState {
         guard fstat(descriptor, &info) == 0,
               (info.st_mode & S_IFMT) == S_IFREG,
               info.st_nlink == 1 else { throw MatchingError.databaseNotFound }
+        guard info.st_size <= off_t(CustomDatabaseValidator.maximumImportBytes) else {
+            throw CustomDatabaseValidationError.importTooLarge(
+                actual: Int64(info.st_size), limit: CustomDatabaseValidator.maximumImportBytes
+            )
+        }
         try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: destinationURL.deletingLastPathComponent().path)
         let stagedURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
-        guard let data = try handle.readToEnd() else { throw MatchingError.databaseNotFound }
         FileManager.default.createFile(atPath: stagedURL.path, contents: nil)
         let stagedHandle = try FileHandle(forWritingTo: stagedURL)
-        try stagedHandle.write(contentsOf: data)
-        try stagedHandle.synchronize()
-        try stagedHandle.close()
+        let sourceHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        do {
+            while let chunk = try sourceHandle.read(upToCount: 1_048_576), !chunk.isEmpty {
+                if Task.isCancelled { throw CustomDatabaseValidationError.cancelled }
+                try stagedHandle.write(contentsOf: chunk)
+            }
+            try stagedHandle.synchronize()
+            try stagedHandle.close()
+        } catch {
+            try? stagedHandle.close()
+            try? fileManager.removeItem(at: stagedURL)
+            throw error
+        }
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagedURL.path)
         try syncDirectory(destinationURL.deletingLastPathComponent())
         return stagedURL

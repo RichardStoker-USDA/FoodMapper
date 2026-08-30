@@ -55,12 +55,16 @@ struct ValidatedCustomDatabase {
 }
 
 enum CustomDatabaseValidationError: LocalizedError, Equatable {
+    static let defaultMaximumImportBytes = 512 * 1_024 * 1_024
+
     case blankHeader(column: Int)
     case duplicateHeader(String)
     case malformedRow(row: Int, expected: Int, actual: Int)
     case blankText(row: Int, column: String)
     case blankID(row: Int, column: String)
     case duplicateID(id: String, firstRow: Int, duplicateRow: Int)
+    case importTooLarge(actual: Int64, limit: Int)
+    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -76,13 +80,30 @@ enum CustomDatabaseValidationError: LocalizedError, Equatable {
             return "Row \(row) has no value in the \(column) ID column."
         case let .duplicateID(id, firstRow, duplicateRow):
             return "ID '\(id)' appears in rows \(firstRow) and \(duplicateRow)."
+        case let .importTooLarge(actual, limit):
+            return "This database is \(actual) bytes. The import limit is \(limit) bytes."
+        case .cancelled:
+            return "Database import was cancelled."
         }
     }
 }
 
 enum CustomDatabaseValidator {
+    /// The CSV parser materializes a validated import. This limit bounds that allocation.
+    /// Set FOODMAPPER_MAX_IMPORT_BYTES for managed deployments that need a lower limit.
+    static var maximumImportBytes: Int {
+        let configured = ProcessInfo.processInfo.environment["FOODMAPPER_MAX_IMPORT_BYTES"].flatMap(Int.init)
+        return min(max(configured ?? CustomDatabaseValidationError.defaultMaximumImportBytes, 1_024 * 1_024), CustomDatabaseValidationError.defaultMaximumImportBytes)
+    }
+
     static func load(url: URL, textColumn: String, idColumn: String?) throws -> ValidatedCustomDatabase {
+        if Task.isCancelled { throw CustomDatabaseValidationError.cancelled }
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= maximumImportBytes else {
+            throw CustomDatabaseValidationError.importTooLarge(actual: Int64(size), limit: maximumImportBytes)
+        }
         let data = try Data(contentsOf: url)
+        if Task.isCancelled { throw CustomDatabaseValidationError.cancelled }
         guard let rawContent = String(data: data, encoding: .utf8) else {
             throw MatchingError.databaseNotFound
         }
