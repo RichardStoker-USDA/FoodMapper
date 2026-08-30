@@ -543,6 +543,33 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: artifact.path))
     }
 
+    func testPrivateTreeAccountsForNestedBytesBeforeRemoval() throws {
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        let nested = artifact.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: nested.path)
+        let payload = nested.appendingPathComponent("payload")
+        try Data(repeating: 7, count: 31).write(to: payload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payload.path)
+
+        let tree = try GTELargeSecurePath.privateTree(
+            at: artifact,
+            maximumEntries: 3,
+            maximumDepth: 2,
+            maximumBytes: 31
+        )
+
+        XCTAssertTrue(tree.isDirectory)
+        XCTAssertEqual(tree.bytes, 31)
+        XCTAssertThrowsError(try GTELargeSecurePath.privateTree(
+            at: artifact,
+            maximumEntries: 3,
+            maximumDepth: 2,
+            maximumBytes: 30
+        ))
+    }
+
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
         try writeLegacyFixture()
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
@@ -649,7 +676,7 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(recovery.availableDirectory(), recovery.installedDirectory)
     }
 
-    func testJournalRenameFailureCleansPrivateTemporaryAndStaging() async throws {
+    func testJournalRenameFailurePreservesRecoverableTemporaryAndStaging() async throws {
         let installer = makeInstaller(
             transport: FixtureTransport(files: fixtureFiles),
             fileSystem: FailingPromotionWriteFileSystem(failure: .journal)
@@ -660,10 +687,14 @@ final class GTELargeModelInstallTests: XCTestCase {
             XCTFail("Expected journal write failure")
         } catch {
             let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-            XCTAssertFalse(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-journal-") })
-            XCTAssertFalse(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-staging-") })
+            XCTAssertTrue(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-journal-") })
+            XCTAssertTrue(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-staging-") })
             XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
         }
+
+        let recovery = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        try await recovery.recoverAtStartup()
+        XCTAssertEqual(recovery.availableDirectory(), recovery.installedDirectory)
     }
 
     func testCurrentPointerRenameFailureRecoversVerifiedInstall() async throws {
@@ -677,7 +708,7 @@ final class GTELargeModelInstallTests: XCTestCase {
             XCTFail("Expected current-pointer write failure")
         } catch {
             let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-            XCTAssertFalse(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-current-") })
+            XCTAssertTrue(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-current-") })
             XCTAssertTrue(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".gte-large-promotion.json").path))
         }
@@ -1128,12 +1159,15 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
     }
     func copyItem(at source: URL, to destination: URL) throws { try local.copyItem(at: source, to: destination) }
     func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
-    func read(from url: URL, maximumSize: Int64) throws -> Data {
+    func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
         try local.read(from: url, maximumSize: maximumSize)
     }
     func fileIdentity(at url: URL) throws -> GTELargeFileIdentity { try local.fileIdentity(at: url) }
     func directoryIdentity(at url: URL, requiredPermissions: Int?) throws -> GTELargeFileIdentity {
         try local.directoryIdentity(at: url, requiredPermissions: requiredPermissions)
+    }
+    func privateTree(at url: URL, maximumEntries: Int, maximumDepth: Int, maximumBytes: Int64) throws -> GTELargePrivateTree {
+        try local.privateTree(at: url, maximumEntries: maximumEntries, maximumDepth: maximumDepth, maximumBytes: maximumBytes)
     }
     func setPermissions(_ permissions: Int, at url: URL) throws { try local.setPermissions(permissions, at: url) }
     func syncFile(at url: URL) throws { try local.syncFile(at: url) }
@@ -1195,12 +1229,15 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
     }
     func copyItem(at source: URL, to destination: URL) throws { try local.copyItem(at: source, to: destination) }
     func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
-    func read(from url: URL, maximumSize: Int64) throws -> Data {
+    func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
         try local.read(from: url, maximumSize: maximumSize)
     }
     func fileIdentity(at url: URL) throws -> GTELargeFileIdentity { try local.fileIdentity(at: url) }
     func directoryIdentity(at url: URL, requiredPermissions: Int?) throws -> GTELargeFileIdentity {
         try local.directoryIdentity(at: url, requiredPermissions: requiredPermissions)
+    }
+    func privateTree(at url: URL, maximumEntries: Int, maximumDepth: Int, maximumBytes: Int64) throws -> GTELargePrivateTree {
+        try local.privateTree(at: url, maximumEntries: maximumEntries, maximumDepth: maximumDepth, maximumBytes: maximumBytes)
     }
     func setPermissions(_ permissions: Int, at url: URL) throws { try local.setPermissions(permissions, at: url) }
     func syncFile(at url: URL) throws { try local.syncFile(at: url) }

@@ -88,6 +88,15 @@ struct GTELargeFileIdentity: Codable, Equatable, Sendable {
     let owner: UInt32
 }
 
+/// A private recovery artifact observed through a held descriptor walk. The
+/// identity is passed into the later removal so recovery does not rediscover
+/// an object by pathname after it has accounted for its contents.
+struct GTELargePrivateTree: Sendable {
+    let identity: GTELargeFileIdentity
+    let isDirectory: Bool
+    let bytes: Int64
+}
+
 enum GTELargeSecurePath {
     static let privateDirectoryMode: mode_t = 0o700
     static let privateFileMode: mode_t = 0o600
@@ -273,6 +282,118 @@ enum GTELargeSecurePath {
         }
     }
 
+    private struct PrivateTreeBudget {
+        let maximumEntries: Int
+        let maximumDepth: Int
+        let maximumBytes: Int64
+        var entries = 0
+        var bytes: Int64 = 0
+
+        mutating func consume(_ status: stat, depth: Int) throws {
+            guard depth <= maximumDepth, entries < maximumEntries else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            entries += 1
+            guard (status.st_mode & S_IFMT) == S_IFREG else { return }
+            let (next, overflow) = bytes.addingReportingOverflow(Int64(status.st_size))
+            guard !overflow, next <= maximumBytes else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            bytes = next
+        }
+    }
+
+    /// Counts a private regular-file or directory tree before recovery acts on
+    /// it. Traversal uses descriptor-relative operations and rejects symlinks,
+    /// foreign owners, non-private modes, hard links, excess depth, and excess
+    /// bytes before hashing, copying, or removal starts.
+    static func privateTree(
+        at url: URL,
+        maximumEntries: Int,
+        maximumDepth: Int,
+        maximumBytes: Int64
+    ) throws -> GTELargePrivateTree {
+        guard maximumEntries > 0, maximumDepth >= 0, maximumBytes >= 0 else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        return try withParentDescriptor(of: url) { parent, name in
+            var root = stat()
+            guard name.withCString({ fstatat(parent, $0, &root, AT_SYMLINK_NOFOLLOW) }) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            let rootIdentity = identity(from: root)
+            let rootType = root.st_mode & S_IFMT
+            guard root.st_uid == getuid(),
+                  (rootType == S_IFREG && root.st_nlink == 1 && (root.st_mode & 0o777) == privateFileMode) ||
+                    (rootType == S_IFDIR && (root.st_mode & 0o777) == privateDirectoryMode) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            var budget = PrivateTreeBudget(
+                maximumEntries: maximumEntries,
+                maximumDepth: maximumDepth,
+                maximumBytes: maximumBytes
+            )
+            try countPrivateTreeEntry(parent: parent, name: name, expected: root, budget: &budget)
+            return GTELargePrivateTree(
+                identity: rootIdentity,
+                isDirectory: rootType == S_IFDIR,
+                bytes: budget.bytes
+            )
+        }
+    }
+
+    private static func countPrivateTreeEntry(
+        parent: Int32,
+        name: String,
+        expected: stat,
+        budget: inout PrivateTreeBudget,
+        depth: Int = 0
+    ) throws {
+        let type = expected.st_mode & S_IFMT
+        guard expected.st_uid == getuid(),
+              (type == S_IFREG && expected.st_nlink == 1 && (expected.st_mode & 0o777) == privateFileMode) ||
+                (type == S_IFDIR && (expected.st_mode & 0o777) == privateDirectoryMode) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        try budget.consume(expected, depth: depth)
+        guard type == S_IFDIR else { return }
+
+        let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW) }
+        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+        defer { close(descriptor) }
+        var opened = stat()
+        guard fstat(descriptor, &opened) == 0, sameObject(expected, opened) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        guard let stream = fdopendir(dup(descriptor)) else {
+            throw GTELargeModelInstallError.unreadableInstall
+        }
+        defer { closedir(stream) }
+        while let entry = readdir(stream) {
+            let child = withUnsafePointer(to: entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
+                    String(cString: $0)
+                }
+            }
+            guard child != ".", child != ".." else { continue }
+            var childStatus = stat()
+            guard child.withCString({ fstatat(descriptor, $0, &childStatus, AT_SYMLINK_NOFOLLOW) }) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            try countPrivateTreeEntry(
+                parent: descriptor,
+                name: child,
+                expected: childStatus,
+                budget: &budget,
+                depth: depth + 1
+            )
+        }
+        var after = stat()
+        guard fstat(descriptor, &after) == 0, sameObject(expected, after) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+    }
+
     private static func removePrivateEntry(parent: Int32, name: String, expected: stat, budget: inout PrivateRemovalBudget, depth: Int = 0) throws {
         let type = expected.st_mode & S_IFMT
         guard expected.st_uid == getuid(),
@@ -410,7 +531,7 @@ enum GTELargeSecurePath {
         }
     }
 
-    static func readPrivateFile(at url: URL, maximumSize: Int64) throws -> Data {
+    static func readPrivateFile(at url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
         try withParentDescriptor(of: url) { parent, name in
             var before = stat()
             guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
@@ -448,7 +569,7 @@ enum GTELargeSecurePath {
                   sameIdentity(expectedIdentity, identity(from: after)) else {
                 throw GTELargeModelInstallError.unsafePath
             }
-            return chunks
+            return (chunks, expectedIdentity)
         }
     }
 
@@ -675,9 +796,15 @@ protocol GTELargeFileSystem: Sendable {
     func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws
     func copyItem(at source: URL, to destination: URL) throws
     func write(_ data: Data, to url: URL, permissions: Int) throws
-    func read(from url: URL, maximumSize: Int64) throws -> Data
+    func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity)
     func fileIdentity(at url: URL) throws -> GTELargeFileIdentity
     func directoryIdentity(at url: URL, requiredPermissions: Int?) throws -> GTELargeFileIdentity
+    func privateTree(
+        at url: URL,
+        maximumEntries: Int,
+        maximumDepth: Int,
+        maximumBytes: Int64
+    ) throws -> GTELargePrivateTree
     func setPermissions(_ permissions: Int, at url: URL) throws
     func syncFile(at url: URL) throws
     func syncDirectory(at url: URL) throws
@@ -943,7 +1070,7 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
         }
     }
 
-    func read(from url: URL, maximumSize: Int64) throws -> Data {
+    func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
         try GTELargeSecurePath.readPrivateFile(at: url, maximumSize: maximumSize)
     }
 
@@ -953,6 +1080,20 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
 
     func directoryIdentity(at url: URL, requiredPermissions: Int?) throws -> GTELargeFileIdentity {
         try GTELargeSecurePath.directoryIdentity(at: url, requiredMode: requiredPermissions.map { mode_t($0) })
+    }
+
+    func privateTree(
+        at url: URL,
+        maximumEntries: Int,
+        maximumDepth: Int,
+        maximumBytes: Int64
+    ) throws -> GTELargePrivateTree {
+        try GTELargeSecurePath.privateTree(
+            at: url,
+            maximumEntries: maximumEntries,
+            maximumDepth: maximumDepth,
+            maximumBytes: maximumBytes
+        )
     }
 
     func setPermissions(_ permissions: Int, at url: URL) throws {
@@ -2096,10 +2237,9 @@ struct GTELargeModelInstaller: Sendable {
     }
 
     private func readSmallFile(at url: URL, limit: Int64 = 65_536) throws -> Data {
-        let identity = try fileSystem.fileIdentity(at: url)
-        guard identity.size >= 0, identity.size <= limit else { throw GTELargeModelInstallError.unreadableInstall }
-        let data = try fileSystem.read(from: url, maximumSize: limit)
-        guard data.count <= Int(limit) else { throw GTELargeModelInstallError.unreadableInstall }
+        let (data, identity) = try fileSystem.read(from: url, maximumSize: limit)
+        guard identity.size >= 0, identity.size <= limit,
+              data.count == Int(identity.size) else { throw GTELargeModelInstallError.unreadableInstall }
         return data
     }
 
@@ -2250,18 +2390,25 @@ struct GTELargeModelInstaller: Sendable {
         var totalBytes: Int64 = 0
 
         for artifact in artifacts {
-            if let identity = try? fileSystem.directoryIdentity(at: artifact, requiredPermissions: 0o700) {
-                let (next, additionOverflow) = totalBytes.addingReportingOverflow(identity.size)
-                guard !additionOverflow, next <= maximumBytes else { throw GTELargeModelInstallError.unsafePath }
-                totalBytes = next
-                try fileSystem.removeItem(at: artifact, expectedDirectoryIdentity: identity)
-            } else if let identity = try? fileSystem.fileIdentity(at: artifact) {
-                let (next, additionOverflow) = totalBytes.addingReportingOverflow(identity.size)
-                guard !additionOverflow, next <= maximumBytes else { throw GTELargeModelInstallError.unsafePath }
-                totalBytes = next
-                try fileSystem.removeItem(at: artifact, expectedFileIdentity: identity)
-            } else {
+            // Account for every descendant before any quarantine or removal.
+            // The returned root identity binds the later removal to this
+            // descriptor walk rather than a second pathname lookup.
+            let remaining = maximumBytes - totalBytes
+            let tree = try fileSystem.privateTree(
+                at: artifact,
+                maximumEntries: 4_096,
+                maximumDepth: 16,
+                maximumBytes: remaining
+            )
+            let (next, additionOverflow) = totalBytes.addingReportingOverflow(tree.bytes)
+            guard !additionOverflow, next <= maximumBytes else {
                 throw GTELargeModelInstallError.unsafePath
+            }
+            totalBytes = next
+            if tree.isDirectory {
+                try fileSystem.removeItem(at: artifact, expectedDirectoryIdentity: tree.identity)
+            } else {
+                try fileSystem.removeItem(at: artifact, expectedFileIdentity: tree.identity)
             }
         }
         if !artifacts.isEmpty { try fileSystem.syncDirectory(at: rootDirectory) }
