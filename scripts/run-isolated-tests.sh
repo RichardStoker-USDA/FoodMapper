@@ -29,7 +29,7 @@ is_generated_path() {
 }
 
 remove_generated_path() {
-    local path="$1"
+    local path="${1:-}"
     if is_generated_path "$path" && [ -e "$path" -o -L "$path" ]; then
         rm -R -- "$path"
     fi
@@ -46,11 +46,17 @@ snapshot_tree() {
     local scope="$1"
     local path="$2"
     local output="$3"
-    local entry relative path_digest metadata
+    local entries_file="${output}.entries"
+    local entry relative path_digest metadata status=0
 
     if [ ! -e "$path" ] && [ ! -L "$path" ]; then
-        printf '%s|missing\n' "$scope" >> "$output"
+        printf '%s|missing\n' "$scope" >> "$output" || return 1
         return 0
+    fi
+
+    if ! LC_ALL=C find "$path" -xdev -print0 > "$entries_file"; then
+        rm -f -- "$entries_file"
+        return 1
     fi
 
     while IFS= read -r -d '' entry; do
@@ -59,26 +65,65 @@ snapshot_tree() {
         else
             relative="${entry#"$path"/}"
         fi
-        path_digest="$(printf '%s' "$relative" | shasum -a 256 | awk '{ print $1 }')"
-        metadata="$(stat -f '%HT|%d|%i|%B|%m|%c|%z|%p|%u|%g|%l' "$entry")" || return 1
-        printf '%s|%s|%s\n' "$scope" "$path_digest" "$metadata" >> "$output"
-    done < <(LC_ALL=C find "$path" -xdev -print0 2>/dev/null)
+        if ! path_digest="$(printf '%s' "$relative" | shasum -a 256 | awk '{ print $1 }')"; then
+            status=1
+            break
+        fi
+        if ! metadata="$(stat -f '%HT|%d|%i|%B|%m|%c|%z|%p|%u|%g|%l' "$entry")"; then
+            status=1
+            break
+        fi
+        if ! printf '%s|%s|%s\n' "$scope" "$path_digest" "$metadata" >> "$output"; then
+            status=1
+            break
+        fi
+    done < "$entries_file"
+    rm -f -- "$entries_file" || return 1
+    return "$status"
 }
 
 capture_live_metadata() {
     local output="$1"
-    : > "$output"
-    snapshot_tree "support" "$live_support" "$output"
-    snapshot_tree "preferences" "$live_preferences" "$output"
-    LC_ALL=C sort -o "$output" "$output"
+    : > "$output" || return 1
+    snapshot_tree "support" "$live_support" "$output" || return 1
+    snapshot_tree "preferences" "$live_preferences" "$output" || return 1
+    LC_ALL=C sort -o "$output" "$output" || return 1
+}
+
+is_foodmapper_executable() {
+    local executable="$1"
+    case "$executable" in
+        FoodMapper|*/FoodMapper|\
+        */FoodMapper.app/Contents/MacOS/*|\
+        */FoodMapper\ *.app/Contents/MacOS/*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 require_no_running_foodmapper() {
-    if pgrep -x FoodMapper >/dev/null 2>&1 ||
-       pgrep -f '/FoodMapper[.]app/Contents/MacOS/FoodMapper([[:space:]]|$)' >/dev/null 2>&1; then
+    local matches
+    if ! matches="$(ps -axo pid=,comm= | matching_foodmapper_processes)"; then
+        printf '%s\n' "Unable to inspect running processes before isolated tests." >&2
+        return 1
+    fi
+    if [ -n "$matches" ]; then
+        printf '%s\n' "$matches" >&2
         printf '%s\n' "Close FoodMapper before running the isolated test suite." >&2
         return 1
     fi
+}
+
+matching_foodmapper_processes() {
+    local pid executable
+    while read -r pid executable; do
+        if is_foodmapper_executable "$executable"; then
+            printf '%s %s\n' "$pid" "$executable"
+        fi
+    done
 }
 
 set_test_environment_value() {
@@ -120,10 +165,12 @@ require_xcode_16_4() {
 
 cleanup() {
     set +e
-    CFFIXED_USER_HOME="$preferences_root" defaults delete "$defaults_suite" >/dev/null 2>&1 || true
-    remove_generated_path "$test_root"
-    remove_generated_path "$derived_data"
-    remove_generated_path "$preferences_root"
+    if [ -n "${preferences_root:-}" ] && [ -n "${defaults_suite:-}" ]; then
+        CFFIXED_USER_HOME="$preferences_root" defaults delete "$defaults_suite" >/dev/null 2>&1 || true
+    fi
+    remove_generated_path "${test_root:-}"
+    remove_generated_path "${derived_data:-}"
+    remove_generated_path "${preferences_root:-}"
 }
 
 run_self_test() (
@@ -154,6 +201,16 @@ run_self_test() (
     snapshot_tree "fixture" "${self_root}/watched" "$second"
     cmp -s "$first" "$second" && status=1
     require_private_directory "$self_root" || status=1
+    is_foodmapper_executable "/tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper" || status=1
+    is_foodmapper_executable "/tmp/space path/FoodMapper" || status=1
+    is_foodmapper_executable "/tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable" || status=1
+    ! is_foodmapper_executable "/tmp/FoodMapperTools.app/Contents/MacOS/Tool" || status=1
+    ! is_foodmapper_executable "/tmp/space path/FoodMapperHelper" || status=1
+    ! is_foodmapper_executable "/usr/bin/echo" || status=1
+    printf '%s\n' '123 /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q '^123 ' || status=1
+    printf '%s\n' '124 /tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable' | matching_foodmapper_processes | grep -q '^124 ' || status=1
+    ! printf '%s\n' '125 /usr/bin/echo /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' '126 /tmp/FoodMapperTools.app/Contents/MacOS/Tool' | matching_foodmapper_processes | grep -q . || status=1
 
     remove_generated_path "$self_root"
     return "$status"
@@ -162,6 +219,11 @@ run_self_test() (
 usage() {
     printf '%s\n' "Usage: scripts/run-isolated-tests.sh [--self-test]"
 }
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 case "${1:-}" in
     "")
@@ -185,10 +247,6 @@ require_xcode_16_4
 
 mkdir -m 700 "$test_root" "$derived_data" "$preferences_root"
 mkdir -m 700 "$test_temporary_root" "$test_symroot" "$test_objroot"
-trap cleanup EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
 require_private_directory "$test_root"
 require_private_directory "$derived_data"
 require_private_directory "$preferences_root"

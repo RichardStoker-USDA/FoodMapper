@@ -9,3 +9,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  - package-ecosystem: swift
+    directory: /FoodMapper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+    schedule:
+      interval: weekly

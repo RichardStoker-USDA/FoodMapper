@@ -17,7 +17,9 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - name: Check out source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Check runner toolchain
         run: |
@@ -25,8 +27,11 @@ jobs:
           test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
           test "$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)" = "Xcode 16.4"
 
-      - name: Check public files
-        run: scripts/verify-public-tree.sh
+      - name: Check CI scripts and public files
+        run: |
+          scripts/run-isolated-tests.sh --self-test
+          scripts/verify-public-tree.sh --self-test
+          scripts/verify-public-tree.sh
 
       - name: Run isolated Debug tests
         run: scripts/run-isolated-tests.sh
@@ -64,4 +69,4 @@ jobs:
 
       - name: Review dependency changes
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
