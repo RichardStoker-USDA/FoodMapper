@@ -14,7 +14,12 @@ extension AppState {
     }
 
     func downloadModel() async {
-        await modelManager.awaitStartupRecoveryForUserAction()
+        do {
+            try await modelManager.awaitStartupRecoveryForUserAction()
+        } catch {
+            modelStatus = .error(error.localizedDescription)
+            return
+        }
         guard modelManager.retryState(for: "gte-large") != .cancelling else {
             modelStatus = .cancelling
             return

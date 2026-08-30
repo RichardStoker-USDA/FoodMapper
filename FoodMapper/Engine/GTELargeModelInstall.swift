@@ -237,6 +237,20 @@ enum GTELargeSecurePath {
         }
     }
 
+    static func removePrivateItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws {
+        try withParentDescriptor(of: url) { parent, name in
+            var status = stat()
+            guard name.withCString({ fstatat(parent, $0, &status, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  sameFileIdentity(identity(from: status), expectedFileIdentity) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            var budget = PrivateRemovalBudget()
+            try removePrivateEntry(parent: parent, name: name, expected: status, budget: &budget)
+            guard fsync(parent) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+        }
+    }
+
     private struct PrivateRemovalBudget {
         static let maximumEntries = 4_096
         static let maximumDepth = 16
@@ -405,11 +419,13 @@ enum GTELargeSecurePath {
                   (before.st_mode & 0o777) == privateFileMode else {
                 throw GTELargeModelInstallError.unsafePath
             }
+            let expectedIdentity = identity(from: before)
             let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
             guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
             defer { close(descriptor) }
             var opened = stat()
-            guard fstat(descriptor, &opened) == 0, sameObject(before, opened) else {
+            guard fstat(descriptor, &opened) == 0,
+                  sameIdentity(expectedIdentity, identity(from: opened)) else {
                 throw GTELargeModelInstallError.unsafePath
             }
             guard opened.st_size >= 0, opened.st_size <= maximumSize else {
@@ -429,7 +445,7 @@ enum GTELargeSecurePath {
             }
             var after = stat()
             guard fstat(descriptor, &after) == 0,
-                  sameObject(before, after) else {
+                  sameIdentity(expectedIdentity, identity(from: after)) else {
                 throw GTELargeModelInstallError.unsafePath
             }
             return chunks
@@ -651,6 +667,7 @@ protocol GTELargeFileSystem: Sendable {
     func itemExists(at url: URL) -> Bool
     func createDirectory(at url: URL, permissions: Int) throws
     func removeItem(at url: URL) throws
+    func removeItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws
     func contentsOfDirectory(at url: URL, maximumEntries: Int) throws -> [URL]
     func moveItem(at source: URL, to destination: URL) throws
@@ -704,6 +721,10 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
         try GTELargeSecurePath.removePrivateItem(at: url)
     }
 
+    func removeItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws {
+        try GTELargeSecurePath.removePrivateItem(at: url, expectedFileIdentity: expectedFileIdentity)
+    }
+
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
         try GTELargeSecurePath.removePrivateItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
     }
@@ -739,6 +760,10 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                 let isPrivateDirectory = sourceType == S_IFDIR &&
                     (sourceStatus.st_mode & 0o777) == 0o700
                 guard isPrivateFile || isPrivateDirectory else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+                guard sourceStatus.st_size >= 0,
+                      sourceType != S_IFREG || sourceStatus.st_size <= 2_147_483_648 else {
                     throw GTELargeModelInstallError.unsafePath
                 }
                 if let expectedSourceIdentity {
@@ -784,10 +809,16 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                     guard temporaryDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
                     defer { close(temporaryDescriptor) }
                     var buffer = [UInt8](repeating: 0, count: 65_536)
+                    var copied: Int64 = 0
                     while true {
                         let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
                         if count == 0 { break }
                         guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                        let (nextCopied, overflow) = copied.addingReportingOverflow(Int64(count))
+                        guard !overflow, nextCopied <= sourceStatus.st_size else {
+                            throw GTELargeModelInstallError.unsafePath
+                        }
+                        copied = nextCopied
                         var offset = 0
                         while offset < count {
                             let written = Darwin.write(temporaryDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
@@ -800,8 +831,9 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                     guard fstat(sourceDescriptor, &sourceAfter) == 0,
                           GTELargeSecurePath.sameObject(openedSource, sourceAfter),
                           expectedSourceIdentity.map({
-                              GTELargeSecurePath.sameFileIdentity(GTELargeSecurePath.identity(from: sourceAfter), $0)
+                          GTELargeSecurePath.sameFileIdentity(GTELargeSecurePath.identity(from: sourceAfter), $0)
                           }) ?? true,
+                          copied == sourceStatus.st_size,
                           fstat(temporaryDescriptor, &temporaryStatus) == 0,
                           (temporaryStatus.st_mode & S_IFMT) == S_IFREG,
                           temporaryStatus.st_uid == getuid(), temporaryStatus.st_nlink == 1,
@@ -1292,7 +1324,15 @@ actor GTELargeOperationCoordinator {
             Task { await self.cancel(root: root, token: token) }
         })
         guard granted else { throw CancellationError() }
-        try Task.checkCancellation()
+        do {
+            try Task.checkCancellation()
+        } catch {
+            // A waiter can be resumed at the same instant its parent task is
+            // cancelled. It owns the root at that point, so it must hand the
+            // lease to the next waiter before returning the cancellation.
+            release(root: root)
+            throw error
+        }
     }
 
     private func cancel(root: String, token: UUID) {
@@ -1461,18 +1501,18 @@ struct GTELargeModelInstaller: Sendable {
                 try operation?.checkCancellation()
                 try Task.checkCancellation()
                 let legacyFile = rootDirectory.appendingPathComponent(file.name)
-                try fileSystem.removeItem(at: legacyFile)
+                try removeVerifiedPrivateFile(at: legacyFile)
             }
             GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
             return installedDirectory
         } catch is CancellationError {
-            if fileSystem.itemExists(at: staging) {
-                try fileSystem.removeItem(at: staging)
+            if fileSystem.itemExists(at: staging), !fileSystem.itemExists(at: promotionJournalURL) {
+                try removeVerifiedPrivateDirectory(at: staging)
             }
             throw CancellationError()
         } catch {
-            if fileSystem.itemExists(at: staging) {
-                try fileSystem.removeItem(at: staging)
+            if fileSystem.itemExists(at: staging), !fileSystem.itemExists(at: promotionJournalURL) {
+                try removeVerifiedPrivateDirectory(at: staging)
             }
             if verifyFiles(in: rootDirectory) {
                 return rootDirectory
@@ -1559,8 +1599,11 @@ struct GTELargeModelInstaller: Sendable {
             }
             return installedDirectory
         } catch {
-            if fileSystem.itemExists(at: staging) {
-                try fileSystem.removeItem(at: staging)
+            // Once a durable journal exists, its staging identity is recovery
+            // input. Removing it after a failed first promotion would strand
+            // the journal and block a later explicit install.
+            if fileSystem.itemExists(at: staging), !fileSystem.itemExists(at: promotionJournalURL) {
+                try removeVerifiedPrivateDirectory(at: staging)
             }
             throw error
         }
@@ -1601,22 +1644,22 @@ struct GTELargeModelInstaller: Sendable {
         // identified by the durable promotion journal. Unreferenced lookalikes
         // remain for manual inspection.
         if verifyVersionedInstall(at: installedDirectory) {
-            try fileSystem.removeItem(at: installedDirectory)
+            try removeVerifiedPrivateDirectory(at: installedDirectory)
         }
         if let pointerData = try? readSmallFile(at: currentPointerURL),
            let pointer = try? JSONDecoder().decode(GTELargeInstallPointer.self, from: pointerData),
            pointer.schema == 1,
            pointer.directoryName == manifest.installationDirectoryName,
            pointer.record.matches(manifest) {
-            try fileSystem.removeItem(at: currentPointerURL)
+            try removeVerifiedPrivateFile(at: currentPointerURL)
         }
         if isSafeLegacyDirectory(rootDirectory), verifyFiles(in: rootDirectory) {
             for file in manifest.files {
-                try fileSystem.removeItem(at: rootDirectory.appendingPathComponent(file.name))
+                try removeVerifiedPrivateFile(at: rootDirectory.appendingPathComponent(file.name))
             }
             let legacyRecord = rootDirectory.appendingPathComponent("install.json")
             if fileSystem.itemExists(at: legacyRecord) {
-                try fileSystem.removeItem(at: legacyRecord)
+                try removeVerifiedPrivateFile(at: legacyRecord)
             }
         }
         if let journal = verifiedPromotionJournal() {
@@ -1626,7 +1669,7 @@ struct GTELargeModelInstaller: Sendable {
                     try fileSystem.removeItem(at: artifact.url, expectedDirectoryIdentity: artifact.identity)
                 }
             }
-            try fileSystem.removeItem(at: promotionJournalURL)
+            try removeVerifiedPrivateFile(at: promotionJournalURL)
         }
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
@@ -1698,12 +1741,15 @@ struct GTELargeModelInstaller: Sendable {
             try fileSystem.write(try JSONEncoder().encode(pointer), to: temporary, permissions: 0o600)
             let temporaryIdentity = try fileSystem.fileIdentity(at: temporary)
             if fileSystem.itemExists(at: currentPointerURL) {
-                try fileSystem.removeItem(at: currentPointerURL)
+                let currentIdentity = try fileSystem.fileIdentity(at: currentPointerURL)
+                try fileSystem.removeItem(at: currentPointerURL, expectedFileIdentity: currentIdentity)
             }
             try fileSystem.moveItem(at: temporary, to: currentPointerURL, expectedSourceIdentity: temporaryIdentity)
             try fileSystem.syncDirectory(at: rootDirectory)
         } catch {
-            try? fileSystem.removeItem(at: temporary)
+            if let identity = try? fileSystem.fileIdentity(at: temporary) {
+                try? fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
+            }
             throw error
         }
     }
@@ -1735,7 +1781,9 @@ struct GTELargeModelInstaller: Sendable {
             try fileSystem.moveItem(at: temporary, to: promotionJournalURL, expectedSourceIdentity: temporaryIdentity)
             try fileSystem.syncDirectory(at: rootDirectory)
         } catch {
-            try? fileSystem.removeItem(at: temporary)
+            if let identity = try? fileSystem.fileIdentity(at: temporary) {
+                try? fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
+            }
             throw error
         }
     }
@@ -1771,7 +1819,7 @@ struct GTELargeModelInstaller: Sendable {
                 try fileSystem.removeItem(at: backup, expectedDirectoryIdentity: backupIdentity)
             }
             if fileSystem.itemExists(at: promotionJournalURL) {
-                try fileSystem.removeItem(at: promotionJournalURL)
+                try removeVerifiedPrivateFile(at: promotionJournalURL)
             }
             try fileSystem.syncDirectory(at: rootDirectory)
             GTELargeVerificationCache.shared.removeAll(in: installedDirectory)
@@ -1881,7 +1929,7 @@ struct GTELargeModelInstaller: Sendable {
            (try? fileSystem.directoryIdentity(at: staging, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameDirectoryIdentity($0, stagingIdentity) }) == true {
             try writeCurrentPointer()
             try fileSystem.removeItem(at: staging, expectedDirectoryIdentity: stagingIdentity)
-            try fileSystem.removeItem(at: promotionJournalURL)
+            try removeVerifiedPrivateFile(at: promotionJournalURL)
             try recoverCurrentPointerTemporaries()
             try fileSystem.syncDirectory(at: rootDirectory)
             GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
@@ -1924,7 +1972,7 @@ struct GTELargeModelInstaller: Sendable {
            (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameDirectoryIdentity($0, backupIdentity) }) == true {
             try fileSystem.removeItem(at: backup, expectedDirectoryIdentity: backupIdentity)
         }
-        try fileSystem.removeItem(at: promotionJournalURL)
+        try removeVerifiedPrivateFile(at: promotionJournalURL)
         try recoverCurrentPointerTemporaries()
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
@@ -1948,18 +1996,21 @@ struct GTELargeModelInstaller: Sendable {
                   pointer.directoryName == manifest.installationDirectoryName,
                   pointer.record.matches(manifest),
                   installedPayloadIsValid else {
-                try fileSystem.removeItem(at: temporary)
+                let identity = try fileSystem.fileIdentity(at: temporary)
+                try fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
                 continue
             }
             if !currentIsValid {
                 if fileSystem.itemExists(at: currentPointerURL) {
-                    try fileSystem.removeItem(at: currentPointerURL)
+                    let identity = try fileSystem.fileIdentity(at: currentPointerURL)
+                    try fileSystem.removeItem(at: currentPointerURL, expectedFileIdentity: identity)
                 }
                 let identity = try fileSystem.fileIdentity(at: temporary)
                 try fileSystem.moveItem(at: temporary, to: currentPointerURL, expectedSourceIdentity: identity)
                 currentIsValid = true
             } else {
-                try fileSystem.removeItem(at: temporary)
+                let identity = try fileSystem.fileIdentity(at: temporary)
+                try fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
             }
         }
         try fileSystem.syncDirectory(at: rootDirectory)
@@ -1980,7 +2031,8 @@ struct GTELargeModelInstaller: Sendable {
                   journal.backupDirectoryName.map(isOwnedBackupName) ?? true,
                   journal.stagingIdentity != nil,
                   (journal.backupDirectoryName == nil) == (journal.backupIdentity == nil) else {
-                try fileSystem.removeItem(at: temporary)
+                let identity = try fileSystem.fileIdentity(at: temporary)
+                try fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
                 continue
             }
             if !journalPresent {
@@ -1988,7 +2040,8 @@ struct GTELargeModelInstaller: Sendable {
                 try fileSystem.moveItem(at: temporary, to: promotionJournalURL, expectedSourceIdentity: identity)
                 journalPresent = true
             } else {
-                try fileSystem.removeItem(at: temporary)
+                let identity = try fileSystem.fileIdentity(at: temporary)
+                try fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
             }
         }
         try fileSystem.syncDirectory(at: rootDirectory)
@@ -2035,6 +2088,16 @@ struct GTELargeModelInstaller: Sendable {
         let data = try fileSystem.read(from: url, maximumSize: limit)
         guard data.count <= Int(limit) else { throw GTELargeModelInstallError.unreadableInstall }
         return data
+    }
+
+    private func removeVerifiedPrivateFile(at url: URL) throws {
+        let identity = try fileSystem.fileIdentity(at: url)
+        try fileSystem.removeItem(at: url, expectedFileIdentity: identity)
+    }
+
+    private func removeVerifiedPrivateDirectory(at url: URL) throws {
+        let identity = try fileSystem.directoryIdentity(at: url, requiredPermissions: 0o700)
+        try fileSystem.removeItem(at: url, expectedDirectoryIdentity: identity)
     }
 
     private func manifestIsValid() -> Bool {
@@ -2142,8 +2205,17 @@ struct GTELargeModelInstaller: Sendable {
         let temporaries = try fileSystem.contentsOfDirectory(at: rootDirectory, maximumEntries: 128)
             .filter { isOwnedCopyTemporaryName($0.lastPathComponent) }
         guard temporaries.count <= 32 else { throw GTELargeModelInstallError.unsafePath }
-        for temporary in temporaries where (try? fileSystem.fileIdentity(at: temporary)) != nil {
-            try fileSystem.removeItem(at: temporary)
+        let maximumBytes = manifest.files.reduce(Int64(0)) { partial, file in
+            let (next, overflow) = partial.addingReportingOverflow(file.size)
+            return overflow ? Int64.max : next
+        }
+        var totalBytes: Int64 = 0
+        for temporary in temporaries {
+            let identity = try fileSystem.fileIdentity(at: temporary)
+            let (next, overflow) = totalBytes.addingReportingOverflow(identity.size)
+            guard !overflow, next <= maximumBytes else { throw GTELargeModelInstallError.unsafePath }
+            totalBytes = next
+            try fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
         }
         if !temporaries.isEmpty {
             try fileSystem.syncDirectory(at: rootDirectory)
@@ -2174,7 +2246,7 @@ struct GTELargeModelInstaller: Sendable {
                 let (next, additionOverflow) = totalBytes.addingReportingOverflow(identity.size)
                 guard !additionOverflow, next <= maximumBytes else { throw GTELargeModelInstallError.unsafePath }
                 totalBytes = next
-                try fileSystem.removeItem(at: artifact)
+                try fileSystem.removeItem(at: artifact, expectedFileIdentity: identity)
             } else {
                 throw GTELargeModelInstallError.unsafePath
             }
@@ -2185,9 +2257,15 @@ struct GTELargeModelInstaller: Sendable {
     private func validateQuarantinedArtifacts() throws {
         let artifacts = try fileSystem.contentsOfDirectory(at: rootDirectory, maximumEntries: 128)
             .filter { isOwnedInvalidJournalName($0.lastPathComponent) }
-        guard artifacts.count <= 8,
-              artifacts.allSatisfy({ (try? fileSystem.fileIdentity(at: $0)) != nil }) else {
+        guard artifacts.count <= 8 else {
             throw GTELargeModelInstallError.unsafePath
+        }
+        var totalBytes: Int64 = 0
+        for artifact in artifacts {
+            let identity = try fileSystem.fileIdentity(at: artifact)
+            let (next, overflow) = totalBytes.addingReportingOverflow(identity.size)
+            guard !overflow, next <= 524_288 else { throw GTELargeModelInstallError.unsafePath }
+            totalBytes = next
         }
     }
 

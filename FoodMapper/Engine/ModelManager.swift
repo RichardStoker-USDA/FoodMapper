@@ -137,15 +137,22 @@ final class ModelManager: ObservableObject {
     /// Startup recovery is completed once before any GTE availability, load,
     /// download, or deletion operation can touch the installation root.
     private var gteStartupRecoveryTask: Task<Void, Never>?
+    private var gteStartupRecoveryFailure: String?
 
     init(hardwareConfig: HardwareConfig) {
         self.hardwareConfig = hardwareConfig
         registerKnownModels()
         cleanupLegacyModels()
         gteStartupRecoveryTask = Task { [weak self] in
-            await MLXEmbeddingModel.awaitStartupRecovery()
             guard let self else { return }
-            self.detectInstalledModels()
+            do {
+                try await MLXEmbeddingModel.awaitStartupRecovery()
+                try Task.checkCancellation()
+                self.detectInstalledModels()
+            } catch {
+                self.gteStartupRecoveryFailure = error.localizedDescription
+                self.modelStates["gte-large"] = .error(error.localizedDescription)
+            }
         }
     }
 
@@ -418,13 +425,16 @@ final class ModelManager: ObservableObject {
         downloadRetryStates[key] = .ready
     }
 
-    func awaitStartupRecoveryForUserAction() async {
+    func awaitStartupRecoveryForUserAction() async throws {
         await gteStartupRecoveryTask?.value
+        if let gteStartupRecoveryFailure {
+            throw GTELargeStartupRecoveryError.failed(gteStartupRecoveryFailure)
+        }
     }
 
     /// Download a model by key with progress reporting
     func downloadModel(key: String) async throws {
-        await awaitStartupRecoveryForUserAction()
+        try await awaitStartupRecoveryForUserAction()
         guard let registration = registeredModel(for: key) else {
             throw ModelManagerError.unknownModel(key)
         }
@@ -500,7 +510,7 @@ final class ModelManager: ObservableObject {
 
     /// Delete a downloaded model
     func deleteModel(key: String) async throws {
-        await awaitStartupRecoveryForUserAction()
+        try await awaitStartupRecoveryForUserAction()
         guard let registration = registeredModel(for: key),
               registration.repoId != nil else {
             throw ModelManagerError.unknownModel(key)
@@ -547,13 +557,22 @@ final class ModelManager: ObservableObject {
             }
         }
         let task: Task<URL, Error> = Task.detached {
-            try await installer.install { written, total in
+            try Task.checkCancellation()
+            let directory = try await installer.install { written, total in
                 updateProgress(written, total)
             }
+            try Task.checkCancellation()
+            return directory
         }
         activeGTELargeInstallTask = task
         defer { activeGTELargeInstallTask = nil }
-        _ = try await task.value
+        _ = try await withTaskCancellationHandler(operation: {
+            let value = try await task.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: {
+            task.cancel()
+        })
         try throwIfDownloadCancelled(for: modelKey)
     }
 
@@ -587,7 +606,7 @@ final class ModelManager: ObservableObject {
     /// Load an embedding model by key. Returns the loaded model.
     /// If a different embedding model is loaded, it will be unloaded first.
     func loadEmbeddingModel(key: String) async throws -> any EmbeddingModelProtocol {
-        await awaitStartupRecoveryForUserAction()
+        try await awaitStartupRecoveryForUserAction()
         // Already loaded?
         if let loaded = loadedEmbeddingModel, loaded.info.key == key {
             return loaded
@@ -778,8 +797,14 @@ final class ModelManager: ObservableObject {
     func refreshModelStates() {
         Task { [weak self] in
             guard let self else { return }
-            await self.awaitStartupRecoveryForUserAction()
-            self.detectInstalledModels()
+            do {
+                try await self.awaitStartupRecoveryForUserAction()
+                try Task.checkCancellation()
+                self.detectInstalledModels()
+            } catch {
+                self.gteStartupRecoveryFailure = error.localizedDescription
+                self.modelStates["gte-large"] = .error(error.localizedDescription)
+            }
         }
     }
 

@@ -633,6 +633,22 @@ final class GTELargeModelInstallTests: XCTestCase {
         }
     }
 
+    func testFailedInitialPromotionRetainsJournaledStagingForRecovery() async throws {
+        let failing = makeInstaller(
+            transport: FixtureTransport(files: fixtureFiles),
+            fileSystem: FailingCommitFileSystem()
+        )
+        do {
+            _ = try await failing.install()
+            XCTFail("Expected promotion failure")
+        } catch {}
+
+        let recovery = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        try await recovery.recoverAtStartup()
+
+        XCTAssertEqual(recovery.availableDirectory(), recovery.installedDirectory)
+    }
+
     func testJournalRenameFailureCleansPrivateTemporaryAndStaging() async throws {
         let installer = makeInstaller(
             transport: FixtureTransport(files: fixtureFiles),
@@ -1097,6 +1113,9 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
     func itemExists(at url: URL) -> Bool { local.itemExists(at: url) }
     func createDirectory(at url: URL, permissions: Int) throws { try local.createDirectory(at: url, permissions: permissions) }
     func removeItem(at url: URL) throws { try local.removeItem(at: url) }
+    func removeItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws {
+        try local.removeItem(at: url, expectedFileIdentity: expectedFileIdentity)
+    }
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
         try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
     }
@@ -1159,6 +1178,9 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
     func itemExists(at url: URL) -> Bool { local.itemExists(at: url) }
     func createDirectory(at url: URL, permissions: Int) throws { try local.createDirectory(at: url, permissions: permissions) }
     func removeItem(at url: URL) throws { try local.removeItem(at: url) }
+    func removeItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws {
+        try local.removeItem(at: url, expectedFileIdentity: expectedFileIdentity)
+    }
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
         try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
     }

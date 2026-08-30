@@ -7,26 +7,63 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
+/// Narrow Application Support root adapter. It keeps model storage injectable
+/// for tests and can be replaced by the app's broader storage owner without
+/// coupling the installer to unrelated persistence code.
+enum FoodMapperModelStorage {
+    #if DEBUG
+    nonisolated(unsafe) static var testingModelsDirectory: URL?
+    #endif
+
+    static func modelsDirectory() -> URL {
+        #if DEBUG
+        if let testingModelsDirectory { return testingModelsDirectory }
+        #endif
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
+    }
+}
+
+enum GTELargeStartupRecoveryError: LocalizedError, Sendable {
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .failed(let message): return "GTE-Large startup recovery failed: \(message)"
+        }
+    }
+}
+
 private actor GTELargeStartupRecovery {
     static let shared = GTELargeStartupRecovery()
-    private var tasks: [String: Task<Void, Never>] = [:]
+    private var tasks: [String: Task<Result<Void, GTELargeStartupRecoveryError>, Never>] = [:]
 
-    static func awaitCompletion(for root: URL) async {
-        await shared.awaitCompletion(for: root)
+    static func awaitCompletion(for root: URL) async throws {
+        try await shared.awaitCompletion(for: root)
     }
 
-    private func awaitCompletion(for root: URL) async {
-        let task: Task<Void, Never>
+    private func awaitCompletion(for root: URL) async throws {
+        let task: Task<Result<Void, GTELargeStartupRecoveryError>, Never>
         if let existing = tasks[root.path] {
             task = existing
         } else {
             task = Task.detached {
                 let installer = GTELargeModelInstaller(rootDirectory: root)
-                try? await installer.recoverAtStartup()
+                do {
+                    try Task.checkCancellation()
+                    try await installer.recoverAtStartup()
+                    try Task.checkCancellation()
+                    return .success(())
+                } catch {
+                    return .failure(.failed(error.localizedDescription))
+                }
             }
             tasks[root.path] = task
         }
-        await task.value
+        switch await task.value {
+        case .success: return
+        case .failure(let error): throw error
+        }
     }
 }
 
@@ -140,15 +177,15 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
 
     /// Model loads share the same one-time repair as download presentation.
     /// This covers callers that use MatchingEngine without ModelManager.
-    static func awaitStartupRecovery() async {
-        await GTELargeStartupRecovery.awaitCompletion(for: downloadDirectory)
+    static func awaitStartupRecovery() async throws {
+        try await GTELargeStartupRecovery.awaitCompletion(for: downloadDirectory)
     }
 
     // MARK: - Loading
 
     /// Load model and tokenizer from bundle
     func load() async throws {
-        await Self.awaitStartupRecovery()
+        try await Self.awaitStartupRecovery()
         guard let modelDir = Self.modelDirectory else {
             throw EmbeddingError.modelNotFound
         }
