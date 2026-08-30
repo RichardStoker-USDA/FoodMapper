@@ -15,12 +15,12 @@ final class EmbeddingTests: XCTestCase {
         try FileManager.default.createDirectory(at: modelRoot, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: modelRoot.path)
         ResourceBundle.testingApplicationSupportModelDir = modelRoot
-        let installer = GTELargeModelInstaller(rootDirectory: modelRoot)
-        try await installer.recoverAtStartup()
         guard let bundled = ResourceBundle.bundledModelsDirectory,
               GTELargeModelInstaller(rootDirectory: bundled).verifyBundledFiles(in: bundled) else {
             throw XCTSkip("The signed GTE-Large fixture is not bundled with this test target")
         }
+        let installer = GTELargeModelInstaller(rootDirectory: modelRoot)
+        try await installer.recoverAtStartup()
     }
 
     override func tearDown() {
