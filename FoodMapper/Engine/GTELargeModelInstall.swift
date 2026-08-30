@@ -956,7 +956,10 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                     var sourceAfter = stat()
                     var temporaryStatus = stat()
                     guard fstat(sourceDescriptor, &sourceAfter) == 0,
-                          GTELargeSecurePath.sameObject(openedSource, sourceAfter),
+                          GTELargeSecurePath.sameIdentity(
+                              GTELargeSecurePath.identity(from: openedSource),
+                              GTELargeSecurePath.identity(from: sourceAfter)
+                          ),
                           expectedSourceIdentity.map({
                           GTELargeSecurePath.sameFileIdentity(GTELargeSecurePath.identity(from: sourceAfter), $0)
                           }) ?? true,
