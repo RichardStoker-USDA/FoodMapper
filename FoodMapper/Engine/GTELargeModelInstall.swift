@@ -142,6 +142,133 @@ private enum GTELargeSecurePath {
         return try body(parent, name)
     }
 
+    static func itemExists(at url: URL) -> Bool {
+        (try? withParentDescriptor(of: url) { parent, name in
+            var status = stat()
+            guard name.withCString({ fstatat(parent, $0, &status, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (status.st_mode & S_IFMT) != S_IFLNK else {
+                return false
+            }
+            return true
+        }) ?? false
+    }
+
+    static func directoryEntries(at url: URL) throws -> [URL] {
+        let descriptor = try openDirectoryDescriptor(at: url)
+        defer { close(descriptor) }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFDIR,
+              status.st_uid == getuid() else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        guard let stream = fdopendir(dup(descriptor)) else {
+            throw GTELargeModelInstallError.unreadableInstall
+        }
+        defer { closedir(stream) }
+        var entries: [URL] = []
+        while let entry = readdir(stream) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
+                    String(cString: $0)
+                }
+            }
+            guard name != ".", name != ".." else { continue }
+            guard !name.contains("/") && !name.contains("\\") else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            entries.append(url.appendingPathComponent(name, isDirectory: false))
+        }
+        var after = stat()
+        guard fstat(descriptor, &after) == 0, sameObject(status, after) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        return entries
+    }
+
+    static func legacyFileIdentity(at url: URL) throws -> GTELargeFileIdentity {
+        try withParentDescriptor(of: url) { parent, name in
+            var before = stat()
+            guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (before.st_mode & S_IFMT) == S_IFREG,
+                  before.st_uid == getuid(), before.st_nlink == 1 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            defer { close(descriptor) }
+            var opened = stat()
+            guard fstat(descriptor, &opened) == 0, sameObject(before, opened) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            return identity(from: opened)
+        }
+    }
+
+    static func removePrivateItem(at url: URL) throws {
+        try withParentDescriptor(of: url) { parent, name in
+            var status = stat()
+            guard name.withCString({ fstatat(parent, $0, &status, AT_SYMLINK_NOFOLLOW) }) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            try removePrivateEntry(parent: parent, name: name, expected: status)
+            guard fsync(parent) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+        }
+    }
+
+    private static func removePrivateEntry(parent: Int32, name: String, expected: stat) throws {
+        let type = expected.st_mode & S_IFMT
+        guard expected.st_uid == getuid(),
+              (type == S_IFREG && expected.st_nlink == 1 && (expected.st_mode & 0o777) == privateFileMode) ||
+              (type == S_IFDIR && (expected.st_mode & 0o777) == privateDirectoryMode) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+
+        if type == S_IFREG {
+            var current = stat()
+            guard name.withCString({ fstatat(parent, $0, &current, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  sameObject(expected, current),
+                  current.st_nlink == 1,
+                  name.withCString({ unlinkat(parent, $0, 0) }) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            return
+        }
+
+        guard type == S_IFDIR else { throw GTELargeModelInstallError.unsafePath }
+        let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW) }
+        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+        defer { close(descriptor) }
+        var opened = stat()
+        guard fstat(descriptor, &opened) == 0, sameObject(expected, opened),
+              opened.st_uid == getuid(), (opened.st_mode & 0o777) == privateDirectoryMode else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        guard let stream = fdopendir(dup(descriptor)) else {
+            throw GTELargeModelInstallError.unreadableInstall
+        }
+        defer { closedir(stream) }
+        while let entry = readdir(stream) {
+            let child = withUnsafePointer(to: entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
+                    String(cString: $0)
+                }
+            }
+            guard child != ".", child != ".." else { continue }
+            var childStatus = stat()
+            guard child.withCString({ fstatat(descriptor, $0, &childStatus, AT_SYMLINK_NOFOLLOW) }) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            try removePrivateEntry(parent: descriptor, name: child, expected: childStatus)
+        }
+        var current = stat()
+        guard name.withCString({ fstatat(parent, $0, &current, AT_SYMLINK_NOFOLLOW) }) == 0,
+              sameObject(expected, current),
+              name.withCString({ unlinkat(parent, $0, AT_REMOVEDIR) }) == 0 else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+    }
+
     static func directoryIdentity(at url: URL, requiredMode: mode_t? = nil) throws -> GTELargeFileIdentity {
         let descriptor = try openDirectoryDescriptor(at: url)
         defer { close(descriptor) }
@@ -277,7 +404,15 @@ private enum GTELargeSecurePath {
                         offset += written
                     }
                 }
-                guard fsync(destinationDescriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                var destinationStatus = stat()
+                guard fstat(destinationDescriptor, &destinationStatus) == 0,
+                      (destinationStatus.st_mode & S_IFMT) == S_IFREG,
+                      destinationStatus.st_uid == getuid(), destinationStatus.st_nlink == 1,
+                      fchmod(destinationDescriptor, privateFileMode) == 0,
+                      fsync(destinationDescriptor) == 0,
+                      fsync(destinationParent) == 0 else {
+                    throw GTELargeModelInstallError.unreadableInstall
+                }
             }
         }
     }
@@ -322,14 +457,29 @@ protocol GTELargeFileSystem: Sendable {
 
 struct LocalGTELargeFileSystem: GTELargeFileSystem {
     func itemExists(at url: URL) -> Bool {
-        FileManager.default.fileExists(atPath: url.path)
+        GTELargeSecurePath.itemExists(at: url)
     }
 
     func createDirectory(at url: URL, permissions: Int) throws {
         try GTELargeSecurePath.withParentDescriptor(of: url) { parent, name in
             if name.withCString({ mkdirat(parent, $0, mode_t(permissions)) }) == 0 {
-                _ = try GTELargeSecurePath.directoryIdentity(at: url)
-                try setPermissions(permissions, at: url)
+                var before = stat()
+                guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
+                      (before.st_mode & S_IFMT) == S_IFDIR,
+                      before.st_uid == getuid() else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+                let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW) }
+                guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+                defer { close(descriptor) }
+                var opened = stat()
+                guard fstat(descriptor, &opened) == 0,
+                      GTELargeSecurePath.sameObject(before, opened),
+                      fchmod(descriptor, mode_t(permissions)) == 0,
+                      fsync(descriptor) == 0,
+                      fsync(parent) == 0 else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
                 return
             }
             guard errno == EEXIST else {
@@ -340,32 +490,65 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
     }
 
     func removeItem(at url: URL) throws {
-        try GTELargeSecurePath.validateAncestors(of: url.deletingLastPathComponent())
-        var status = stat()
-        guard lstat(url.path, &status) == 0,
-              (status.st_mode & S_IFMT) != S_IFLNK else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        try FileManager.default.removeItem(at: url)
+        try GTELargeSecurePath.removePrivateItem(at: url)
     }
 
     func contentsOfDirectory(at url: URL) throws -> [URL] {
-        _ = try GTELargeSecurePath.directoryIdentity(at: url)
-        return try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+        try GTELargeSecurePath.directoryEntries(at: url)
     }
 
     func moveItem(at source: URL, to destination: URL) throws {
         try GTELargeSecurePath.withParentDescriptor(of: source) { sourceParent, sourceName in
             try GTELargeSecurePath.withParentDescriptor(of: destination) { destinationParent, destinationName in
-                let result = sourceName.withCString { sourcePointer in
+                var sourceStatus = stat()
+                guard sourceName.withCString({ fstatat(sourceParent, $0, &sourceStatus, AT_SYMLINK_NOFOLLOW) }) == 0,
+                      sourceStatus.st_uid == getuid(),
+                      (sourceStatus.st_mode & S_IFMT) != S_IFLNK else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+                let sourceType = sourceStatus.st_mode & S_IFMT
+                let isPrivateFile = sourceType == S_IFREG && sourceStatus.st_nlink == 1 &&
+                    (sourceStatus.st_mode & 0o777) == 0o600
+                let isPrivateDirectory = sourceType == S_IFDIR &&
+                    (sourceStatus.st_mode & 0o777) == 0o700
+                guard isPrivateFile || isPrivateDirectory else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+
+                var destinationStatus = stat()
+                let destinationExists = destinationName.withCString {
+                    fstatat(destinationParent, $0, &destinationStatus, AT_SYMLINK_NOFOLLOW)
+                } == 0
+                if destinationExists {
+                    guard isPrivateFile,
+                          (destinationStatus.st_mode & S_IFMT) == S_IFREG,
+                          destinationStatus.st_uid == getuid(),
+                          destinationStatus.st_nlink == 1,
+                          (destinationStatus.st_mode & 0o777) == 0o600 else {
+                        throw GTELargeModelInstallError.unsafePath
+                    }
+                } else if errno != ENOENT {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+
+                let result: Int32 = sourceName.withCString { sourcePointer in
                     destinationName.withCString { destinationPointer in
-                        renameat(sourceParent, sourcePointer, destinationParent, destinationPointer)
+                        if isPrivateDirectory {
+                            return renameatx_np(sourceParent, sourcePointer, destinationParent, destinationPointer, UInt32(RENAME_EXCL))
+                        }
+                        return renameat(sourceParent, sourcePointer, destinationParent, destinationPointer)
                     }
                 }
                 guard result == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                var movedStatus = stat()
+                guard destinationName.withCString({ fstatat(destinationParent, $0, &movedStatus, AT_SYMLINK_NOFOLLOW) }) == 0,
+                      GTELargeSecurePath.sameObject(sourceStatus, movedStatus),
+                      fsync(sourceParent) == 0,
+                      fsync(destinationParent) == 0 else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
             }
         }
-        try syncDirectory(at: destination.deletingLastPathComponent())
     }
 
     func copyItem(at source: URL, to destination: URL) throws {
@@ -387,7 +570,15 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                     offset += count
                 }
             }
-            guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+            var status = stat()
+            guard fstat(descriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_uid == getuid(), status.st_nlink == 1,
+                  fchmod(descriptor, mode_t(permissions)) == 0,
+                  fsync(descriptor) == 0,
+                  fsync(parent) == 0 else {
+                throw GTELargeModelInstallError.unreadableInstall
+            }
         }
     }
 
@@ -412,7 +603,10 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
             guard fstat(descriptor, &status) == 0,
                   ((status.st_mode & S_IFMT) == S_IFREG || (status.st_mode & S_IFMT) == S_IFDIR),
                   status.st_uid == getuid(),
-                  fchmod(descriptor, mode_t(permissions)) == 0 else {
+                  (status.st_mode & S_IFMT) != S_IFREG || status.st_nlink == 1,
+                  fchmod(descriptor, mode_t(permissions)) == 0,
+                  fsync(descriptor) == 0,
+                  fsync(parent) == 0 else {
                 throw GTELargeModelInstallError.unsafePath
             }
         }
@@ -423,14 +617,27 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
             let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
             guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
             defer { close(descriptor) }
-            guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+            var status = stat()
+            guard fstat(descriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_uid == getuid(), status.st_nlink == 1,
+                  fsync(descriptor) == 0,
+                  fsync(parent) == 0 else {
+                throw GTELargeModelInstallError.unreadableInstall
+            }
         }
     }
 
     func syncDirectory(at url: URL) throws {
         let descriptor = try GTELargeSecurePath.openDirectoryDescriptor(at: url)
         defer { close(descriptor) }
-        guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFDIR,
+              status.st_uid == getuid(),
+              fsync(descriptor) == 0 else {
+            throw GTELargeModelInstallError.unreadableInstall
+        }
     }
 
     private func copyBytes(from source: Int32, to destination: Int32) throws {
@@ -1212,23 +1419,10 @@ struct GTELargeModelInstaller: Sendable {
     /// limited to regular, single-link files owned by the current user and is
     /// performed only after the user requests an explicit installation action.
     private func prepareLegacyInstallForMigration() throws -> Bool {
-        var rootStatus = stat()
-        guard lstat(rootDirectory.path, &rootStatus) == 0 else {
-            if errno == ENOENT { return false }
-            throw GTELargeModelInstallError.unsafePath
-        }
-        try GTELargeSecurePath.validateAncestors(of: rootDirectory.deletingLastPathComponent())
-        guard (rootStatus.st_mode & S_IFMT) == S_IFDIR,
-              (rootStatus.st_mode & S_IFMT) != S_IFLNK,
-              rootStatus.st_uid == getuid() else {
-            throw GTELargeModelInstallError.unsafePath
-        }
+        guard fileSystem.itemExists(at: rootDirectory) else { return false }
+        _ = try fileSystem.directoryIdentity(at: rootDirectory, requiredPermissions: nil)
         let allowedNames = Set(manifest.files.map(\.name) + ["install.json"])
-        let entries = try FileManager.default.contentsOfDirectory(
-            at: rootDirectory,
-            includingPropertiesForKeys: nil,
-            options: []
-        )
+        let entries = try fileSystem.contentsOfDirectory(at: rootDirectory)
         guard entries.allSatisfy({ allowedNames.contains($0.lastPathComponent) }) else {
             throw GTELargeModelInstallError.unsafePath
         }
@@ -1236,16 +1430,7 @@ struct GTELargeModelInstaller: Sendable {
         var presentFiles = Set<String>()
         for entry in entries {
             let url = rootDirectory.appendingPathComponent(entry.lastPathComponent)
-            var status = stat()
-            guard lstat(url.path, &status) == 0 else {
-                throw GTELargeModelInstallError.unsafePath
-            }
-            guard (status.st_mode & S_IFMT) == S_IFREG,
-                  (status.st_mode & S_IFMT) != S_IFLNK,
-                  status.st_nlink == 1,
-                  status.st_uid == getuid() else {
-                throw GTELargeModelInstallError.unsafePath
-            }
+            _ = try GTELargeSecurePath.legacyFileIdentity(at: url)
             presentFiles.insert(entry.lastPathComponent)
         }
         try fileSystem.setPermissions(0o700, at: rootDirectory)

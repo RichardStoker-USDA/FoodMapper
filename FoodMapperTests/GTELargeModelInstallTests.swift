@@ -172,6 +172,29 @@ final class GTELargeModelInstallTests: XCTestCase {
         }
     }
 
+    func testAncestorSwapDuringDownloadIsNeverPublished() async throws {
+        let live = root.appendingPathComponent("live", isDirectory: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: live, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: live.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outside.path)
+        let modelRoot = live.appendingPathComponent("models", isDirectory: true)
+        let installer = GTELargeModelInstaller(
+            rootDirectory: modelRoot,
+            manifest: fixtureManifest,
+            transport: AncestorSwappingTransport(files: fixtureFiles, ancestor: live, replacement: outside)
+        )
+
+        do {
+            _ = try await installer.install()
+            XCTFail("Expected ancestor swap rejection")
+        } catch {
+            XCTAssertNil(installer.availableDirectory())
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent("models").path))
+        }
+    }
+
     func testDiskFullLeavesNoPublishedInstall() async {
         let installer = makeInstaller(
             transport: FixtureTransport(files: fixtureFiles, failure: CocoaError(.fileWriteOutOfSpace))
@@ -475,7 +498,7 @@ final class GTELargeModelInstallTests: XCTestCase {
     }
 
     private func makeInstaller(
-        transport: FixtureTransport,
+        transport: any GTELargeDownloadTransport,
         fileSystem: any GTELargeFileSystem = LocalGTELargeFileSystem(),
         hashing: any GTELargeHashing = SHA256GTELargeHashing()
     ) -> GTELargeModelInstaller {
@@ -557,6 +580,35 @@ private actor FixtureTransport: GTELargeDownloadTransport {
         }
         try data.write(to: destination)
         onProgress(Int64(data.count))
+    }
+}
+
+private actor AncestorSwappingTransport: GTELargeDownloadTransport {
+    private let files: [String: Data]
+    private let ancestor: URL
+    private let replacement: URL
+    private var swapped = false
+
+    init(files: [String: Data], ancestor: URL, replacement: URL) {
+        self.files = files
+        self.ancestor = ancestor
+        self.replacement = replacement
+    }
+
+    func download(
+        from source: URL,
+        to destination: URL,
+        expectedSize: Int64,
+        onProgress: @escaping @Sendable (Int64) -> Void
+    ) async throws {
+        guard let data = files[source.lastPathComponent] else { throw CocoaError(.fileNoSuchFile) }
+        try data.write(to: destination)
+        onProgress(Int64(data.count))
+        guard !swapped else { return }
+        swapped = true
+        let moved = ancestor.deletingLastPathComponent().appendingPathComponent("moved-live", isDirectory: true)
+        try FileManager.default.moveItem(at: ancestor, to: moved)
+        try FileManager.default.createSymbolicLink(at: ancestor, withDestinationURL: replacement)
     }
 }
 
