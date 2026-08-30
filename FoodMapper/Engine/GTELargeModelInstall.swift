@@ -65,7 +65,7 @@ struct GTELargeModelInstallRecord: Codable, Equatable, Sendable {
     }
 }
 
-struct GTELargeFileIdentity: Equatable, Sendable {
+struct GTELargeFileIdentity: Codable, Equatable, Sendable {
     let size: Int64
     let device: UInt64
     let inode: UInt64
@@ -441,6 +441,9 @@ struct URLSessionGTELargeDownloadTransport: GTELargeDownloadTransport {
         expectedSize: Int64,
         onProgress: @escaping @Sendable (Int64) -> Void
     ) async throws {
+        guard GTELargeDownloadURLPolicy.accepts(source) else {
+            throw GTELargeModelInstallError.invalidRedirect
+        }
         let state = GTELargeURLSessionDownloadState()
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -486,12 +489,32 @@ private final class GTELargeURLSessionDownloadState: @unchecked Sendable {
     }
 }
 
-private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDownloadDelegate {
-    private static let approvedHosts: Set<String> = [
+enum GTELargeDownloadURLPolicy {
+    static let approvedHosts: Set<String> = [
         "huggingface.co",
         "cdn-lfs.huggingface.co",
         "cas-bridge.xethub.hf.co",
     ]
+
+    static func accepts(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443,
+              let host = url.host?.lowercased(),
+              approvedHosts.contains(host) else {
+            return false
+        }
+        // URL.host is a hostname or numeric address. Keeping this explicit
+        // prevents an allowlist entry from being widened later to an IP literal.
+        return host.range(of: "^[0-9a-f:.]+$", options: .regularExpression) == nil
+    }
+
+    static func acceptsRedirect(_ url: URL, redirectCount: Int) -> Bool {
+        redirectCount <= 4 && accepts(url)
+    }
+}
+
+private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private static let maximumRedirects = 4
     private let destination: URL
     private let expectedSize: Int64
@@ -538,11 +561,7 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
     ) {
         guard response.statusCode >= 300, response.statusCode < 400,
               let url = request.url,
-              url.scheme?.lowercased() == "https",
-              url.user == nil, url.password == nil,
-              url.port == nil || url.port == 443,
-              let host = url.host?.lowercased(),
-              Self.approvedHosts.contains(host) else {
+              GTELargeDownloadURLPolicy.accepts(url) else {
             completionHandler(nil)
             finish(session: session, result: .failure(GTELargeModelInstallError.invalidRedirect))
             return
@@ -551,7 +570,7 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
         redirectCount += 1
         let tooManyRedirects = redirectCount > Self.maximumRedirects
         lock.unlock()
-        guard !tooManyRedirects else {
+        guard !tooManyRedirects, GTELargeDownloadURLPolicy.acceptsRedirect(url, redirectCount: redirectCount) else {
             completionHandler(nil)
             finish(session: session, result: .failure(GTELargeModelInstallError.invalidRedirect))
             return
@@ -566,9 +585,8 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
     ) {
         guard let response = downloadTask.response as? HTTPURLResponse,
               response.statusCode == 200,
-              let host = response.url?.host?.lowercased(),
-              Self.approvedHosts.contains(host),
-              response.url?.scheme?.lowercased() == "https" else {
+              let finalURL = response.url,
+              GTELargeDownloadURLPolicy.accepts(finalURL) else {
             let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
             finish(session: session, result: .failure(GTELargeModelInstallError.httpFailure(status)))
             return
@@ -702,6 +720,8 @@ private struct GTELargePromotionJournal: Codable {
     let revision: String
     let stagingDirectoryName: String
     let backupDirectoryName: String?
+    let stagingIdentity: GTELargeFileIdentity?
+    let backupIdentity: GTELargeFileIdentity?
 }
 
 /// Verifies, installs, and migrates the fixed GTE-Large model set. It has no
@@ -788,6 +808,12 @@ struct GTELargeModelInstaller: Sendable {
         }
         try operation?.checkCancellation()
         try Task.checkCancellation()
+        // A private root may contain other model families. Inspect it only
+        // when the complete legacy file set is present at its top level.
+        if isPrivateDirectory(rootDirectory),
+           !manifest.files.allSatisfy({ fileSystem.itemExists(at: rootDirectory.appendingPathComponent($0.name)) }) {
+            return nil
+        }
         guard try prepareLegacyInstallForMigration() else { return nil }
         guard verifyFiles(in: rootDirectory) else { return nil }
 
@@ -961,10 +987,10 @@ struct GTELargeModelInstaller: Sendable {
             isOwnedVersionDirectoryName(name) ||
             name == "current.json" ||
             name == ".gte-large-promotion.json" ||
-            name.hasPrefix(".gte-large-staging-") ||
-            name.hasPrefix(".gte-large-previous-") ||
-            name.hasPrefix(".gte-large-current-") ||
-            name.hasPrefix(".gte-large-journal-") ||
+            isOwnedStagingName(name) ||
+            isOwnedBackupName(name) ||
+            isOwnedCurrentTemporaryName(name) ||
+            isOwnedJournalTemporaryName(name) ||
             legacyNames.contains(name) {
             let candidate = rootDirectory.appendingPathComponent(name)
             try fileSystem.removeItem(at: candidate)
@@ -1046,11 +1072,24 @@ struct GTELargeModelInstaller: Sendable {
     }
 
     private func writeJournal(staging: URL, backup: URL?) throws {
+        let stagingIdentity = try fileSystem.directoryIdentity(at: staging, requiredPermissions: 0o700)
+        let backupIdentity: GTELargeFileIdentity?
+        if let backup {
+            // The backup name is not present until commit renames the old
+            // install. Record that directory's identity before the rename.
+            backupIdentity = try fileSystem.itemExists(at: backup)
+                ? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)
+                : fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)
+        } else {
+            backupIdentity = nil
+        }
         let journal = GTELargePromotionJournal(
             schema: 1,
             revision: manifest.revision,
             stagingDirectoryName: staging.lastPathComponent,
-            backupDirectoryName: backup?.lastPathComponent
+            backupDirectoryName: backup?.lastPathComponent,
+            stagingIdentity: stagingIdentity,
+            backupIdentity: backupIdentity
         )
         let temporary = rootDirectory.appendingPathComponent(".gte-large-journal-\(UUID().uuidString)")
         try fileSystem.write(try JSONEncoder().encode(journal), to: temporary, permissions: 0o600)
@@ -1131,11 +1170,21 @@ struct GTELargeModelInstaller: Sendable {
               rootStatus.st_uid == getuid() else {
             throw GTELargeModelInstallError.unsafePath
         }
-        for file in manifest.files {
-            let url = rootDirectory.appendingPathComponent(file.name)
+        let allowedNames = Set(manifest.files.map(\.name) + ["install.json"])
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: rootDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        guard entries.allSatisfy({ allowedNames.contains($0.lastPathComponent) }) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+
+        var presentFiles = Set<String>()
+        for entry in entries {
+            let url = rootDirectory.appendingPathComponent(entry.lastPathComponent)
             var status = stat()
             guard lstat(url.path, &status) == 0 else {
-                if errno == ENOENT { return false }
                 throw GTELargeModelInstallError.unsafePath
             }
             guard (status.st_mode & S_IFMT) == S_IFREG,
@@ -1144,12 +1193,14 @@ struct GTELargeModelInstaller: Sendable {
                   status.st_uid == getuid() else {
                 throw GTELargeModelInstallError.unsafePath
             }
+            presentFiles.insert(entry.lastPathComponent)
         }
         try fileSystem.setPermissions(0o700, at: rootDirectory)
-        for file in manifest.files {
-            try fileSystem.setPermissions(0o600, at: rootDirectory.appendingPathComponent(file.name))
+        for name in presentFiles {
+            try fileSystem.setPermissions(0o600, at: rootDirectory.appendingPathComponent(name))
         }
-        return true
+        try fileSystem.syncDirectory(at: rootDirectory)
+        return Set(manifest.files.map(\.name)).isSubset(of: presentFiles)
     }
 
     private func recoverPromotionIfNeeded() throws {
@@ -1163,27 +1214,50 @@ struct GTELargeModelInstaller: Sendable {
               journal.revision == manifest.revision,
               isOwnedStagingName(journal.stagingDirectoryName),
               journal.backupDirectoryName.map(isOwnedBackupName) ?? true,
+              let stagingIdentity = journal.stagingIdentity,
+              (journal.backupDirectoryName == nil) == (journal.backupIdentity == nil),
               let staging = safeChild(named: journal.stagingDirectoryName) else {
             try quarantineInvalidRecoveryArtifacts()
             return
         }
         let backup = journal.backupDirectoryName.flatMap(safeChild(named:))
 
-        if isPrivateDirectory(installedDirectory), verifyRecord(in: installedDirectory), verifyFiles(in: installedDirectory) {
+        if isPrivateDirectory(installedDirectory),
+           (try? fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)) == stagingIdentity,
+           verifyRecord(in: installedDirectory), verifyFiles(in: installedDirectory) {
             try writeCurrentPointer()
-        } else if let backup, isPrivateDirectory(backup), verifyRecord(in: backup), verifyFiles(in: backup) {
-            if fileSystem.itemExists(at: installedDirectory) { try fileSystem.removeItem(at: installedDirectory) }
+        } else if let backup,
+                  let backupIdentity = journal.backupIdentity,
+                  (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)) == backupIdentity,
+                  verifyRecord(in: backup), verifyFiles(in: backup) {
+            if fileSystem.itemExists(at: installedDirectory) {
+                // A name collision after an interrupted promotion is not safe
+                // to remove. The journal proves only the recorded objects.
+                throw GTELargeModelInstallError.unsafePath
+            }
             try fileSystem.moveItem(at: backup, to: installedDirectory)
             try writeCurrentPointer()
-        } else if isPrivateDirectory(staging), verifyRecord(in: staging), verifyFiles(in: staging) {
-            if fileSystem.itemExists(at: installedDirectory) { try fileSystem.removeItem(at: installedDirectory) }
+        } else if isPrivateDirectory(staging),
+                  (try? fileSystem.directoryIdentity(at: staging, requiredPermissions: 0o700)) == stagingIdentity,
+                  verifyRecord(in: staging), verifyFiles(in: staging) {
+            if fileSystem.itemExists(at: installedDirectory) {
+                throw GTELargeModelInstallError.unsafePath
+            }
             try fileSystem.moveItem(at: staging, to: installedDirectory)
             try writeCurrentPointer()
         } else {
             throw GTELargeModelInstallError.verificationFailed
         }
-        if fileSystem.itemExists(at: staging) { try? fileSystem.removeItem(at: staging) }
-        if let backup, fileSystem.itemExists(at: backup) { try? fileSystem.removeItem(at: backup) }
+        if fileSystem.itemExists(at: staging),
+           (try? fileSystem.directoryIdentity(at: staging, requiredPermissions: 0o700)) == stagingIdentity {
+            try? fileSystem.removeItem(at: staging)
+        }
+        if let backup,
+           let backupIdentity = journal.backupIdentity,
+           fileSystem.itemExists(at: backup),
+           (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)) == backupIdentity {
+            try? fileSystem.removeItem(at: backup)
+        }
         try fileSystem.removeItem(at: promotionJournalURL)
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
@@ -1243,6 +1317,16 @@ struct GTELargeModelInstaller: Sendable {
         return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
     }
 
+    private func isOwnedCurrentTemporaryName(_ name: String) -> Bool {
+        let prefix = ".gte-large-current-"
+        return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+    }
+
+    private func isOwnedJournalTemporaryName(_ name: String) -> Bool {
+        let prefix = ".gte-large-journal-"
+        return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+    }
+
     private func isOwnedVersionDirectoryName(_ name: String) -> Bool {
         let prefix = "gte-large-"
         let revision = String(name.dropFirst(prefix.count))
@@ -1253,7 +1337,7 @@ struct GTELargeModelInstaller: Sendable {
         let entries = try fileSystem.contentsOfDirectory(at: rootDirectory)
         for entry in entries where entry.lastPathComponent == ".gte-large-promotion.json" ||
             isOwnedStagingName(entry.lastPathComponent) || isOwnedBackupName(entry.lastPathComponent) ||
-            entry.lastPathComponent.hasPrefix(".gte-large-journal-") {
+            isOwnedJournalTemporaryName(entry.lastPathComponent) {
             try fileSystem.removeItem(at: entry)
         }
         try fileSystem.syncDirectory(at: rootDirectory)

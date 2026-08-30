@@ -186,12 +186,15 @@ final class GTELargeModelInstallTests: XCTestCase {
     func testDeleteRemovesOwnedRecoveryArtifacts() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
-        let staging = root.appendingPathComponent(".gte-large-staging-delete", isDirectory: true)
-        let backup = root.appendingPathComponent(".gte-large-previous-delete", isDirectory: true)
+        let staging = root.appendingPathComponent(".gte-large-staging-\(UUID().uuidString)", isDirectory: true)
+        let backup = root.appendingPathComponent(".gte-large-previous-\(UUID().uuidString)", isDirectory: true)
+        let forged = root.appendingPathComponent(".gte-large-staging-looks-owned", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: forged, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: backup.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: forged.path)
 
         try await installer.deleteInstallArtifacts()
 
@@ -199,6 +202,7 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: forged.path))
     }
 
     func testRecoveryClearsCorruptAndTraversalJournals() async throws {
@@ -223,6 +227,20 @@ final class GTELargeModelInstallTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         XCTAssertNil(installer.availableDirectory())
+    }
+
+    func testInstallRepairsSafePartialLegacyDirectoryBeforeDownloading() async throws {
+        let partial = root.appendingPathComponent("config.json")
+        try fixtureFiles["config.json"]!.write(to: partial)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: partial.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+
+        _ = try await installer.install()
+
+        let rootMode = try FileManager.default.attributesOfItem(atPath: root.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual((rootMode?.intValue ?? 0) & 0o777, 0o700)
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
     }
 
     func testDeleteRemovesOwnedOldRevisionDirectories() async throws {
@@ -311,6 +329,38 @@ final class GTELargeModelInstallTests: XCTestCase {
 
         XCTAssertEqual(installer.availableDirectory(), root)
         XCTAssertEqual(hashing.callCount, fixtureManifest.files.count)
+    }
+
+    func testDownloadURLPolicyAllowsOnlyPinnedHTTPSHosts() {
+        let accepted = [
+            "https://huggingface.co/example/model/resolve/0123456789abcdef0123456789abcdef01234567/config.json",
+            "https://cdn-lfs.huggingface.co/blob",
+            "https://cas-bridge.xethub.hf.co/blob",
+            "https://huggingface.co:443/blob",
+        ]
+        let rejected = [
+            "http://huggingface.co/blob",
+            "https://huggingface.co.evil.example/blob",
+            "https://huggingface.co./blob",
+            "https://user@huggingface.co/blob",
+            "https://huggingface.co:444/blob",
+            "https://127.0.0.1/blob",
+            "https://[::1]/blob",
+        ]
+
+        for value in accepted {
+            XCTAssertTrue(GTELargeDownloadURLPolicy.accepts(URL(string: value)!))
+        }
+        for value in rejected {
+            XCTAssertFalse(GTELargeDownloadURLPolicy.accepts(URL(string: value)!))
+        }
+    }
+
+    func testDownloadURLPolicyRejectsRedirectLoopsAfterFourHops() {
+        let url = URL(string: "https://cdn-lfs.huggingface.co/blob")!
+        XCTAssertTrue(GTELargeDownloadURLPolicy.acceptsRedirect(url, redirectCount: 1))
+        XCTAssertTrue(GTELargeDownloadURLPolicy.acceptsRedirect(url, redirectCount: 4))
+        XCTAssertFalse(GTELargeDownloadURLPolicy.acceptsRedirect(url, redirectCount: 5))
     }
 
     private func makeInstaller(

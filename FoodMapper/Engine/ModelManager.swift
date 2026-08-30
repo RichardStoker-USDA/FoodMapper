@@ -406,7 +406,7 @@ final class ModelManager: ObservableObject {
         // Prevent parallel download tasks for the same model key
         guard !activeDownloads.contains(key) else {
             logger.warning("Download already in progress for model: \(key)")
-            return
+            throw ModelManagerError.downloadInProgress(key)
         }
         activeDownloads.insert(key)
         defer {
@@ -771,6 +771,7 @@ enum ModelManagerError: LocalizedError {
     case modelNotAvailable(String)
     case insufficientMemory(required: Int64, available: Int64)
     case downloadFailed(String)
+    case downloadInProgress(String)
 
     var errorDescription: String? {
         switch self {
@@ -784,6 +785,8 @@ enum ModelManagerError: LocalizedError {
             return "Insufficient GPU memory: \(reqMB)MB required, \(avaMB)MB available"
         case .downloadFailed(let message):
             return "Download failed: \(message)"
+        case .downloadInProgress(let key):
+            return "A download is already in progress for '\(key)'"
         }
     }
 }
