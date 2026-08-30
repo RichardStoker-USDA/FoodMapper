@@ -138,6 +138,7 @@ final class ModelManager: ObservableObject {
     /// download, or deletion operation can touch the installation root.
     private var gteStartupRecoveryTask: Task<Void, Never>?
     private var gteStartupRecoveryFailure: String?
+    private var gteStartupRecoveryReady = false
 
     init(hardwareConfig: HardwareConfig) {
         self.hardwareConfig = hardwareConfig
@@ -148,6 +149,7 @@ final class ModelManager: ObservableObject {
             do {
                 try await MLXEmbeddingModel.awaitStartupRecovery()
                 try Task.checkCancellation()
+                self.gteStartupRecoveryReady = true
                 self.detectInstalledModels()
             } catch {
                 self.gteStartupRecoveryFailure = error.localizedDescription
@@ -429,6 +431,9 @@ final class ModelManager: ObservableObject {
         await gteStartupRecoveryTask?.value
         if let gteStartupRecoveryFailure {
             throw GTELargeStartupRecoveryError.failed(gteStartupRecoveryFailure)
+        }
+        guard gteStartupRecoveryReady else {
+            throw GTELargeStartupRecoveryError.failed("Recovery did not complete")
         }
     }
 
@@ -811,6 +816,7 @@ final class ModelManager: ObservableObject {
     /// Disk usage for a downloaded model
     func diskUsage(for key: String) -> Int64? {
         if key == "gte-large" {
+            guard gteStartupRecoveryReady else { return nil }
             return gteLargeDiskUsage()
         }
         guard let registration = registeredModel(for: key),

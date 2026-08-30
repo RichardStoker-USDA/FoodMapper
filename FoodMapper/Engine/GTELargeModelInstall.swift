@@ -2022,15 +2022,19 @@ struct GTELargeModelInstaller: Sendable {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         guard temporaries.count <= 32 else { throw GTELargeModelInstallError.unsafePath }
         var journalPresent = fileSystem.itemExists(at: promotionJournalURL)
+        if journalPresent {
+            let canonicalIsValid = (try? readSmallFile(at: promotionJournalURL))
+                .flatMap { try? JSONDecoder().decode(GTELargePromotionJournal.self, from: $0) }
+                .map(isValidJournalPayload) ?? false
+            if !canonicalIsValid {
+                try quarantineInvalidRecoveryArtifacts()
+                journalPresent = false
+            }
+        }
         for temporary in temporaries {
             guard let data = try? readSmallFile(at: temporary),
                   let journal = try? JSONDecoder().decode(GTELargePromotionJournal.self, from: data),
-                  journal.schema == 1,
-                  journal.revision == manifest.revision,
-                  isOwnedStagingName(journal.stagingDirectoryName),
-                  journal.backupDirectoryName.map(isOwnedBackupName) ?? true,
-                  journal.stagingIdentity != nil,
-                  (journal.backupDirectoryName == nil) == (journal.backupIdentity == nil) else {
+                  isValidJournalPayload(journal) else {
                 let identity = try fileSystem.fileIdentity(at: temporary)
                 try fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
                 continue
@@ -2068,6 +2072,15 @@ struct GTELargeModelInstaller: Sendable {
             return nil
         }
         return artifacts
+    }
+
+    private func isValidJournalPayload(_ journal: GTELargePromotionJournal) -> Bool {
+        journal.schema == 1 &&
+            journal.revision == manifest.revision &&
+            isOwnedStagingName(journal.stagingDirectoryName) &&
+            (journal.backupDirectoryName.map(isOwnedBackupName) ?? true) &&
+            journal.stagingIdentity != nil &&
+            (journal.backupDirectoryName == nil) == (journal.backupIdentity == nil)
     }
 
     private func isPrivateDirectory(_ url: URL) -> Bool {
