@@ -391,6 +391,7 @@ final class ModelManager: ObservableObject {
     /// Mark an in-flight download for cancellation.
     /// The download task should also be cancelled by the caller for fastest stop.
     func cancelDownload(key: String) {
+        guard activeDownloads.contains(key) else { return }
         cancelledDownloadKeys.insert(key)
         if key == "gte-large" {
             activeGTELargeInstallTask?.cancel()

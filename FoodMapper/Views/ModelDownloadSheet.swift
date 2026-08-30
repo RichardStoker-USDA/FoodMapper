@@ -10,6 +10,7 @@ struct ModelDownloadSheet: View {
 
     @State private var isDownloading = false
     @State private var downloadError: String?
+    @State private var downloadTask: Task<Void, Never>?
     @State private var completedKeys: Set<String> = []
 
     private var totalDownloadSize: Int64 {
@@ -80,6 +81,7 @@ struct ModelDownloadSheet: View {
             // Actions
             HStack(spacing: Spacing.md) {
                 Button("Cancel") {
+                    cancelDownloads()
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -107,6 +109,9 @@ struct ModelDownloadSheet: View {
             if allDownloaded {
                 onComplete()
             }
+        }
+        .onDisappear {
+            cancelDownloads()
         }
     }
 
@@ -139,30 +144,46 @@ struct ModelDownloadSheet: View {
     }
 
     private func downloadAll() {
+        guard downloadTask == nil else { return }
         isDownloading = true
         downloadError = nil
 
-        Task {
+        downloadTask = Task {
+            defer {
+                Task { @MainActor in
+                    downloadTask = nil
+                    isDownloading = false
+                }
+            }
             for model in models {
+                guard !Task.isCancelled else { return }
                 guard !modelManager.state(for: model.key).isAvailable else { continue }
                 do {
                     try await modelManager.downloadModel(key: model.key)
                 } catch {
+                    guard !Task.isCancelled else { return }
                     await MainActor.run {
                         downloadError = "Failed to download \(model.displayName): \(error.localizedDescription)"
-                        isDownloading = false
                     }
                     return
                 }
             }
 
             await MainActor.run {
-                isDownloading = false
-                if allDownloaded {
+                if !Task.isCancelled, allDownloaded {
                     onComplete()
                 }
             }
         }
+    }
+
+    private func cancelDownloads() {
+        for model in models {
+            modelManager.cancelDownload(key: model.key)
+        }
+        downloadTask?.cancel()
+        downloadTask = nil
+        isDownloading = false
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
