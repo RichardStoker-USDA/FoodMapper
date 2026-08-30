@@ -393,6 +393,31 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
     }
 
+    func testRecoveryRemovesInvalidCurrentPointerTemporary() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let temporary = root.appendingPathComponent(".gte-large-current-\(UUID().uuidString)")
+        try Data("partial".utf8).write(to: temporary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+    }
+
+    func testRecoveryCleansBoundedCompleteStagingOrphan() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let staging = root.appendingPathComponent(".gte-large-staging-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.copyItem(at: installer.installedDirectory, to: staging)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+    }
+
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
         try writeLegacyFixture()
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
