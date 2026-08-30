@@ -425,6 +425,36 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
     }
 
+    func testRecoveryRestoresValidPriorPointerBackup() async throws {
+        let prior = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await prior.install()
+        let pointer = root.appendingPathComponent("current.json")
+        let backup = root.appendingPathComponent(".gte-large-current-previous-\(UUID().uuidString)")
+        try FileManager.default.moveItem(at: pointer, to: backup)
+
+        let replacementManifest = GTELargeModelManifest(
+            formatVersion: fixtureManifest.formatVersion,
+            repositoryID: fixtureManifest.repositoryID,
+            revision: "fedcba9876543210fedcba9876543210fedcba98",
+            upstreamRepositoryID: fixtureManifest.upstreamRepositoryID,
+            upstreamRevision: fixtureManifest.upstreamRevision,
+            upstreamLicense: fixtureManifest.upstreamLicense,
+            conversion: fixtureManifest.conversion,
+            files: fixtureManifest.files
+        )
+        let replacement = GTELargeModelInstaller(
+            rootDirectory: root,
+            manifest: replacementManifest,
+            transport: FixtureTransport(files: fixtureFiles)
+        )
+
+        try await replacement.recoverAtStartup()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pointer.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path))
+        XCTAssertEqual(prior.availableDirectory(), prior.installedDirectory)
+    }
+
     func testRecoveryRemovesInvalidCurrentPointerTemporary() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
@@ -534,13 +564,20 @@ final class GTELargeModelInstallTests: XCTestCase {
 
     func testRecoveryRemovesBoundedPrivateRemovalArtifact() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
-        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)")
-        try Data("partial".utf8).write(to: artifact)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: artifact.path)
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        let nested = artifact.appendingPathComponent("nested", isDirectory: true)
+        let payload = nested.appendingPathComponent("payload")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: nested.path)
+        try Data("partial".utf8).write(to: payload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payload.path)
 
+        try await installer.recoverAtStartup()
         try await installer.recoverAtStartup()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: payload.path))
     }
 
     func testPrivateTreeAccountsForNestedBytesBeforeRemoval() throws {
@@ -788,6 +825,51 @@ final class GTELargeModelInstallTests: XCTestCase {
             XCTFail("Expected current-pointer replacement failure")
         } catch {}
         XCTAssertEqual(prior.availableDirectory(), prior.installedDirectory)
+    }
+
+    func testCurrentPointerSyncFailureRestoresPriorPointer() async throws {
+        let prior = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await prior.install()
+
+        let replacementManifest = GTELargeModelManifest(
+            formatVersion: fixtureManifest.formatVersion,
+            repositoryID: fixtureManifest.repositoryID,
+            revision: "fedcba9876543210fedcba9876543210fedcba98",
+            upstreamRepositoryID: fixtureManifest.upstreamRepositoryID,
+            upstreamRevision: fixtureManifest.upstreamRevision,
+            upstreamLicense: fixtureManifest.upstreamLicense,
+            conversion: fixtureManifest.conversion,
+            files: fixtureManifest.files
+        )
+        let replacement = GTELargeModelInstaller(
+            rootDirectory: root,
+            manifest: replacementManifest,
+            fileSystem: FailingPromotionWriteFileSystem(failure: .postPointerSync),
+            transport: FixtureTransport(files: fixtureFiles)
+        )
+
+        do {
+            _ = try await replacement.install()
+            XCTFail("Expected current-pointer sync failure")
+        } catch {}
+        XCTAssertEqual(prior.availableDirectory(), prior.installedDirectory)
+        let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".gte-large-current-previous-") }
+        XCTAssertTrue(backups.isEmpty)
+    }
+
+    func testPromotionRejectsReplacementBeforeRename() async throws {
+        let installer = makeInstaller(
+            transport: FixtureTransport(files: fixtureFiles),
+            fileSystem: ReplacingPromotionSourceFileSystem()
+        )
+
+        do {
+            _ = try await installer.install()
+            XCTFail("Expected replacement source rejection")
+        } catch {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("current.json").path))
     }
 
     func testAvailabilityDoesNotMutateInterruptedInstall() async throws {
@@ -1455,15 +1537,17 @@ private final class SwappingHashing: GTELargeHashing, @unchecked Sendable {
 }
 
 private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchecked Sendable {
-    enum Failure {
+    enum Failure: Equatable {
         case journal
         case current
+        case postPointerSync
     }
 
     private let local = LocalGTELargeFileSystem()
     private let failure: Failure
     private let lock = NSLock()
     private var didFail = false
+    private var pointerPublished = false
 
     init(failure: Failure) {
         self.failure = failure
@@ -1508,7 +1592,14 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
     }
     func setPermissions(_ permissions: Int, at url: URL) throws { try local.setPermissions(permissions, at: url) }
     func syncFile(at url: URL) throws { try local.syncFile(at: url) }
-    func syncDirectory(at url: URL) throws { try local.syncDirectory(at: url) }
+    func syncDirectory(at url: URL) throws {
+        lock.lock()
+        let shouldFail = failure == .postPointerSync && pointerPublished && !didFail
+        if shouldFail { didFail = true }
+        lock.unlock()
+        if shouldFail { throw CocoaError(.fileWriteUnknown) }
+        try local.syncDirectory(at: url)
+    }
 
     func moveItem(at source: URL, to destination: URL) throws {
         try failIfNeeded(source: source, destination: destination)
@@ -1533,6 +1624,16 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
         case .current:
             shouldFail = source.lastPathComponent.hasPrefix(".gte-large-current-") &&
                 destination.lastPathComponent == "current.json"
+        case .postPointerSync:
+            shouldFail = false
+        }
+        if !shouldFail,
+           failure == .postPointerSync,
+           source.lastPathComponent.hasPrefix(".gte-large-current-") &&
+           destination.lastPathComponent == "current.json" {
+            lock.lock()
+            pointerPublished = true
+            lock.unlock()
         }
         guard shouldFail else { return }
         lock.lock()
@@ -1604,5 +1705,77 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
             to: destination,
             expectedSourceDirectoryIdentity: expectedSourceDirectoryIdentity
         )
+    }
+}
+
+private final class ReplacingPromotionSourceFileSystem: GTELargeFileSystem, @unchecked Sendable {
+    private let local = LocalGTELargeFileSystem()
+    private let lock = NSLock()
+    private var replaced = false
+
+    func itemExists(at url: URL) -> Bool { local.itemExists(at: url) }
+    func createDirectory(at url: URL, permissions: Int) throws { try local.createDirectory(at: url, permissions: permissions) }
+    func removeItem(at url: URL) throws { try local.removeItem(at: url) }
+    func removeItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws {
+        try local.removeItem(at: url, expectedFileIdentity: expectedFileIdentity)
+    }
+    func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
+        try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
+    }
+    func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws {
+        try local.removePrivateTree(at: url, tree: tree, maximumDepth: maximumDepth)
+    }
+    func contentsOfDirectory(at url: URL, maximumEntries: Int) throws -> [URL] {
+        try local.contentsOfDirectory(at: url, maximumEntries: maximumEntries)
+    }
+    func moveItem(at source: URL, to destination: URL) throws {
+        try replaceStagingIfNeeded(source: source, destination: destination)
+        try local.moveItem(at: source, to: destination)
+    }
+    func moveItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws {
+        try replaceStagingIfNeeded(source: source, destination: destination)
+        try local.moveItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
+    }
+    func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws {
+        try replaceStagingIfNeeded(source: source, destination: destination)
+        try local.moveItem(at: source, to: destination, expectedSourceDirectoryIdentity: expectedSourceDirectoryIdentity)
+    }
+    func replaceFileAtomically(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws {
+        try local.replaceFileAtomically(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
+    }
+    func copyItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity, expectedSize: Int64) throws {
+        try local.copyItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity, expectedSize: expectedSize)
+    }
+    func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
+    func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
+        try local.read(from: url, maximumSize: maximumSize)
+    }
+    func fileIdentity(at url: URL) throws -> GTELargeFileIdentity { try local.fileIdentity(at: url) }
+    func directoryIdentity(at url: URL, requiredPermissions: Int?) throws -> GTELargeFileIdentity {
+        try local.directoryIdentity(at: url, requiredPermissions: requiredPermissions)
+    }
+    func privateTree(at url: URL, maximumEntries: Int, maximumDepth: Int, maximumBytes: Int64) throws -> GTELargePrivateTree {
+        try local.privateTree(at: url, maximumEntries: maximumEntries, maximumDepth: maximumDepth, maximumBytes: maximumBytes)
+    }
+    func setPermissions(_ permissions: Int, at url: URL) throws { try local.setPermissions(permissions, at: url) }
+    func syncFile(at url: URL) throws { try local.syncFile(at: url) }
+    func syncDirectory(at url: URL) throws { try local.syncDirectory(at: url) }
+
+    private func replaceStagingIfNeeded(source: URL, destination: URL) throws {
+        guard source.lastPathComponent.hasPrefix(".gte-large-staging-"),
+              destination.lastPathComponent.hasPrefix("gte-large-") else {
+            return
+        }
+        lock.lock()
+        let shouldReplace = !replaced
+        replaced = true
+        lock.unlock()
+        guard shouldReplace else { return }
+
+        let held = source.deletingLastPathComponent()
+            .appendingPathComponent(".gte-large-unverified-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.moveItem(at: source, to: held)
+        try FileManager.default.copyItem(at: held, to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: source.path)
     }
 }
