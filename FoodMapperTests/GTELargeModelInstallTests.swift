@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import FoodMapper
@@ -139,6 +140,48 @@ final class GTELargeModelInstallTests: XCTestCase {
         }
 
         XCTAssertNil(installer.availableDirectory())
+    }
+
+    func testHardLinkedInstallFileIsUnavailable() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let installed = installer.installedDirectory.appendingPathComponent("config.json")
+        let donor = root.appendingPathComponent("donor")
+        try FileManager.default.copyItem(at: installed, to: donor)
+        try FileManager.default.removeItem(at: installed)
+        try FileManager.default.linkItem(at: donor, to: installed)
+
+        XCTAssertNil(installer.availableDirectory())
+    }
+
+    func testPathSwapDuringHashIsNeverPublished() async throws {
+        let transport = FixtureTransport(files: fixtureFiles)
+        let installer = GTELargeModelInstaller(
+            rootDirectory: root,
+            manifest: fixtureManifest,
+            hashing: SwappingHashing(replacement: fixtureFiles["config.json"]!),
+            transport: transport
+        )
+
+        do {
+            _ = try await installer.install()
+            XCTFail("Expected path swap rejection")
+        } catch {
+            XCTAssertNil(installer.availableDirectory())
+        }
+    }
+
+    func testDiskFullLeavesNoPublishedInstall() async {
+        let installer = makeInstaller(
+            transport: FixtureTransport(files: fixtureFiles, failure: CocoaError(.fileWriteOutOfSpace))
+        )
+
+        do {
+            _ = try await installer.install()
+            XCTFail("Expected write failure")
+        } catch {
+            XCTAssertNil(installer.availableDirectory())
+        }
     }
 
     func testSymlinkedInstallRootAndFileAreUnavailable() async throws {
@@ -473,6 +516,29 @@ private final class FixtureHashing: GTELargeHashing, @unchecked Sendable {
         default:
             throw CocoaError(.fileReadUnknown)
         }
+    }
+}
+
+private final class SwappingHashing: GTELargeHashing, @unchecked Sendable {
+    private let replacement: Data
+    private let lock = NSLock()
+    private var didSwap = false
+
+    init(replacement: Data) {
+        self.replacement = replacement
+    }
+
+    func sha256(of url: URL) throws -> String {
+        lock.lock()
+        let shouldSwap = !didSwap && url.lastPathComponent == "config.json"
+        didSwap = true
+        lock.unlock()
+        if shouldSwap {
+            try FileManager.default.removeItem(at: url)
+            try replacement.write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        return SHA256.hash(data: replacement).map { String(format: "%02x", $0) }.joined()
     }
 }
 
