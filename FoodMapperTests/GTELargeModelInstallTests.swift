@@ -289,6 +289,25 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journal.path))
     }
 
+    func testCorruptJournalPreservesUnboundUUIDArtifacts() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        let staging = root.appendingPathComponent(".gte-large-staging-\(UUID().uuidString)", isDirectory: true)
+        let backup = root.appendingPathComponent(".gte-large-previous-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: backup.path)
+        let journal = root.appendingPathComponent(".gte-large-promotion.json")
+        try Data("invalid".utf8).write(to: journal)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journal.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staging.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path))
+    }
+
     func testRecoveryKeepsOldInstallWhenPowerFailsBeforeBackupMove() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()

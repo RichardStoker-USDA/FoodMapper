@@ -80,11 +80,6 @@ private enum GTELargeSecurePath {
     static let privateDirectoryMode: mode_t = 0o700
     static let privateFileMode: mode_t = 0o600
 
-    static func validateAncestors(of url: URL, allowMissingLeaf: Bool = false) throws {
-        let descriptor = try openDirectoryDescriptor(at: url, allowMissingLeaf: allowMissingLeaf)
-        if descriptor >= 0 { close(descriptor) }
-    }
-
     /// Opens the directory through already-open parent descriptors. Do not
     /// standardize the URL: `/private/tmp` and `/tmp` are distinct path walks
     /// on this platform, even though the latter is a symlink by design.
