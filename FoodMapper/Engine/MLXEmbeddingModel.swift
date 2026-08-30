@@ -7,12 +7,15 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
-private enum GTELargeStartupRecovery {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var tasks: [String: Task<Void, Never>] = [:]
+private actor GTELargeStartupRecovery {
+    static let shared = GTELargeStartupRecovery()
+    private var tasks: [String: Task<Void, Never>] = [:]
 
     static func awaitCompletion(for root: URL) async {
-        lock.lock()
+        await shared.awaitCompletion(for: root)
+    }
+
+    private func awaitCompletion(for root: URL) async {
         let task: Task<Void, Never>
         if let existing = tasks[root.path] {
             task = existing
@@ -23,7 +26,6 @@ private enum GTELargeStartupRecovery {
             }
             tasks[root.path] = task
         }
-        lock.unlock()
         await task.value
     }
 }

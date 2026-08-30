@@ -25,6 +25,11 @@ enum ModelState: Equatable {
     }
 }
 
+enum ModelDownloadRetryState: Equatable {
+    case ready
+    case cancelling
+}
+
 /// Registration entry for a known model
 struct RegisteredModel: Identifiable {
     let key: String
@@ -95,6 +100,10 @@ final class ModelManager: ObservableObject {
 
     /// Current state of each model (keyed by model key)
     @Published private(set) var modelStates: [String: ModelState] = [:]
+
+    /// Retry state is separate from model availability so UI can wait for the
+    /// in-flight download lease to leave the install path before enabling retry.
+    @Published private(set) var downloadRetryStates: [String: ModelDownloadRetryState] = [:]
 
     /// Currently loaded embedding model (only one at a time)
     private(set) var loadedEmbeddingModel: (any EmbeddingModelProtocol)?
@@ -358,6 +367,10 @@ final class ModelManager: ObservableObject {
         modelStates[key] ?? .notDownloaded
     }
 
+    func retryState(for key: String) -> ModelDownloadRetryState {
+        downloadRetryStates[key] ?? .ready
+    }
+
     /// Whether all models required by a pipeline are available (downloaded or loaded)
     func areModelsAvailable(for pipelineType: PipelineType) -> Bool {
         pipelineType.requiredModelKeys.allSatisfy { key in
@@ -391,9 +404,18 @@ final class ModelManager: ObservableObject {
     func cancelDownload(key: String) {
         guard activeDownloads.contains(key) else { return }
         cancelledDownloadKeys.insert(key)
+        downloadRetryStates[key] = .cancelling
         if key == "gte-large" {
             activeGTELargeInstallTask?.cancel()
         }
+    }
+
+    func cancelDownloadAndWait(key: String) async {
+        cancelDownload(key: key)
+        while activeDownloads.contains(key) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        downloadRetryStates[key] = .ready
     }
 
     func awaitStartupRecoveryForUserAction() async {
@@ -410,11 +432,15 @@ final class ModelManager: ObservableObject {
         // Prevent parallel download tasks for the same model key
         guard !activeDownloads.contains(key) else {
             logger.warning("Download already in progress for model: \(key)")
+            if retryState(for: key) == .cancelling {
+                throw ModelManagerError.retryAfterCancellation(key)
+            }
             throw ModelManagerError.downloadInProgress(key)
         }
         activeDownloads.insert(key)
         defer {
             activeDownloads.remove(key)
+            downloadRetryStates[key] = .ready
         }
 
         let repoId = registration.repoId
@@ -782,6 +808,7 @@ enum ModelManagerError: LocalizedError {
     case insufficientMemory(required: Int64, available: Int64)
     case downloadFailed(String)
     case downloadInProgress(String)
+    case retryAfterCancellation(String)
 
     var errorDescription: String? {
         switch self {
@@ -797,6 +824,8 @@ enum ModelManagerError: LocalizedError {
             return "Download failed: \(message)"
         case .downloadInProgress(let key):
             return "A download is already in progress for '\(key)'"
+        case .retryAfterCancellation(let key):
+            return "Finishing cancellation for '\(key)'; retry will be available shortly"
         }
     }
 }

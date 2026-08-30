@@ -89,6 +89,17 @@ struct ModelDownloadView: View {
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                     )
+                } else if case .cancelling = appState.modelStatus {
+                    VStack(spacing: Spacing.sm) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Finishing cancellation...")
+                            .font(.callout.weight(.medium))
+                        Text("You can retry when the active download has stopped.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 320)
                 } else if case .error(let message) = appState.modelStatus {
                     VStack(spacing: Spacing.sm) {
                         Label(message, systemImage: "exclamationmark.triangle")

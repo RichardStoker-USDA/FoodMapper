@@ -1250,6 +1250,7 @@ enum DatabaseEmbeddingStatus: Equatable {
 enum ModelStatus: Equatable {
     case notDownloaded
     case downloading(progress: Double)
+    case cancelling
     case loading
     case ready(executionProvider: String)
     case error(String)
@@ -1263,6 +1264,7 @@ enum ModelStatus: Equatable {
         switch self {
         case .notDownloaded: return "Model Required"
         case .downloading(let progress): return "Downloading \(Int(progress * 100))%"
+        case .cancelling: return "Finishing cancellation"
         case .loading: return "Loading Model..."
         case .ready(let provider): return "Ready (\(provider))"
         case .error(let msg): return "Error: \(msg)"
@@ -1273,6 +1275,7 @@ enum ModelStatus: Equatable {
         switch self {
         case .notDownloaded: return "Model Missing"
         case .downloading: return "Downloading"
+        case .cancelling: return "Cancelling"
         case .loading: return "Loading"
         case .ready(let provider): return provider
         case .error: return "Error"

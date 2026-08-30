@@ -409,6 +409,30 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
     }
 
+    func testRecoveryPromotesCurrentTemporaryOverMalformedPointer() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let pointer = root.appendingPathComponent("current.json")
+        try Data("partial".utf8).write(to: pointer)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: pointer.path)
+        let temporary = root.appendingPathComponent(".gte-large-current-\(UUID().uuidString)")
+        let value = GTELargeInstallPointer(
+            schema: 1,
+            directoryName: fixtureManifest.installationDirectoryName,
+            record: GTELargeModelInstallRecord(manifest: fixtureManifest)
+        )
+        try JSONEncoder().encode(value).write(to: temporary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+
+        try await installer.recoverAtStartup()
+
+        let recovered = try JSONDecoder().decode(GTELargeInstallPointer.self, from: Data(contentsOf: pointer))
+        XCTAssertEqual(recovered.schema, value.schema)
+        XCTAssertEqual(recovered.directoryName, value.directoryName)
+        XCTAssertTrue(recovered.record.matches(fixtureManifest))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+    }
+
     func testRecoveryCleansBoundedCompleteStagingOrphan() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
@@ -420,6 +444,22 @@ final class GTELargeModelInstallTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
         XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+    }
+
+    func testRecoveryRemovesEveryBoundedOwnedStagingOrphan() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        var stagingDirectories: [URL] = []
+        for _ in 0..<9 {
+            let staging = root.appendingPathComponent(".gte-large-staging-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.copyItem(at: installer.installedDirectory, to: staging)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+            stagingDirectories.append(staging)
+        }
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertTrue(stagingDirectories.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
     }
 
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
@@ -626,6 +666,39 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destination), data)
         let mode = try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
+    }
+
+    func testURLSessionTemporaryPathRejectsTraversalAliasesAndForeignRoots() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+        let foreign = root.appendingPathComponent("foreign")
+        try Data("x".utf8).write(to: foreign)
+        XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(foreign))
+
+        let traversal = URL(string: "file://\(temporaryRoot.path)/%2E%2E/foreign")!
+        XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(traversal))
+
+        let outside = root.appendingPathComponent("outside")
+        try Data("x".utf8).write(to: outside)
+        let link = temporaryRoot.appendingPathComponent("foodmapper-temp-link-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        defer { try? FileManager.default.removeItem(at: link) }
+        XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(link))
+
+        let localhost = URL(string: "file://localhost\(temporaryRoot.path)/payload")!
+        XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(localhost))
+    }
+
+    func testSecureMoveRefusesToReplaceExistingEntry() throws {
+        let source = root.appendingPathComponent("source")
+        let destination = root.appendingPathComponent("destination")
+        try Data("source".utf8).write(to: source)
+        try Data("destination".utf8).write(to: destination)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+
+        XCTAssertThrowsError(try LocalGTELargeFileSystem().moveItem(at: source, to: destination))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("destination".utf8))
+        XCTAssertEqual(try Data(contentsOf: source), Data("source".utf8))
     }
 
     func testLiveProductionManifestDownloadsAndVerifiesAnonymously() async throws {

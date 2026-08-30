@@ -62,7 +62,9 @@ extension AppState {
                              error.localizedDescription.contains("Cancelled")
 
             if isCancelled || modelStatus == .notDownloaded {
-                modelStatus = .notDownloaded
+                modelStatus = modelManager.retryState(for: "gte-large") == .cancelling
+                    ? .cancelling
+                    : .notDownloaded
             } else {
                 modelStatus = .error(error.localizedDescription)
             }
@@ -71,8 +73,12 @@ extension AppState {
     }
 
     func cancelDownload() {
-        modelManager.cancelDownload(key: "gte-large")
-        modelStatus = .notDownloaded
+        modelStatus = .cancelling
+        Task { [weak self] in
+            guard let self else { return }
+            await modelManager.cancelDownloadAndWait(key: "gte-large")
+            syncModelStatus()
+        }
     }
 
     /// Sync modelStatus from ModelManager's state for GTE-Large.
