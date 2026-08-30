@@ -134,8 +134,7 @@ final class ModelManager: ObservableObject {
         registerKnownModels()
         cleanupLegacyModels()
         gteStartupRecoveryTask = Task { [weak self] in
-            let installer = GTELargeModelInstaller(rootDirectory: MLXEmbeddingModel.downloadDirectory)
-            try? await installer.recoverAtStartup()
+            await MLXEmbeddingModel.awaitStartupRecovery()
             guard let self else { return }
             self.detectInstalledModels()
         }

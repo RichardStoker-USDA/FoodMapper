@@ -339,6 +339,39 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
     }
 
+    func testRecoveryAcceptsJournalIdentityAfterPromotionRename() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let oldIdentity = try directoryIdentity(installer.installedDirectory)
+        let stagingName = ".gte-large-staging-\(UUID().uuidString)"
+        let backupName = ".gte-large-previous-\(UUID().uuidString)"
+        let staging = root.appendingPathComponent(stagingName, isDirectory: true)
+        let backup = root.appendingPathComponent(backupName, isDirectory: true)
+        try FileManager.default.copyItem(at: installer.installedDirectory, to: staging)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+        let stagingIdentity = try directoryIdentity(staging)
+        try FileManager.default.moveItem(at: installer.installedDirectory, to: backup)
+        try FileManager.default.moveItem(at: staging, to: installer.installedDirectory)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("current.json"))
+        let journal = GTELargePromotionJournal(
+            schema: 1,
+            revision: fixtureManifest.revision,
+            stagingDirectoryName: stagingName,
+            backupDirectoryName: backupName,
+            stagingIdentity: stagingIdentity,
+            backupIdentity: oldIdentity
+        )
+        let journalURL = root.appendingPathComponent(".gte-large-promotion.json")
+        try JSONEncoder().encode(journal).write(to: journalURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
+    }
+
     func testRecoveryPromotesExactCurrentPointerTemporary() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
@@ -489,6 +522,7 @@ final class GTELargeModelInstallTests: XCTestCase {
             "https://huggingface.co/example/model/resolve/0123456789abcdef0123456789abcdef01234567/config.json",
             "https://cdn-lfs.huggingface.co/blob",
             "https://cas-bridge.xethub.hf.co/blob",
+            "https://us.aws.cdn.hf.co/blob",
             "https://huggingface.co:443/blob",
         ]
         let rejected = [
@@ -507,6 +541,38 @@ final class GTELargeModelInstallTests: XCTestCase {
         for value in rejected {
             XCTAssertFalse(GTELargeDownloadURLPolicy.accepts(URL(string: value)!))
         }
+    }
+
+    func testURLSessionTemporaryPathCopiesThroughRegularDescriptor() throws {
+        let source = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-urlsession-\(UUID().uuidString)")
+        let destination = root.appendingPathComponent("payload")
+        let data = Data("download payload".utf8)
+        try data.write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        try GTELargeSecurePath.copyURLSessionDownloadPayload(from: source, to: destination)
+
+        XCTAssertEqual(try Data(contentsOf: destination), data)
+        let mode = try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
+    }
+
+    func testInjectedRootWithTraversalIsRejectedBeforeDelete() async throws {
+        let protected = root.appendingPathComponent("protected", isDirectory: true)
+        try FileManager.default.createDirectory(at: protected, withIntermediateDirectories: true)
+        let marker = protected.appendingPathComponent("marker")
+        try Data("keep".utf8).write(to: marker)
+        let unsafeRoot = root.appendingPathComponent("missing/../protected", isDirectory: true)
+        let installer = GTELargeModelInstaller(
+            rootDirectory: unsafeRoot,
+            manifest: fixtureManifest,
+            transport: FixtureTransport(files: fixtureFiles)
+        )
+
+        XCTAssertNil(installer.availableDirectory())
+        try await installer.deleteInstallArtifacts()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
     }
 
     func testDownloadURLPolicyRejectsRedirectLoopsAfterFourHops() {

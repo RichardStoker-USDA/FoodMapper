@@ -7,6 +7,27 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
+private enum GTELargeStartupRecovery {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var tasks: [String: Task<Void, Never>] = [:]
+
+    static func awaitCompletion(for root: URL) async {
+        lock.lock()
+        let task: Task<Void, Never>
+        if let existing = tasks[root.path] {
+            task = existing
+        } else {
+            task = Task.detached {
+                let installer = GTELargeModelInstaller(rootDirectory: root)
+                try? await installer.recoverAtStartup()
+            }
+            tasks[root.path] = task
+        }
+        lock.unlock()
+        await task.value
+    }
+}
+
 /// Resource bundle helper -- SPM vs .app bundle resolution
 enum ResourceBundle {
     #if DEBUG
@@ -116,6 +137,12 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
     /// Application Support directory for downloaded models
     static var downloadDirectory: URL {
         ResourceBundle.applicationSupportModelDir
+    }
+
+    /// Model loads share the same one-time repair as download presentation.
+    /// This covers callers that use MatchingEngine without ModelManager.
+    static func awaitStartupRecovery() async {
+        await GTELargeStartupRecovery.awaitCompletion(for: downloadDirectory)
     }
 
     // MARK: - Loading

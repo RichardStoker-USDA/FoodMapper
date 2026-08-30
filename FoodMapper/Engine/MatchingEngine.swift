@@ -388,6 +388,7 @@ actor MatchingEngine {
 
         switch modelKey {
         case "gte-large":
+            await MLXEmbeddingModel.awaitStartupRecovery()
             let model = MLXEmbeddingModel()
             try await model.load()
             embeddingModel = model
