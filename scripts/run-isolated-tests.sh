@@ -151,20 +151,15 @@ capture_live_metadata() {
 
 is_foodmapper_executable() {
     local executable="$1"
-    local executable_name first_token
+    local first_token
     first_token="${executable%%[[:space:]]*}"
     if [ "$first_token" != "$executable" ] && [ -x "$first_token" ]; then
         return 1
     fi
     case "$executable" in
-        */FoodMapper.app/Contents/MacOS/*|\
-        */FoodMapper\ *.app/Contents/MacOS/*)
-            executable_name="${executable##*/}"
+        */FoodMapper.app/Contents/MacOS/FoodMapper)
             case "$executable" in
                 *" /"*) return 1 ;;
-            esac
-            case "$executable_name" in
-                *[[:space:]]*) return 1 ;;
             esac
             return 0
             ;;
@@ -387,9 +382,10 @@ run_self_test() (
     require_private_directory "$self_root" || status=1
     ! is_generated_path "$temporary_root" || status=1
     ! is_generated_path "${self_root}/nested" || status=1
-    is_foodmapper_executable "/tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper" || status=1
+    is_foodmapper_executable "/tmp/FoodMapper.app/Contents/MacOS/FoodMapper" || status=1
     is_foodmapper_executable "/tmp/space path/FoodMapper" || status=1
-    is_foodmapper_executable "/tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable" || status=1
+    ! is_foodmapper_executable "/tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable" || status=1
+    ! is_foodmapper_executable "/tmp/FoodMapper.app/Contents/MacOS/FoodMapperHelper" || status=1
     ! is_foodmapper_executable "/tmp/FoodMapperTools.app/Contents/MacOS/Tool" || status=1
     ! is_foodmapper_executable "/tmp/space path/FoodMapperHelper" || status=1
     ! is_foodmapper_executable "/usr/bin/echo" || status=1
@@ -398,13 +394,14 @@ run_self_test() (
     ! is_xcode_26_6_version "Xcode 26.6.1" || status=1
     ! is_xcode_26_6_version "Xcode 26.5" || status=1
     ! is_xcode_26_6_version "Xcode 27 beta" || status=1
-    printf '%s\n' '  123 /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q '^123 ' || status=1
-    printf '%s\n' '124 /tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable' | matching_foodmapper_processes | grep -q '^124 ' || status=1
-    ! printf '%s\n' '125 /bin/echo /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
-    ! printf '%s\n' '126 /tmp/FoodMapperTools.app/Contents/MacOS/Tool' | matching_foodmapper_processes | grep -q . || status=1
-    ! printf '%s\n' '127 /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper --test' | matching_foodmapper_processes | grep -q . || status=1
-    ! printf '%s\n' '128 /bin/echo /tmp/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
-    ! printf '%s\n' 'not-a-pid /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes >/dev/null 2>&1 || status=1
+    printf '%s\n' '  123 /tmp/FoodMapper.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q '^123 ' || status=1
+    ! printf '%s\n' '124 /tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' '125 /bin/echo /tmp/FoodMapper.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' '126 /tmp/FoodMapper.app/Contents/MacOS/FoodMapperHelper' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' '127 /tmp/FoodMapperTools.app/Contents/MacOS/Tool' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' '128 /tmp/FoodMapper.app/Contents/MacOS/FoodMapper --test' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' '129 /bin/echo /tmp/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
+    ! printf '%s\n' 'not-a-pid /tmp/FoodMapper.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes >/dev/null 2>&1 || status=1
 
     remove_generated_path "$self_root"
     return "$status"

@@ -73,7 +73,18 @@ is_allowed_fixture_user_path() {
 }
 
 development_trace_pattern() {
-    printf '%s' '[Gg]enerated[[:space:]]+with|[Cc]o-[Aa]uthored-[Bb]y'
+    local tool_pattern trace_context private_file_pattern
+    local name_a name_b name_c name_d
+
+    name_a='[Cc][Oo][Dd][Ee][Xx]'
+    name_b='[Cc][Ll][Aa][Uu][Dd][Ee][[:space:]]+[Cc][Oo][Dd][Ee]'
+    name_c='[Oo][Pp][Ee][Nn][Cc][Oo][Dd][Ee]'
+    name_d='[Aa][Ii][Dd][Ee][Rr]'
+    tool_pattern="(^|[^[:alnum:]_])(${name_a}|${name_b}|${name_c}|${name_d})([^[:alnum:]_]|$)"
+    trace_context='[Bb]uild[[:space:]]+notes?|[Dd]evelopment[[:space:]]+(notes?|trace)|[Aa]gent[[:space:]]+instructions?|[Cc]ommit[[:space:]]+(by|from)'
+    private_file_pattern='(^|[^[:alnum:]_.-])([Aa][Gg][Ee][Nn][Tt][Ss][.]md|[Cc][Ll][Aa][Uu][Dd][Ee][.]md|[Cc][Ll][Oo][Uu][Dd][.]md|[Gg][Ll][Oo][Bb][Aa][Ll]([.][Cc][Ll][Oo][Uu][Dd])?[.]md)([^[:alnum:]_.-]|$)'
+
+    printf '%s' "[Gg]enerated[[:space:]]+with|[Cc]o-[Aa]uthored-[Bb]y|(${tool_pattern}.*(${trace_context})|(${trace_context}).*${tool_pattern})|${private_file_pattern}"
 }
 
 require_tracked_path() {
@@ -250,7 +261,16 @@ make_fixture() {
     printf '%s\n' 'FoodMapper' > "$root/README.md"
     printf '%s\n' 'Changes' > "$root/CHANGELOG.md"
     printf '%s\n' 'License' > "$root/LICENSE"
+    local name_a='Cod' name_b='ex'
+    local name_c='Clau' name_d='de Code'
+    local name_e='Open' name_f='Code'
+    local name_g='Aid' name_h='er'
     printf '%s\n' 'Anthropic API' > "$root/FoodMapper/allowed.swift"
+    printf '%s model API\n' "${name_a}${name_b}" >> "$root/FoodMapper/allowed.swift"
+    printf '%s provider API\n' "${name_c}${name_d}" >> "$root/FoodMapper/allowed.swift"
+    printf '%s model reference\n' "${name_e}${name_f}" >> "$root/FoodMapper/allowed.swift"
+    printf '%s model reference\n' "${name_g}${name_h}" >> "$root/FoodMapper/allowed.swift"
+    printf '%s tracking pointer\n' 'cursor' >> "$root/FoodMapper/allowed.swift"
     printf '%s\n' '{"pins": []}' > "$root/FoodMapper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
     printf '%s\n' 'Tests' > "$root/FoodMapperTests/allowed.swift"
     printf '%s\n' '#!/bin/bash' > "$root/scripts/check.sh"
@@ -310,6 +330,28 @@ add_development_trace() {
     printf '%s-%s-%s: example\n' "$co" "$authored" "$by" >> "$1/FoodMapper/unsafe.swift"
 }
 
+add_named_tool_trace() {
+    local name_a='Cod' name_b='ex'
+    local name_c='Clau' name_d='de Code'
+    local name_e='Open' name_f='Code'
+    local name_g='Aid' name_h='er'
+    printf '%s development note\n' "${name_a}${name_b}" > "$1/FoodMapper/unsafe.swift"
+    printf '%s build notes\n' "${name_c}${name_d}" >> "$1/FoodMapper/unsafe.swift"
+    printf '%s agent instructions\n' "${name_e}${name_f}" >> "$1/FoodMapper/unsafe.swift"
+    printf '%s commit by maintainer\n' "${name_g}${name_h}" >> "$1/FoodMapper/unsafe.swift"
+}
+
+add_private_instruction_references() {
+    local name_a='AG' name_b='ENTS'
+    local name_c='CLAU' name_d='DE'
+    local name_e='cl' name_f='oud'
+    local name_g='glob' name_h='al'
+    printf 'See %s.md\n' "${name_a}${name_b}" > "$1/FoodMapper/unsafe.swift"
+    printf 'See %s.md\n' "${name_c}${name_d}" >> "$1/FoodMapper/unsafe.swift"
+    printf 'See %s.md\n' "${name_e}${name_f}" >> "$1/FoodMapper/unsafe.swift"
+    printf 'See %s.md and %s.%s.md\n' "${name_g}${name_h}" "${name_g}${name_h}" "${name_e}${name_f}" >> "$1/FoodMapper/unsafe.swift"
+}
+
 remove_required_path() {
     rm -R -- "$1/FoodMapperTests"
 }
@@ -332,6 +374,8 @@ run_self_test() (
     assert_rejected add_user_path || status=1
     assert_rejected add_unexpected_temporary_path || status=1
     assert_rejected add_development_trace || status=1
+    assert_rejected add_named_tool_trace || status=1
+    assert_rejected add_private_instruction_references || status=1
     assert_rejected remove_required_path || status=1
     assert_rejected remove_swift_package_lock || status=1
     return "$status"
