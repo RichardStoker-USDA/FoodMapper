@@ -125,14 +125,18 @@ final class ModelManager: ObservableObject {
     /// create this task or make a network request.
     private var activeGTELargeInstallTask: Task<URL, Error>?
 
+    /// Startup recovery is completed once before any GTE availability, load,
+    /// download, or deletion operation can touch the installation root.
+    private var gteStartupRecoveryTask: Task<Void, Never>?
+
     init(hardwareConfig: HardwareConfig) {
         self.hardwareConfig = hardwareConfig
         registerKnownModels()
         cleanupLegacyModels()
-        Task { [weak self] in
-            guard let self else { return }
+        gteStartupRecoveryTask = Task { [weak self] in
             let installer = GTELargeModelInstaller(rootDirectory: MLXEmbeddingModel.downloadDirectory)
             try? await installer.recoverAtStartup()
+            guard let self else { return }
             self.detectInstalledModels()
         }
     }
@@ -398,8 +402,13 @@ final class ModelManager: ObservableObject {
         }
     }
 
+    func awaitStartupRecoveryForUserAction() async {
+        await gteStartupRecoveryTask?.value
+    }
+
     /// Download a model by key with progress reporting
     func downloadModel(key: String) async throws {
+        await awaitStartupRecoveryForUserAction()
         guard let registration = registeredModel(for: key) else {
             throw ModelManagerError.unknownModel(key)
         }
@@ -471,6 +480,7 @@ final class ModelManager: ObservableObject {
 
     /// Delete a downloaded model
     func deleteModel(key: String) async throws {
+        await awaitStartupRecoveryForUserAction()
         guard let registration = registeredModel(for: key),
               registration.repoId != nil else {
             throw ModelManagerError.unknownModel(key)
@@ -557,6 +567,7 @@ final class ModelManager: ObservableObject {
     /// Load an embedding model by key. Returns the loaded model.
     /// If a different embedding model is loaded, it will be unloaded first.
     func loadEmbeddingModel(key: String) async throws -> any EmbeddingModelProtocol {
+        await awaitStartupRecoveryForUserAction()
         // Already loaded?
         if let loaded = loadedEmbeddingModel, loaded.info.key == key {
             return loaded
@@ -745,7 +756,11 @@ final class ModelManager: ObservableObject {
 
     /// Refresh model availability (e.g., after download completes)
     func refreshModelStates() {
-        detectInstalledModels()
+        Task { [weak self] in
+            guard let self else { return }
+            await self.awaitStartupRecoveryForUserAction()
+            self.detectInstalledModels()
+        }
     }
 
     /// Disk usage for a downloaded model

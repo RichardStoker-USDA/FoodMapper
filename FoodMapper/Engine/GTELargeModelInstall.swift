@@ -81,60 +81,74 @@ private enum GTELargeSecurePath {
     static let privateFileMode: mode_t = 0o600
 
     static func validateAncestors(of url: URL, allowMissingLeaf: Bool = false) throws {
-        // Do not standardize URL paths here. Foundation resolves /private/tmp
-        // to /tmp on this platform, and /tmp is a symlink by design.
+        let descriptor = try openDirectoryDescriptor(at: url, allowMissingLeaf: allowMissingLeaf)
+        if descriptor >= 0 { close(descriptor) }
+    }
+
+    /// Opens the directory through already-open parent descriptors. Do not
+    /// standardize the URL: `/private/tmp` and `/tmp` are distinct path walks
+    /// on this platform, even though the latter is a symlink by design.
+    static func openDirectoryDescriptor(at url: URL, allowMissingLeaf: Bool = false) throws -> Int32 {
         let components = url.pathComponents
         guard components.first == "/" else { throw GTELargeModelInstallError.unsafePath }
-        var current = URL(fileURLWithPath: "/", isDirectory: true)
         var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
         let remaining = Array(components.dropFirst())
         for (index, component) in remaining.enumerated() {
-            current.appendPathComponent(component, isDirectory: index < components.dropFirst().count - 1)
-            var status = stat()
-            if lstat(current.path, &status) != 0 {
+            var expected = stat()
+            let present = component.withCString {
+                fstatat(descriptor, $0, &expected, AT_SYMLINK_NOFOLLOW)
+            }
+            if present != 0 {
                 if errno == ENOENT && allowMissingLeaf && index == remaining.count - 1 {
-                    return
+                    return descriptor
                 }
+                close(descriptor)
                 throw GTELargeModelInstallError.unsafePath
             }
-            guard (status.st_mode & S_IFMT) == S_IFDIR, (status.st_mode & S_IFMT) != S_IFLNK else {
+            guard (expected.st_mode & S_IFMT) == S_IFDIR,
+                  (expected.st_mode & S_IFMT) != S_IFLNK else {
+                close(descriptor)
                 throw GTELargeModelInstallError.unsafePath
             }
             let next = component.withCString {
                 openat(descriptor, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
             }
-            guard next >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            guard next >= 0 else {
+                close(descriptor)
+                throw GTELargeModelInstallError.unsafePath
+            }
             var opened = stat()
             guard fstat(next, &opened) == 0,
-                  sameObject(status, opened),
+                  sameObject(expected, opened),
                   (opened.st_mode & S_IFMT) == S_IFDIR else {
                 close(next)
+                close(descriptor)
                 throw GTELargeModelInstallError.unsafePath
             }
             close(descriptor)
             descriptor = next
         }
+        return descriptor
+    }
+
+    static func withParentDescriptor<T>(of url: URL, _ body: (Int32, String) throws -> T) throws -> T {
+        let parent = try openDirectoryDescriptor(at: url.deletingLastPathComponent())
+        defer { close(parent) }
+        let name = url.lastPathComponent
+        guard !name.isEmpty, name != ".", name != ".." else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        return try body(parent, name)
     }
 
     static func directoryIdentity(at url: URL, requiredMode: mode_t? = nil) throws -> GTELargeFileIdentity {
-        try validateAncestors(of: url)
-        var status = stat()
-        guard lstat(url.path, &status) == 0,
-              (status.st_mode & S_IFMT) == S_IFDIR,
-              (status.st_mode & S_IFMT) != S_IFLNK,
-              status.st_uid == getuid(),
-              requiredMode.map({ (status.st_mode & 0o777) == $0 }) ?? true else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+        let descriptor = try openDirectoryDescriptor(at: url)
         defer { close(descriptor) }
         var opened = stat()
         guard fstat(descriptor, &opened) == 0,
-              sameObject(status, opened),
               (opened.st_mode & S_IFMT) == S_IFDIR,
+              opened.st_uid == getuid(),
               requiredMode.map({ (opened.st_mode & 0o777) == $0 }) ?? true else {
             throw GTELargeModelInstallError.unsafePath
         }
@@ -142,54 +156,62 @@ private enum GTELargeSecurePath {
     }
 
     static func fileIdentity(at url: URL, requiredMode: mode_t? = privateFileMode) throws -> GTELargeFileIdentity {
-        try validateAncestors(of: url.deletingLastPathComponent())
-        var before = stat()
-        guard lstat(url.path, &before) == 0,
-              (before.st_mode & S_IFMT) == S_IFREG,
-              (before.st_mode & S_IFMT) != S_IFLNK,
-              before.st_uid == getuid(),
-              before.st_nlink == 1,
-              requiredMode.map({ (before.st_mode & 0o777) == $0 }) ?? true else {
-            throw GTELargeModelInstallError.unsafePath
+        try withParentDescriptor(of: url) { parent, name in
+            var before = stat()
+            guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (before.st_mode & S_IFMT) == S_IFREG,
+                  (before.st_mode & S_IFMT) != S_IFLNK,
+                  before.st_uid == getuid(),
+                  before.st_nlink == 1,
+                  requiredMode.map({ (before.st_mode & 0o777) == $0 }) ?? true else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            defer { close(descriptor) }
+            var opened = stat()
+            guard fstat(descriptor, &opened) == 0,
+                  sameObject(before, opened),
+                  (opened.st_mode & S_IFMT) == S_IFREG,
+                  opened.st_nlink == 1,
+                  requiredMode.map({ (opened.st_mode & 0o777) == $0 }) ?? true else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            return identity(from: opened)
         }
-        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
-        var opened = stat()
-        guard fstat(descriptor, &opened) == 0,
-              sameObject(before, opened),
-              (opened.st_mode & S_IFMT) == S_IFREG,
-              opened.st_nlink == 1,
-              requiredMode.map({ (opened.st_mode & 0o777) == $0 }) ?? true else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        return identity(from: opened)
     }
 
     static func readPrivateFile(at url: URL) throws -> Data {
-        let before = try fileIdentity(at: url)
-        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
-        var opened = stat()
-        guard fstat(descriptor, &opened) == 0,
-              sameIdentity(before, identity(from: opened)) else {
-            throw GTELargeModelInstallError.unsafePath
+        try withParentDescriptor(of: url) { parent, name in
+            var before = stat()
+            guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (before.st_mode & S_IFMT) == S_IFREG,
+                  before.st_uid == getuid(), before.st_nlink == 1,
+                  (before.st_mode & 0o777) == privateFileMode else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            defer { close(descriptor) }
+            var opened = stat()
+            guard fstat(descriptor, &opened) == 0, sameObject(before, opened) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            var chunks = Data()
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            while true {
+                let count = read(descriptor, &buffer, buffer.count)
+                if count == 0 { break }
+                guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                chunks.append(buffer, count: count)
+            }
+            var after = stat()
+            guard fstat(descriptor, &after) == 0,
+                  sameObject(before, after) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            return chunks
         }
-        var chunks = Data()
-        var buffer = [UInt8](repeating: 0, count: 65_536)
-        while true {
-            let count = read(descriptor, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-            chunks.append(buffer, count: count)
-        }
-        var after = stat()
-        guard fstat(descriptor, &after) == 0,
-              sameIdentity(before, identity(from: after)) else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        return chunks
     }
 
     static func hashPrivateFile(at url: URL) throws -> (String, GTELargeFileIdentity) {
@@ -197,54 +219,67 @@ private enum GTELargeSecurePath {
     }
 
     static func hashFile(at url: URL, requiredMode: mode_t?) throws -> (String, GTELargeFileIdentity) {
-        let before = try fileIdentity(at: url, requiredMode: requiredMode)
-        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
-        var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 1_048_576)
-        while true {
-            let count = read(descriptor, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-            hasher.update(data: Data(buffer[0..<count]))
+        try withParentDescriptor(of: url) { parent, name in
+            var before = stat()
+            guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (before.st_mode & S_IFMT) == S_IFREG,
+                  before.st_uid == getuid(), before.st_nlink == 1,
+                  requiredMode.map({ (before.st_mode & 0o777) == $0 }) ?? true else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            defer { close(descriptor) }
+            var opened = stat()
+            guard fstat(descriptor, &opened) == 0, sameObject(before, opened) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            var hasher = SHA256()
+            var buffer = [UInt8](repeating: 0, count: 1_048_576)
+            while true {
+                let count = read(descriptor, &buffer, buffer.count)
+                if count == 0 { break }
+                guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                hasher.update(data: Data(buffer[0..<count]))
+            }
+            var after = stat()
+            guard fstat(descriptor, &after) == 0, sameObject(before, after) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), identity(from: before))
         }
-        var after = stat()
-        guard fstat(descriptor, &after) == 0, sameIdentity(before, identity(from: after)) else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), before)
     }
 
     static func copyDownloadedPayload(from source: URL, to destination: URL) throws {
-        try validateAncestors(of: destination.deletingLastPathComponent())
-        let sourceDescriptor = open(source.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard sourceDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
-        defer { close(sourceDescriptor) }
-        var sourceStatus = stat()
-        guard fstat(sourceDescriptor, &sourceStatus) == 0,
-              (sourceStatus.st_mode & S_IFMT) == S_IFREG,
-              sourceStatus.st_nlink == 1 else { throw GTELargeModelInstallError.unreadableInstall }
-        let destinationDescriptor = open(
-            destination.path,
-            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-            privateFileMode
-        )
-        guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
-        defer { close(destinationDescriptor) }
-        var buffer = [UInt8](repeating: 0, count: 1_048_576)
-        while true {
-            let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-            var offset = 0
-            while offset < count {
-                let written = Darwin.write(destinationDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
-                guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                offset += written
+        try withParentDescriptor(of: source) { sourceParent, sourceName in
+            let sourceDescriptor = sourceName.withCString { openat(sourceParent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard sourceDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
+            defer { close(sourceDescriptor) }
+            var sourceStatus = stat()
+            guard fstat(sourceDescriptor, &sourceStatus) == 0,
+                  (sourceStatus.st_mode & S_IFMT) == S_IFREG,
+                  sourceStatus.st_nlink == 1 else { throw GTELargeModelInstallError.unreadableInstall }
+            try withParentDescriptor(of: destination) { destinationParent, destinationName in
+                let destinationDescriptor = destinationName.withCString {
+                    openat(destinationParent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, privateFileMode)
+                }
+                guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                defer { close(destinationDescriptor) }
+                var buffer = [UInt8](repeating: 0, count: 1_048_576)
+                while true {
+                    let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
+                    if count == 0 { break }
+                    guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                    var offset = 0
+                    while offset < count {
+                        let written = Darwin.write(destinationDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
+                        guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                        offset += written
+                    }
+                }
+                guard fsync(destinationDescriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
             }
         }
-        guard fsync(destinationDescriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
     }
 
     static func identity(from status: stat) -> GTELargeFileIdentity {
@@ -291,16 +326,17 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
     }
 
     func createDirectory(at url: URL, permissions: Int) throws {
-        try GTELargeSecurePath.validateAncestors(of: url.deletingLastPathComponent())
-        if mkdir(url.path, mode_t(permissions)) == 0 {
+        try GTELargeSecurePath.withParentDescriptor(of: url) { parent, name in
+            if name.withCString({ mkdirat(parent, $0, mode_t(permissions)) }) == 0 {
+                _ = try GTELargeSecurePath.directoryIdentity(at: url)
+                try setPermissions(permissions, at: url)
+                return
+            }
+            guard errno == EEXIST else {
+                throw GTELargeModelInstallError.unreadableInstall
+            }
             _ = try GTELargeSecurePath.directoryIdentity(at: url)
-            try setPermissions(permissions, at: url)
-            return
         }
-        guard errno == EEXIST else {
-            throw GTELargeModelInstallError.unreadableInstall
-        }
-        _ = try GTELargeSecurePath.directoryIdentity(at: url)
     }
 
     func removeItem(at url: URL) throws {
@@ -319,45 +355,40 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
     }
 
     func moveItem(at source: URL, to destination: URL) throws {
-        try GTELargeSecurePath.validateAncestors(of: source.deletingLastPathComponent())
-        try GTELargeSecurePath.validateAncestors(of: destination.deletingLastPathComponent())
-        if rename(source.path, destination.path) != 0 {
-            throw GTELargeModelInstallError.unreadableInstall
+        try GTELargeSecurePath.withParentDescriptor(of: source) { sourceParent, sourceName in
+            try GTELargeSecurePath.withParentDescriptor(of: destination) { destinationParent, destinationName in
+                let result = sourceName.withCString { sourcePointer in
+                    destinationName.withCString { destinationPointer in
+                        renameat(sourceParent, sourcePointer, destinationParent, destinationPointer)
+                    }
+                }
+                guard result == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+            }
         }
         try syncDirectory(at: destination.deletingLastPathComponent())
     }
 
     func copyItem(at source: URL, to destination: URL) throws {
-        let expectedIdentity = try GTELargeSecurePath.fileIdentity(at: source, requiredMode: nil)
-        let sourceDescriptor = open(source.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard sourceDescriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(sourceDescriptor) }
-        var opened = stat()
-        guard fstat(sourceDescriptor, &opened) == 0,
-              GTELargeSecurePath.identity(from: opened) == expectedIdentity else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        let destinationDescriptor = open(destination.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, GTELargeSecurePath.privateFileMode)
-        guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
-        defer { close(destinationDescriptor) }
-        try copyBytes(from: sourceDescriptor, to: destinationDescriptor)
-        guard fsync(destinationDescriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+        try GTELargeSecurePath.copyDownloadedPayload(from: source, to: destination)
     }
 
     func write(_ data: Data, to url: URL, permissions: Int) throws {
-        try GTELargeSecurePath.validateAncestors(of: url.deletingLastPathComponent())
-        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode_t(permissions))
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
-        defer { close(descriptor) }
-        try data.withUnsafeBytes { bytes in
-            var offset = 0
-            while offset < bytes.count {
-                let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
-                guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                offset += count
+        try GTELargeSecurePath.withParentDescriptor(of: url) { parent, name in
+            let descriptor = name.withCString {
+                openat(parent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode_t(permissions))
             }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
+            defer { close(descriptor) }
+            try data.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                    guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                    offset += count
+                }
+            }
+            guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
         }
-        guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
     }
 
     func read(from url: URL) throws -> Data {
@@ -373,26 +404,31 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
     }
 
     func setPermissions(_ permissions: Int, at url: URL) throws {
-        try GTELargeSecurePath.validateAncestors(of: url.deletingLastPathComponent())
-        var status = stat()
-        guard lstat(url.path, &status) == 0,
-              (status.st_mode & S_IFMT) != S_IFLNK,
-              ((status.st_mode & S_IFMT) == S_IFREG || (status.st_mode & S_IFMT) == S_IFDIR) else {
-            throw GTELargeModelInstallError.unsafePath
+        try GTELargeSecurePath.withParentDescriptor(of: url) { parent, name in
+            let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            defer { close(descriptor) }
+            var status = stat()
+            guard fstat(descriptor, &status) == 0,
+                  ((status.st_mode & S_IFMT) == S_IFREG || (status.st_mode & S_IFMT) == S_IFDIR),
+                  status.st_uid == getuid(),
+                  fchmod(descriptor, mode_t(permissions)) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
         }
-        try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
     }
 
     func syncFile(at url: URL) throws {
-        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
-        guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+        try GTELargeSecurePath.withParentDescriptor(of: url) { parent, name in
+            let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+            guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+            defer { close(descriptor) }
+            guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+        }
     }
 
     func syncDirectory(at url: URL) throws {
-        let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+        let descriptor = try GTELargeSecurePath.openDirectoryDescriptor(at: url)
         defer { close(descriptor) }
         guard fsync(descriptor) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
     }
@@ -715,7 +751,7 @@ private struct GTELargeInstallPointer: Codable {
     let record: GTELargeModelInstallRecord
 }
 
-private struct GTELargePromotionJournal: Codable {
+struct GTELargePromotionJournal: Codable {
     let schema: Int
     let revision: String
     let stagingDirectoryName: String
@@ -1222,6 +1258,7 @@ struct GTELargeModelInstaller: Sendable {
 
     private func recoverPromotionIfNeeded() throws {
         guard fileSystem.itemExists(at: promotionJournalURL) else {
+            try recoverCurrentPointerTemporaries()
             try removeOwnedOrphanStagingDirectories()
             return
         }
@@ -1238,6 +1275,26 @@ struct GTELargeModelInstaller: Sendable {
             return
         }
         let backup = journal.backupDirectoryName.flatMap(safeChild(named:))
+
+        // The journal is durable before the old install moves to its backup.
+        // A power loss at that point leaves the verified old install and the
+        // verified staging directory together. Keep the old install, discard
+        // only the journal-recorded staging object, and publish its pointer.
+        if let backup,
+           let backupIdentity = journal.backupIdentity,
+           !fileSystem.itemExists(at: backup),
+           isPrivateDirectory(installedDirectory),
+           (try? fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)) == backupIdentity,
+           verifyRecord(in: installedDirectory), verifyFiles(in: installedDirectory),
+           isPrivateDirectory(staging),
+           (try? fileSystem.directoryIdentity(at: staging, requiredPermissions: 0o700)) == stagingIdentity {
+            try writeCurrentPointer()
+            try fileSystem.removeItem(at: staging)
+            try fileSystem.removeItem(at: promotionJournalURL)
+            try fileSystem.syncDirectory(at: rootDirectory)
+            GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
+            return
+        }
 
         if isPrivateDirectory(installedDirectory),
            (try? fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)) == stagingIdentity,
@@ -1278,6 +1335,33 @@ struct GTELargeModelInstaller: Sendable {
         try fileSystem.removeItem(at: promotionJournalURL)
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
+    }
+
+    private func recoverCurrentPointerTemporaries() throws {
+        let temporaries = try fileSystem.contentsOfDirectory(at: rootDirectory)
+            .filter { isOwnedCurrentTemporaryName($0.lastPathComponent) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !temporaries.isEmpty else { return }
+
+        let currentIsValid = (try? readSmallFile(at: currentPointerURL))
+            .flatMap { try? JSONDecoder().decode(GTELargeInstallPointer.self, from: $0) }
+            .map { $0.schema == 1 && $0.directoryName == manifest.installationDirectoryName && $0.record.matches(manifest) } ?? false
+
+        for temporary in temporaries {
+            guard let data = try? readSmallFile(at: temporary),
+                  let pointer = try? JSONDecoder().decode(GTELargeInstallPointer.self, from: data),
+                  pointer.schema == 1,
+                  pointer.directoryName == manifest.installationDirectoryName,
+                  pointer.record.matches(manifest) else {
+                continue
+            }
+            if !fileSystem.itemExists(at: currentPointerURL) && !currentIsValid {
+                try fileSystem.moveItem(at: temporary, to: currentPointerURL)
+            } else {
+                try fileSystem.removeItem(at: temporary)
+            }
+        }
+        try fileSystem.syncDirectory(at: rootDirectory)
     }
 
     private func verifiedPromotionJournal() -> [(url: URL, identity: GTELargeFileIdentity)]? {
@@ -1374,23 +1458,19 @@ struct GTELargeModelInstaller: Sendable {
     }
 
     private func quarantineInvalidRecoveryArtifacts() throws {
-        let entries = try fileSystem.contentsOfDirectory(at: rootDirectory)
-        for entry in entries where entry.lastPathComponent == ".gte-large-promotion.json" ||
-            isOwnedStagingName(entry.lastPathComponent) || isOwnedBackupName(entry.lastPathComponent) ||
-            isOwnedJournalTemporaryName(entry.lastPathComponent) {
-            try fileSystem.removeItem(at: entry)
+        // A UUID-shaped name is not an ownership record. An invalid journal
+        // may name arbitrary sibling paths, so quarantine only the exact,
+        // private journal file and leave every referenced artifact intact.
+        if (try? fileSystem.fileIdentity(at: promotionJournalURL)) != nil {
+            try fileSystem.removeItem(at: promotionJournalURL)
         }
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
     }
 
     private func removeOwnedOrphanStagingDirectories() throws {
-        for entry in try fileSystem.contentsOfDirectory(at: rootDirectory) where isOwnedStagingName(entry.lastPathComponent) {
-            guard let identity = try? fileSystem.directoryIdentity(at: entry, requiredPermissions: 0o700),
-                  identity.owner == UInt32(getuid()) else { continue }
-            try fileSystem.removeItem(at: entry)
-        }
-        try fileSystem.syncDirectory(at: rootDirectory)
+        // Without a valid journal there is no durable binding between a UUID
+        // name and this transaction. Preserve the directory for inspection.
     }
 }
 

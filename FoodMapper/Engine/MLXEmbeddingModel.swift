@@ -9,6 +9,11 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
 /// Resource bundle helper -- SPM vs .app bundle resolution
 enum ResourceBundle {
+    #if DEBUG
+    /// Test-only override. Production code always uses the user's Application
+    /// Support location; tests must never inspect or repair a live install.
+    nonisolated(unsafe) static var testingApplicationSupportModelDir: URL?
+    #endif
     /// Checks multiple locations for the resource bundle
     static var bundle: Bundle {
         #if SWIFT_PACKAGE
@@ -38,10 +43,15 @@ enum ResourceBundle {
 
     /// Application Support directory for downloaded models
     static var applicationSupportModelDir: URL {
+        #if DEBUG
+        if let testingApplicationSupportModelDir {
+            return testingApplicationSupportModelDir
+        }
+        #endif
         let appSupport = FoodMapperStorage.applicationSupportURL
-        let dir = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        let directory = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
     /// Verified GTE-Large model directory. A downloaded model must pass the

@@ -14,6 +14,7 @@ extension AppState {
     }
 
     func downloadModel() async {
+        await modelManager.awaitStartupRecoveryForUserAction()
         // Check if model already exists
         if MLXEmbeddingModel.isModelAvailable {
             isVerifyingModelAfterDownload = true

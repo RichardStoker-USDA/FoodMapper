@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import XCTest
 @testable import FoodMapper
@@ -265,6 +266,37 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journal.path))
     }
 
+    func testRecoveryKeepsOldInstallWhenPowerFailsBeforeBackupMove() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let oldIdentity = try directoryIdentity(installer.installedDirectory)
+        let pointer = root.appendingPathComponent("current.json")
+        try FileManager.default.removeItem(at: pointer)
+
+        let stagingName = ".gte-large-staging-\(UUID().uuidString)"
+        let backupName = ".gte-large-previous-\(UUID().uuidString)"
+        let staging = root.appendingPathComponent(stagingName, isDirectory: true)
+        try FileManager.default.copyItem(at: installer.installedDirectory, to: staging)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+        let journal = GTELargePromotionJournal(
+            schema: 1,
+            revision: fixtureManifest.revision,
+            stagingDirectoryName: stagingName,
+            backupDirectoryName: backupName,
+            stagingIdentity: try directoryIdentity(staging),
+            backupIdentity: oldIdentity
+        )
+        let journalURL = root.appendingPathComponent(".gte-large-promotion.json")
+        try JSONEncoder().encode(journal).write(to: journalURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
+    }
+
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
         try writeLegacyFixture()
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
@@ -427,6 +459,21 @@ final class GTELargeModelInstallTests: XCTestCase {
             try data.write(to: url)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
+    }
+
+    private func directoryIdentity(_ url: URL) throws -> GTELargeFileIdentity {
+        var value = stat()
+        guard lstat(url.path, &value) == 0 else { throw CocoaError(.fileNoSuchFile) }
+        return GTELargeFileIdentity(
+            size: Int64(value.st_size),
+            device: UInt64(value.st_dev),
+            inode: UInt64(value.st_ino),
+            changeSeconds: Int64(value.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(value.st_ctimespec.tv_nsec),
+            linkCount: UInt64(value.st_nlink),
+            mode: UInt16(value.st_mode & 0o777),
+            owner: UInt32(value.st_uid)
+        )
     }
 
     private var fixtureManifest: GTELargeModelManifest {
