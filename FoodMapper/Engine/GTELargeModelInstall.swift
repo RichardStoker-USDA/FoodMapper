@@ -94,6 +94,7 @@ struct GTELargeFileIdentity: Codable, Equatable, Sendable {
 struct GTELargePrivateTree: Sendable {
     let identity: GTELargeFileIdentity
     let isDirectory: Bool
+    let entries: Int
     let bytes: Int64
 }
 
@@ -261,20 +262,30 @@ enum GTELargeSecurePath {
     }
 
     private struct PrivateRemovalBudget {
-        static let maximumEntries = 4_096
-        static let maximumDepth = 16
-        static let maximumBytes: Int64 = 2_147_483_648
+        let maximumEntries: Int
+        let maximumDepth: Int
+        let maximumBytes: Int64
         var entries = 0
         var bytes: Int64 = 0
 
+        init(
+            maximumEntries: Int = 4_096,
+            maximumDepth: Int = 16,
+            maximumBytes: Int64 = 2_147_483_648
+        ) {
+            self.maximumEntries = maximumEntries
+            self.maximumDepth = maximumDepth
+            self.maximumBytes = maximumBytes
+        }
+
         mutating func consume(_ status: stat, depth: Int) throws {
-            guard depth <= Self.maximumDepth, entries < Self.maximumEntries else {
+            guard depth <= maximumDepth, entries < maximumEntries else {
                 throw GTELargeModelInstallError.unsafePath
             }
             entries += 1
             if (status.st_mode & S_IFMT) == S_IFREG {
                 let (next, overflow) = bytes.addingReportingOverflow(Int64(status.st_size))
-                guard !overflow, next <= Self.maximumBytes else {
+                guard !overflow, next <= maximumBytes else {
                     throw GTELargeModelInstallError.unsafePath
                 }
                 bytes = next
@@ -337,6 +348,7 @@ enum GTELargeSecurePath {
             return GTELargePrivateTree(
                 identity: rootIdentity,
                 isDirectory: rootType == S_IFDIR,
+                entries: budget.entries,
                 bytes: budget.bytes
             )
         }
@@ -450,6 +462,13 @@ enum GTELargeSecurePath {
             try removePrivateEntry(parent: descriptor, name: child, expected: childStatus, budget: &budget, depth: depth + 1)
         }
         var current = stat()
+        // `unlinkat` has no expected-inode argument. The identity check above
+        // rejects a replacement observed before this call. A hostile same-UID
+        // process can still replace this empty private directory after this
+        // final fstatat and before unlinkat, in which case Darwin can remove
+        // that replacement. This app does not claim protection from that
+        // kernel API gap; directory removal remains limited to app-private,
+        // same-UID paths and all non-empty work is descriptor-walked first.
         guard quarantinedName.withCString({ fstatat(parent, $0, &current, AT_SYMLINK_NOFOLLOW) }) == 0,
               sameObject(expected, current),
               quarantinedName.withCString({ unlinkat(parent, $0, AT_REMOVEDIR) }) == 0 else {
@@ -460,6 +479,29 @@ enum GTELargeSecurePath {
     static func removePrivateEntry(parent: Int32, name: String, expected: stat) throws {
         var budget = PrivateRemovalBudget()
         try removePrivateEntry(parent: parent, name: name, expected: expected, budget: &budget)
+    }
+
+    static func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws {
+        try withParentDescriptor(of: url) { parent, name in
+            var root = stat()
+            guard name.withCString({ fstatat(parent, $0, &root, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (root.st_mode & S_IFMT) == (tree.isDirectory ? S_IFDIR : S_IFREG),
+                  (tree.isDirectory
+                    ? sameDirectoryIdentity(identity(from: root), tree.identity)
+                    : sameFileIdentity(identity(from: root), tree.identity)) else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+            var budget = PrivateRemovalBudget(
+                maximumEntries: tree.entries,
+                maximumDepth: maximumDepth,
+                maximumBytes: tree.bytes
+            )
+            try removePrivateEntry(parent: parent, name: name, expected: root, budget: &budget)
+            guard budget.entries == tree.entries, budget.bytes == tree.bytes,
+                  fsync(parent) == 0 else {
+                throw GTELargeModelInstallError.unsafePath
+            }
+        }
     }
 
     private static func quarantinePrivateEntry(parent: Int32, name: String, expected: stat) throws -> String {
@@ -577,11 +619,15 @@ enum GTELargeSecurePath {
         }
     }
 
-    static func hashPrivateFile(at url: URL) throws -> (String, GTELargeFileIdentity) {
-        try hashFile(at: url, requiredMode: privateFileMode)
+    static func hashPrivateFile(at url: URL, expectedSize: Int64) throws -> (String, GTELargeFileIdentity) {
+        try hashFile(at: url, requiredMode: privateFileMode, expectedSize: expectedSize)
     }
 
-    static func hashFile(at url: URL, requiredMode: mode_t?) throws -> (String, GTELargeFileIdentity) {
+    static func hashFile(
+        at url: URL,
+        requiredMode: mode_t?,
+        expectedSize: Int64
+    ) throws -> (String, GTELargeFileIdentity) {
         try withParentDescriptor(of: url) { parent, name in
             var before = stat()
             guard name.withCString({ fstatat(parent, $0, &before, AT_SYMLINK_NOFOLLOW) }) == 0,
@@ -594,26 +640,42 @@ enum GTELargeSecurePath {
             guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
             defer { close(descriptor) }
             var opened = stat()
-            guard fstat(descriptor, &opened) == 0, sameObject(before, opened) else {
+            let expectedIdentity = identity(from: before)
+            guard fstat(descriptor, &opened) == 0,
+                  sameIdentity(expectedIdentity, identity(from: opened)),
+                  opened.st_size == expectedSize else {
                 throw GTELargeModelInstallError.unsafePath
             }
             var hasher = SHA256()
             var buffer = [UInt8](repeating: 0, count: 1_048_576)
+            var hashed: Int64 = 0
             while true {
                 let count = read(descriptor, &buffer, buffer.count)
                 if count == 0 { break }
                 guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                let (next, overflow) = hashed.addingReportingOverflow(Int64(count))
+                guard !overflow, next <= expectedSize else {
+                    throw GTELargeModelInstallError.unreadableInstall
+                }
+                hashed = next
                 hasher.update(data: Data(buffer[0..<count]))
             }
             var after = stat()
-            guard fstat(descriptor, &after) == 0, sameObject(before, after) else {
+            guard hashed == expectedSize,
+                  fstat(descriptor, &after) == 0,
+                  sameIdentity(expectedIdentity, identity(from: after)) else {
                 throw GTELargeModelInstallError.unsafePath
             }
-            return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), identity(from: before))
+            return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), expectedIdentity)
         }
     }
 
-    static func copyDownloadedPayload(from source: URL, to destination: URL) throws {
+    static func copyDownloadedPayload(
+        from source: URL,
+        to destination: URL,
+        expectedSourceIdentity: GTELargeFileIdentity,
+        expectedSize: Int64
+    ) throws {
         try withParentDescriptor(of: source) { sourceParent, sourceName in
             let sourceDescriptor = sourceName.withCString { openat(sourceParent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
             guard sourceDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
@@ -621,35 +683,17 @@ enum GTELargeSecurePath {
             var sourceStatus = stat()
             guard fstat(sourceDescriptor, &sourceStatus) == 0,
                   (sourceStatus.st_mode & S_IFMT) == S_IFREG,
-                  sourceStatus.st_nlink == 1 else { throw GTELargeModelInstallError.unreadableInstall }
-            try withParentDescriptor(of: destination) { destinationParent, destinationName in
-                let destinationDescriptor = destinationName.withCString {
-                    openat(destinationParent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, privateFileMode)
-                }
-                guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                defer { close(destinationDescriptor) }
-                var buffer = [UInt8](repeating: 0, count: 1_048_576)
-                while true {
-                    let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
-                    if count == 0 { break }
-                    guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                    var offset = 0
-                    while offset < count {
-                        let written = Darwin.write(destinationDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
-                        guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                        offset += written
-                    }
-                }
-                var destinationStatus = stat()
-                guard fstat(destinationDescriptor, &destinationStatus) == 0,
-                      (destinationStatus.st_mode & S_IFMT) == S_IFREG,
-                      destinationStatus.st_uid == getuid(), destinationStatus.st_nlink == 1,
-                      fchmod(destinationDescriptor, privateFileMode) == 0,
-                      fsync(destinationDescriptor) == 0,
-                      fsync(destinationParent) == 0 else {
-                    throw GTELargeModelInstallError.unreadableInstall
-                }
+                  sourceStatus.st_uid == getuid(), sourceStatus.st_nlink == 1,
+                  sourceStatus.st_size == expectedSize,
+                  sameIdentity(identity(from: sourceStatus), expectedSourceIdentity) else {
+                throw GTELargeModelInstallError.unreadableInstall
             }
+            try copyOpenFileDescriptor(
+                sourceDescriptor,
+                sourceStatus: sourceStatus,
+                to: destination,
+                maximumSize: expectedSize
+            )
         }
     }
 
@@ -687,6 +731,17 @@ enum GTELargeSecurePath {
             return decoded != "." && decoded != ".."
         }) else {
             throw GTELargeModelInstallError.unsafePath
+        }
+
+        // Validate the URL spelling before resolving it. Resolving first would
+        // turn an in-root leaf symlink into an apparently safe target.
+        try withParentDescriptor(of: source) { parent, name in
+            var leaf = stat()
+            guard name.withCString({ fstatat(parent, $0, &leaf, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  (leaf.st_mode & S_IFMT) == S_IFREG,
+                  (leaf.st_mode & S_IFMT) != S_IFLNK else {
+                throw GTELargeModelInstallError.unsafePath
+            }
         }
 
         let temporaryRoot = FoodMapperModelStorage.urlSessionTemporaryDirectory()
@@ -743,8 +798,9 @@ enum GTELargeSecurePath {
             }
             var sourceAfter = stat()
             var destinationStatus = stat()
-            guard fstat(sourceDescriptor, &sourceAfter) == 0,
-                  sameObject(sourceStatus, sourceAfter),
+            guard copied == maximumSize,
+                  fstat(sourceDescriptor, &sourceAfter) == 0,
+                  sameIdentity(identity(from: sourceStatus), identity(from: sourceAfter)),
                   fstat(destinationDescriptor, &destinationStatus) == 0,
                   (destinationStatus.st_mode & S_IFMT) == S_IFREG,
                   destinationStatus.st_uid == getuid(), destinationStatus.st_nlink == 1,
@@ -794,11 +850,17 @@ protocol GTELargeFileSystem: Sendable {
     func removeItem(at url: URL) throws
     func removeItem(at url: URL, expectedFileIdentity: GTELargeFileIdentity) throws
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws
+    func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws
     func contentsOfDirectory(at url: URL, maximumEntries: Int) throws -> [URL]
     func moveItem(at source: URL, to destination: URL) throws
     func moveItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws
     func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws
-    func copyItem(at source: URL, to destination: URL) throws
+    func copyItem(
+        at source: URL,
+        to destination: URL,
+        expectedSourceIdentity: GTELargeFileIdentity,
+        expectedSize: Int64
+    ) throws
     func write(_ data: Data, to url: URL, permissions: Int) throws
     func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity)
     func fileIdentity(at url: URL) throws -> GTELargeFileIdentity
@@ -858,6 +920,10 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
 
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
         try GTELargeSecurePath.removePrivateItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
+    }
+
+    func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws {
+        try GTELargeSecurePath.removePrivateTree(at: url, tree: tree, maximumDepth: maximumDepth)
     }
 
     func contentsOfDirectory(at url: URL, maximumEntries: Int) throws -> [URL] {
@@ -1046,8 +1112,18 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
         return name.hasPrefix("gte-large-") && revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil
     }
 
-    func copyItem(at source: URL, to destination: URL) throws {
-        try GTELargeSecurePath.copyDownloadedPayload(from: source, to: destination)
+    func copyItem(
+        at source: URL,
+        to destination: URL,
+        expectedSourceIdentity: GTELargeFileIdentity,
+        expectedSize: Int64
+    ) throws {
+        try GTELargeSecurePath.copyDownloadedPayload(
+            from: source,
+            to: destination,
+            expectedSourceIdentity: expectedSourceIdentity,
+            expectedSize: expectedSize
+        )
     }
 
     func write(_ data: Data, to url: URL, permissions: Int) throws {
@@ -1166,12 +1242,12 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
 }
 
 protocol GTELargeHashing: Sendable {
-    func sha256(of url: URL) throws -> String
+    func sha256(of url: URL, expectedSize: Int64) throws -> String
 }
 
 struct SHA256GTELargeHashing: GTELargeHashing {
-    func sha256(of url: URL) throws -> String {
-        try GTELargeSecurePath.hashPrivateFile(at: url).0
+    func sha256(of url: URL, expectedSize: Int64) throws -> String {
+        try GTELargeSecurePath.hashPrivateFile(at: url, expectedSize: expectedSize).0
     }
 }
 
@@ -1629,7 +1705,13 @@ struct GTELargeModelInstaller: Sendable {
                 try Task.checkCancellation()
                 let source = rootDirectory.appendingPathComponent(file.name)
                 let destination = staging.appendingPathComponent(file.name)
-                try fileSystem.copyItem(at: source, to: destination)
+                let sourceIdentity = try fileSystem.fileIdentity(at: source)
+                try fileSystem.copyItem(
+                    at: source,
+                    to: destination,
+                    expectedSourceIdentity: sourceIdentity,
+                    expectedSize: file.size
+                )
                 try fileSystem.setPermissions(0o600, at: destination)
                 try fileSystem.syncFile(at: destination)
             }
@@ -1769,7 +1851,11 @@ struct GTELargeModelInstaller: Sendable {
             let url = directory.appendingPathComponent(file.name)
             guard let identity = try? GTELargeSecurePath.fileIdentity(at: url, requiredMode: nil),
                   identity.size == file.size,
-                  let hash = try? GTELargeSecurePath.hashFile(at: url, requiredMode: nil).0 else {
+                  let hash = try? GTELargeSecurePath.hashFile(
+                    at: url,
+                    requiredMode: nil,
+                    expectedSize: file.size
+                  ).0 else {
                 return false
             }
             return hash.caseInsensitiveCompare(file.sha256) == .orderedSame
@@ -1858,7 +1944,7 @@ struct GTELargeModelInstaller: Sendable {
         ) {
             return true
         }
-        guard let hash = try? hashing.sha256(of: url),
+        guard let hash = try? hashing.sha256(of: url, expectedSize: file.size),
               hash.caseInsensitiveCompare(file.sha256) == .orderedSame,
               let postHashIdentity = try? fileSystem.fileIdentity(at: url),
               postHashIdentity == identity else {
@@ -2412,11 +2498,7 @@ struct GTELargeModelInstaller: Sendable {
                 throw GTELargeModelInstallError.unsafePath
             }
             totalBytes = next
-            if tree.isDirectory {
-                try fileSystem.removeItem(at: artifact, expectedDirectoryIdentity: tree.identity)
-            } else {
-                try fileSystem.removeItem(at: artifact, expectedFileIdentity: tree.identity)
-            }
+            try fileSystem.removePrivateTree(at: artifact, tree: tree, maximumDepth: 16)
         }
         if !artifacts.isEmpty { try fileSystem.syncDirectory(at: rootDirectory) }
     }

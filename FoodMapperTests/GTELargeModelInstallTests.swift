@@ -856,6 +856,84 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(localhost))
     }
 
+    func testURLSessionTemporaryPathRejectsInRootLeafSymlink() throws {
+        #if DEBUG
+        let temporaryRoot = root.appendingPathComponent("urlsession-symlink", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: temporaryRoot.path)
+        FoodMapperModelStorage.testingURLSessionTemporaryDirectory = temporaryRoot
+        defer { FoodMapperModelStorage.testingURLSessionTemporaryDirectory = nil }
+
+        let target = temporaryRoot.appendingPathComponent("target")
+        try Data("payload".utf8).write(to: target)
+        let link = temporaryRoot.appendingPathComponent("leaf-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(link))
+        #endif
+    }
+
+    func testLegacyCopyRejectsUnexpectedSourceLength() throws {
+        let source = root.appendingPathComponent("legacy-source")
+        try Data("more than expected".utf8).write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
+        let identity = try GTELargeSecurePath.fileIdentity(at: source)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.copyDownloadedPayload(
+            from: source,
+            to: root.appendingPathComponent("legacy-destination"),
+            expectedSourceIdentity: identity,
+            expectedSize: 1
+        ))
+    }
+
+    func testBoundedHashRejectsUnexpectedGrowth() throws {
+        let source = root.appendingPathComponent("growing-hash")
+        try Data("two".utf8).write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.hashPrivateFile(at: source, expectedSize: 1))
+    }
+
+    func testPrivateTreeRemovalRejectsChangedAccounting() throws {
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        let payload = artifact.appendingPathComponent("payload")
+        try Data("one".utf8).write(to: payload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payload.path)
+        let tree = try GTELargeSecurePath.privateTree(at: artifact, maximumEntries: 2, maximumDepth: 1, maximumBytes: 3)
+
+        try Data("longer".utf8).write(to: payload)
+        XCTAssertThrowsError(try GTELargeSecurePath.removePrivateTree(at: artifact, tree: tree, maximumDepth: 1))
+    }
+
+    func testPrivateTreeRejectsFIFO() throws {
+        let fifo = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)")
+        guard mkfifo(fifo.path, 0o600) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        XCTAssertThrowsError(try GTELargeSecurePath.privateTree(
+            at: fifo,
+            maximumEntries: 1,
+            maximumDepth: 0,
+            maximumBytes: 0
+        ))
+    }
+
+    func testDirectoryRemovalRejectsReplacementObservedBeforeUnlink() throws {
+        let directory = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        let displaced = root.appendingPathComponent("displaced", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let identity = try GTELargeSecurePath.directoryIdentity(at: directory, requiredMode: 0o700)
+        try FileManager.default.moveItem(at: directory, to: displaced)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.removePrivateItem(at: directory, expectedDirectoryIdentity: identity))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+    }
+
     func testURLSessionTemporaryPathUsesInjectedStorageRoot() throws {
         #if DEBUG
         let temporaryRoot = root.appendingPathComponent("urlsession-temp", isDirectory: true)
@@ -903,7 +981,7 @@ final class GTELargeModelInstallTests: XCTestCase {
             let path = directory.appendingPathComponent(file.name)
             let identity = try GTELargeSecurePath.fileIdentity(at: path)
             XCTAssertEqual(identity.size, file.size)
-            XCTAssertEqual(try GTELargeSecurePath.hashPrivateFile(at: path).0, file.sha256)
+            XCTAssertEqual(try GTELargeSecurePath.hashPrivateFile(at: path, expectedSize: file.size).0, file.sha256)
         }
 
         try await installer.deleteInstallArtifacts()
@@ -1102,7 +1180,7 @@ private final class FixtureHashing: GTELargeHashing, @unchecked Sendable {
         return calls
     }
 
-    func sha256(of url: URL) throws -> String {
+    func sha256(of url: URL, expectedSize: Int64) throws -> String {
         lock.lock()
         calls += 1
         lock.unlock()
@@ -1126,7 +1204,7 @@ private final class SwappingHashing: GTELargeHashing, @unchecked Sendable {
         self.replacement = replacement
     }
 
-    func sha256(of url: URL) throws -> String {
+    func sha256(of url: URL, expectedSize: Int64) throws -> String {
         lock.lock()
         let shouldSwap = !didSwap && url.lastPathComponent == "config.json"
         didSwap = true
@@ -1164,6 +1242,9 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
         try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
     }
+    func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws {
+        try local.removePrivateTree(at: url, tree: tree, maximumDepth: maximumDepth)
+    }
     func contentsOfDirectory(at url: URL, maximumEntries: Int) throws -> [URL] {
         try local.contentsOfDirectory(at: url, maximumEntries: maximumEntries)
     }
@@ -1171,7 +1252,9 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
         try failIfNeeded(source: source, destination: destination)
         try local.moveItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
     }
-    func copyItem(at source: URL, to destination: URL) throws { try local.copyItem(at: source, to: destination) }
+    func copyItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity, expectedSize: Int64) throws {
+        try local.copyItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity, expectedSize: expectedSize)
+    }
     func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
     func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
         try local.read(from: url, maximumSize: maximumSize)
@@ -1232,6 +1315,9 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
     func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
         try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
     }
+    func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws {
+        try local.removePrivateTree(at: url, tree: tree, maximumDepth: maximumDepth)
+    }
     func contentsOfDirectory(at url: URL, maximumEntries: Int) throws -> [URL] {
         try local.contentsOfDirectory(at: url, maximumEntries: maximumEntries)
     }
@@ -1241,7 +1327,9 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
         }
         try local.moveItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
     }
-    func copyItem(at source: URL, to destination: URL) throws { try local.copyItem(at: source, to: destination) }
+    func copyItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity, expectedSize: Int64) throws {
+        try local.copyItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity, expectedSize: expectedSize)
+    }
     func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
     func read(from url: URL, maximumSize: Int64) throws -> (Data, GTELargeFileIdentity) {
         try local.read(from: url, maximumSize: maximumSize)
