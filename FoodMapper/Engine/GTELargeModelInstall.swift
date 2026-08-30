@@ -405,8 +405,11 @@ enum GTELargeSecurePath {
         try budget.consume(expected, depth: depth)
 
         // Darwin has no unlink-by-file-descriptor API. Move the verified entry
-        // to a fresh private name before recursion or unlinking so a rename of
-        // the public name cannot make this operation remove its replacement.
+        // to a fresh private name before recursion or unlinking, then bind the
+        // new name to the recorded identity. A same-UID rename between the
+        // check and rename is rejected before any unlink or rmdir. Darwin does
+        // not expose an atomic "rename this inode" primitive, so this cannot
+        // prevent that same-UID rename from changing the public namespace.
         let quarantinedName = try quarantinePrivateEntry(parent: parent, name: name, expected: expected)
 
         if type == S_IFREG {
