@@ -122,6 +122,27 @@ final class GTELargeModelInstallTests: XCTestCase {
         }
     }
 
+    func testCancelledOperationWaiterDoesNotReceiveReleasedLease() async throws {
+        let coordinator = GTELargeOperationCoordinator()
+        let key = "foodmapper-gte-test-\(UUID().uuidString)"
+        try await coordinator.acquire(root: key)
+        let waiting = Task { try await coordinator.acquire(root: key) }
+        await Task.yield()
+        waiting.cancel()
+        await Task.yield()
+        await coordinator.release(root: key)
+
+        do {
+            try await waiting.value
+            XCTFail("Cancelled waiter acquired a lease")
+        } catch is CancellationError {
+            // The continuation was removed before the held lease was released.
+        }
+
+        try await coordinator.acquire(root: key)
+        await coordinator.release(root: key)
+    }
+
     func testPartialPriorInstallIsUnavailableWithoutStartingTransport() async {
         try? Data("config".utf8).write(to: root.appendingPathComponent("config.json"))
         let transport = FixtureTransport(files: fixtureFiles)

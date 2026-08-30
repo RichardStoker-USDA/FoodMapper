@@ -1271,7 +1271,7 @@ private final class GTELargeInstallOperation: @unchecked Sendable {
     }
 }
 
-private actor GTELargeOperationCoordinator {
+actor GTELargeOperationCoordinator {
     static let shared = GTELargeOperationCoordinator()
     private var activeRoots: Set<String> = []
     private var waiters: [String: [UUID: CheckedContinuation<Bool, Never>]] = [:]
