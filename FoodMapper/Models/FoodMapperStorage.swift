@@ -199,9 +199,12 @@ enum FoodMapperStorage {
             preconditionFailure("XCTest requires an isolated defaults suite before FoodMapper starts")
         }
 
-        let suppliedRoot = testConfiguration.root.standardizedFileURL
+        let suppliedRoot = testConfiguration.root
         validateTestRoot(suppliedRoot, requireDirectPath: true)
-        let root = suppliedRoot.resolvingSymlinksInPath().standardizedFileURL
+        guard let canonicalRootPath = canonicalExistingPath(suppliedRoot.path) else {
+            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT changed during validation")
+        }
+        let root = URL(fileURLWithPath: canonicalRootPath, isDirectory: true)
         validateTestRoot(root, requireDirectPath: false)
         guard let applicationSupportIdentity = directoryIdentity(at: root) else {
             preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT changed during validation")
@@ -273,7 +276,10 @@ enum FoodMapperStorage {
     ) -> (root: URL, suite: String)? {
         let explicitRoot = environment["FOODMAPPER_TEST_STORAGE_ROOT"]
         let explicitSuite = environment["FOODMAPPER_TEST_DEFAULTS_SUITE"]
-        let markerState = markerState(from: environment)
+        let markerState = markerState(
+            from: environment,
+            allowNeutralXcodeMarkers: explicitRoot != nil && explicitSuite != nil
+        )
 
         switch (explicitRoot, explicitSuite) {
         case (nil, nil):
@@ -300,10 +306,22 @@ enum FoodMapperStorage {
         }
     }
 
-    private static func markerState(from environment: [String: String]) -> MarkerState {
+    private static func markerState(
+        from environment: [String: String],
+        allowNeutralXcodeMarkers: Bool
+    ) -> MarkerState {
         var identifiers: [String] = []
         for key in testMarkerKeys {
             guard let markerPath = environment[key] else { continue }
+            if markerPath.isEmpty {
+                guard allowNeutralXcodeMarkers else { return .invalid }
+                continue
+            }
+            if key == "XCTestBundlePath",
+               markerPath == "Contents/PlugIns/FoodMapperTests.xctest" {
+                guard allowNeutralXcodeMarkers else { return .invalid }
+                continue
+            }
             guard let identifier = markerIdentifier(in: markerPath) else { return .invalid }
             identifiers.append(identifier)
         }
@@ -322,12 +340,12 @@ enum FoodMapperStorage {
         } else {
             return nil
         }
-        let standardized = URL(fileURLWithPath: markerPath).standardizedFileURL
-        guard standardized.path == markerPath else { return nil }
         let rawComponents = String(markerPath.dropFirst(rawPrefix.count))
             .split(separator: "/", omittingEmptySubsequences: true)
         guard rawComponents.count >= 2,
               let rawWrapper = derivedDataDirectory(String(rawComponents[0])) else { return nil }
+        let exactRawPath = rawPrefix + rawComponents.map(String.init).joined(separator: "/")
+        guard markerPath == exactRawPath else { return nil }
 
         guard let canonicalPath = canonicalExistingPath(markerPath) else { return nil }
         let expectedCanonicalPath = canonicalTemporaryPathPrefix +
@@ -351,12 +369,11 @@ enum FoodMapperStorage {
 
     private static func wrapperTestIdentifier(from rootPath: String) -> String? {
         guard rootPath.hasPrefix(canonicalTemporaryPathPrefix) else { return nil }
-        let standardized = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
-        guard standardized.path == rootPath else { return nil }
         let rawComponents = String(rootPath.dropFirst(canonicalTemporaryPathPrefix.count))
             .split(separator: "/", omittingEmptySubsequences: true)
         guard rawComponents.count == 1,
               let rawWrapper = testStorageDirectory(String(rawComponents[0])) else { return nil }
+        guard rootPath == canonicalTemporaryPathPrefix + rawWrapper.name else { return nil }
 
         guard let canonicalPath = canonicalExistingPath(rootPath) else { return nil }
         guard canonicalPath == rootPath else { return nil }

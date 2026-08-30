@@ -21,8 +21,6 @@ final class TestStorageGuard: XCTestCase {
         )
         let expectedSuite = "app.foodmapper.FoodMapper.tests.\(identifier)"
         let canonicalRoot = expectedRoot
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
 
         XCTAssertTrue(FoodMapperStorage.isIsolatedTestStorage)
         XCTAssertTrue(FoodMapperStorage.usesInMemoryCredentials)
@@ -83,6 +81,8 @@ final class TestStorageGuard: XCTestCase {
             }
         }
         let markerPaths = [
+            "\(root)/Temporary/run.xctestconfiguration",
+            "\(derivedRoot)/Temporary/run.xctestconfiguration",
             "\(root)/Symroot/Debug/FoodMapperTests.xctest",
             "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
             "\(derivedRoot)/Build/Products/FoodMapperTests.xctest",
@@ -181,11 +181,85 @@ final class TestStorageGuard: XCTestCase {
                 expected
             ),
             (
+                "Xcode relative markers require an explicit pair",
+                [
+                    "XCTestBundlePath": "Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCTestConfigurationFilePath": "",
+                ],
+                nil
+            ),
+            (
+                "explicit pair with Xcode relative markers",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestBundlePath": "Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCTestConfigurationFilePath": "",
+                ],
+                expected
+            ),
+            (
+                "explicit pair with unknown relative marker",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestBundlePath": "PlugIns/OtherTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "absolute marker with relative marker requires explicit pair",
+                [
+                    "XCTestBundlePath": "Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCInjectBundle": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/MacOS/FoodMapper",
+                ],
+                nil
+            ),
+            (
+                "absolute marker with empty marker requires explicit pair",
+                [
+                    "XCTestBundlePath": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCTestConfigurationFilePath": "",
+                ],
+                nil
+            ),
+            (
+                "explicit pair accepts matching absolute and neutral markers",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestBundlePath": "Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCInjectBundle": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/MacOS/FoodMapper",
+                    "XCTestConfigurationFilePath": "",
+                ],
+                expected
+            ),
+            (
                 "explicit pair with matching marker",
                 [
                     "FOODMAPPER_TEST_STORAGE_ROOT": root,
                     "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
                     "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                ],
+                expected
+            ),
+            (
+                "explicit pair with storage-root XCTest configuration",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestConfigurationFilePath": "\(root)/Temporary/run.xctestconfiguration",
+                ],
+                nil
+            ),
+            (
+                "actual wrapper temporary marker combination",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestBundlePath": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCInjectBundle": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/MacOS/FoodMapper",
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Temporary/run.xctestconfiguration",
                 ],
                 expected
             ),
@@ -260,6 +334,21 @@ final class TestStorageGuard: XCTestCase {
                 "spoofed nested tmp path",
                 [
                     "XCTestBundlePath": "/private/tmp/untrusted/foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "repeated slash marker",
+                [
+                    "XCTestBundlePath": "/private/tmp//foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "repeated slash explicit root",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": "/private/tmp//foodmapper-xctest-\(identifier)",
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
                 ],
                 nil
             ),
