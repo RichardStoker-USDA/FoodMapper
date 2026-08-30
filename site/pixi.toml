@@ -11,4 +11,4 @@ build = "npx astro build"
 preview = "npx astro preview"
 
 [dependencies]
-nodejs = ">=25.7.0,<25.8"
+nodejs = ">=24,<25"

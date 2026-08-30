@@ -2,7 +2,7 @@
 ---
 
 <section class="hero section">
-  <div class="container" style="text-align: center;">
+  <div class="container hero-content">
     <div class="hero-identity">
       <img
         src="/images/app-icon-large.png"
@@ -16,12 +16,12 @@
 
     <p class="hero-tagline">
       Match free-text food descriptions to standardized reference databases
-      using on-device ML models powered by MLX on Apple Silicon.
+      with on-device MLX models on Apple Silicon.
     </p>
 
     <p class="hero-subtext text-secondary">
-      Built for nutrition researchers on Apple Silicon.
-      Your data stays on your Mac. Hybrid embedding and LLM matching available for even higher accuracy.
+      Designed for nutrition research. Run matching entirely on-device, or
+      enable the optional hybrid pipeline.
     </p>
 
     <div class="hero-cta">
@@ -37,10 +37,19 @@
       </a>
     </div>
 
+    <a
+      class="hero-publication"
+      href="https://doi.org/10.1016/j.tjnut.2026.101678"
+      target="_blank"
+      rel="noopener"
+    >
+      Published in <em>The Journal of Nutrition</em>
+      <span aria-hidden="true">↗</span>
+    </a>
+
     <div class="hero-badges">
       <span class="badge">Apple Silicon</span>
       <span class="badge">macOS 14+</span>
-      <span class="badge">8 GB RAM min</span>
     </div>
 
     <div class="hero-screenshot-wrapper">
@@ -62,8 +71,34 @@
 
 <style>
   .hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
     padding-top: var(--space-hero-top, 64px);
     padding-bottom: var(--space-section, 80px);
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -300px;
+    left: 50%;
+    z-index: -1;
+    width: min(880px, 135vw);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: repeating-radial-gradient(
+      circle,
+      transparent 0,
+      transparent 68px,
+      var(--border-subtle) 69px,
+      transparent 70px
+    );
+    opacity: 0.56;
+    transform: translateX(-50%);
+    mask-image: linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.6) 50%, transparent 76%);
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.6) 50%, transparent 76%);
+    pointer-events: none;
   }
 
   .hero-identity {
@@ -72,6 +107,10 @@
     align-items: center;
     gap: var(--space-lg);
     margin-bottom: var(--space-xxl);
+  }
+
+  .hero-content {
+    text-align: center;
   }
 
   .hero-icon {
@@ -96,19 +135,40 @@
     font-size: 20px;
     line-height: 1.45;
     color: var(--text-primary);
-    max-width: 580px;
+    max-width: 610px;
     margin: 0 auto var(--space-md);
   }
 
   .hero-subtext {
     font-size: 16px;
     line-height: 1.45;
-    max-width: 480px;
+    max-width: 500px;
     margin: 0 auto var(--space-xxxl);
   }
 
   .hero-cta {
+    margin-bottom: var(--space-lg);
+  }
+
+  .hero-publication {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
     margin-bottom: var(--space-xxl);
+    color: var(--text-secondary);
+    font-size: 14px;
+    text-decoration: underline;
+    text-decoration-color: var(--border-card);
+    text-underline-offset: 4px;
+  }
+
+  .hero-publication:hover {
+    color: var(--text-primary);
+    text-decoration-color: var(--text-secondary);
+  }
+
+  .hero-publication:focus-visible {
+    border-radius: var(--corner-radius-sm);
   }
 
   .hero-badges {

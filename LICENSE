@@ -14,122 +14,115 @@ purposes, all without asking permission.
 For full CC0 1.0 legal text, see:
 https://creativecommons.org/publicdomain/zero/1.0/legalcode
 
+The CC0 dedication applies to FoodMapper software and documentation prepared
+by United States Government employees. It does not relicense third-party
+libraries, model artifacts, or database data identified below.
+
+================================================================================
+
+BUNDLED DATABASE DATA
+
+FoodMapper includes prepared FooDB and DFG2 tables for food-mapping work. These
+tables retain the terms and source rights of their underlying data.
+
+FooDB
+Source: https://foodb.ca/
+License: Creative Commons Attribution-NonCommercial 4.0 International
+License text: https://creativecommons.org/licenses/by-nc/4.0/legalcode
+
+Davis Food Glycopedia 2.0 (DFG2)
+Publication: https://doi.org/10.1016/j.foodchem.2025.142977
+USDA ARS record: https://www.ars.usda.gov/research/publications/publication/?seqNo115=414156
+
+Attribution, file hashes, and preparation notes are in THIRD_PARTY_NOTICES.
+
 ================================================================================
 
 THIRD-PARTY DEPENDENCIES AND LICENSES
 
-FoodMapper includes the following third-party software. Each package retains
-its original license and copyright.
+FoodMapper includes the Swift packages resolved in
+FoodMapper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved.
+Each entry identifies its resolved source revision. Complete license and notice
+texts are in THIRD_PARTY_NOTICES.
 
 --------------------------------------------------------------------------------
 
 mlx-swift
-https://github.com/ml-explore/mlx-swift
-
-MIT License
-
-Copyright (c) 2023 ml-explore
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Source: https://github.com/ml-explore/mlx-swift/tree/6ba4827fb82c97d012eec9ab4b2de21f85c3b33d
+License: MIT License
+License text: https://github.com/ml-explore/mlx-swift/blob/6ba4827fb82c97d012eec9ab4b2de21f85c3b33d/LICENSE
 
 --------------------------------------------------------------------------------
 
-swift-transformers
-https://github.com/huggingface/swift-transformers
-
-Apache License 2.0
-
-Copyright 2022 Hugging Face SAS.
-
-Licensed under the Apache License, Version 2.0 (the "License"); you may not
-use this file except in compliance with the License. You may obtain a copy of
-the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-License for the specific language governing permissions and limitations under
-the License.
+mlx-swift-lm
+Source: https://github.com/ml-explore/mlx-swift-lm/tree/7e19e09027923d89ac47dd087d9627f610e5a91a
+License: MIT License
+License text: https://github.com/ml-explore/mlx-swift-lm/blob/7e19e09027923d89ac47dd087d9627f610e5a91a/LICENSE
 
 --------------------------------------------------------------------------------
 
-Jinja
-https://github.com/johnmai-dev/Jinja
-
-Apache License 2.0
-
-Licensed under the Apache License, Version 2.0 (the "License"); you may not
-use this file except in compliance with the License. You may obtain a copy of
-the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-License for the specific language governing permissions and limitations under
-the License.
+Sparkle
+Source: https://github.com/sparkle-project/Sparkle/tree/ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a
+License: MIT License
+License text: https://github.com/sparkle-project/Sparkle/blob/ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a/LICENSE
 
 --------------------------------------------------------------------------------
 
-swift-argument-parser
-https://github.com/apple/swift-argument-parser
-
-Apache License 2.0 with Runtime Library Exception
-
-Copyright (c) 2020 Apple Inc. and the Swift project authors.
-
-Licensed under the Apache License, Version 2.0 with Runtime Library Exception.
-See https://swift.org/LICENSE.txt for full license text.
+swift-asn1
+Source: https://github.com/apple/swift-asn1/tree/a9a5efd40eaf558a2bcd48d64b1d1646be686008
+License: Apache License 2.0
+License text: https://github.com/apple/swift-asn1/blob/a9a5efd40eaf558a2bcd48d64b1d1646be686008/LICENSE.txt
+Package notice: THIRD_PARTY_NOTICES, SwiftASN1 NOTICE
 
 --------------------------------------------------------------------------------
 
 swift-collections
-https://github.com/apple/swift-collections
+Source: https://github.com/apple/swift-collections/tree/7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e
+License: Apache License 2.0 with Runtime Library Exception
+License text: https://github.com/apple/swift-collections/blob/7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e/LICENSE.txt
 
-Apache License 2.0 with Runtime Library Exception
+--------------------------------------------------------------------------------
 
-Copyright (c) 2021-2024 Apple Inc. and the Swift project authors.
+swift-crypto
+Source: https://github.com/apple/swift-crypto/tree/47d3869a7291f085c1fb9fb1e6d3b97a793f45c6
+License: Apache License 2.0
+License text: https://github.com/apple/swift-crypto/blob/47d3869a7291f085c1fb9fb1e6d3b97a793f45c6/LICENSE.txt
+Package notice: THIRD_PARTY_NOTICES, SwiftCrypto NOTICE
 
-Licensed under the Apache License, Version 2.0 with Runtime Library Exception.
-See https://swift.org/LICENSE.txt for full license text.
+--------------------------------------------------------------------------------
+
+swift-jinja
+Source: https://github.com/huggingface/swift-jinja/tree/d81197f35f41445bc10e94600795e68c6f5e94b0
+License: Apache License 2.0
+License text: https://github.com/huggingface/swift-jinja/blob/d81197f35f41445bc10e94600795e68c6f5e94b0/LICENSE
 
 --------------------------------------------------------------------------------
 
 swift-numerics
-https://github.com/apple/swift-numerics
+Source: https://github.com/apple/swift-numerics/tree/0c0290ff6b24942dadb83a929ffaaa1481df04a2
+License: Apache License 2.0 with Runtime Library Exception
+License text: https://github.com/apple/swift-numerics/blob/0c0290ff6b24942dadb83a929ffaaa1481df04a2/LICENSE.txt
 
-Apache License 2.0 with Runtime Library Exception
+--------------------------------------------------------------------------------
 
-Copyright (c) 2019-2025 Apple Inc. and the Swift Numerics project authors.
+swift-transformers
+Source: https://github.com/huggingface/swift-transformers/tree/150169bfba0889c229a2ce7494cf8949f18e6906
+License: Apache License 2.0
+License text: https://github.com/huggingface/swift-transformers/blob/150169bfba0889c229a2ce7494cf8949f18e6906/LICENSE
 
-Licensed under the Apache License, Version 2.0 with Runtime Library Exception.
-See https://swift.org/LICENSE.txt for full license text.
+--------------------------------------------------------------------------------
+
+yyjson
+Source: https://github.com/ibireme/yyjson/tree/8b4a38dc994a110abaec8a400615567bd996105f
+License: MIT License
+License text: https://github.com/ibireme/yyjson/blob/8b4a38dc994a110abaec8a400615567bd996105f/LICENSE
 
 ================================================================================
 
 MODELS
 
 FoodMapper downloads and runs ML models on-device. No model weights are
-bundled in this repository. Users download models at runtime.
+bundled in this repository. Users download model weights at runtime.
 
 All models use the SafeTensors format for weight storage. FoodMapper does not
 load pickle files or any other serialized Python objects.
@@ -139,14 +132,18 @@ load pickle files or any other serialized Python objects.
 GTE-Large (General Text Embeddings)
 https://huggingface.co/richtext/foodmapper-gte-large
 
-MIT License (original model)
+Source model: https://huggingface.co/thenlper/gte-large
+Source revision: 4bef63f39fcc5e2d6b0aae83089f307af4970164
+Artifact card revision: 200d1bf79e6a152736fe1517703d0079a0bd16fa
+License: MIT License
 
-A 335M parameter BERT-based embedding model originally published by the
-Institute for Intelligent Computing, Alibaba Group. The MLX-compatible
-SafeTensors conversion used by FoodMapper is hosted at the repository above.
-This is the primary model used for the research validation pipeline.
-
-Original model: https://huggingface.co/thenlper/gte-large
+FoodMapper bundles config.json, tokenizer.json, tokenizer_config.json,
+vocab.txt, and special_tokens_map.json from the MLX conversion above. The
+gte-large.safetensors model weights are not bundled and download only after
+the user approves the model download. The artifact card revision updates
+license metadata only. Its six payload objects retain the manifest hashes from
+the historical conversion revision 0b7a78872ae6fd502fe2db3273b1b3e065a3d9db.
+The GTE provenance, payload hashes, and MIT notice are in THIRD_PARTY_NOTICES.
 
 --------------------------------------------------------------------------------
 
@@ -157,10 +154,10 @@ Apache License 2.0
 
 Copyright (c) 2025 Alibaba Cloud / Qwen Team.
 
-Text embedding models from the Qwen3 family. Available in three sizes for
-different hardware profiles. MLX-quantized (DWQ 4-bit) SafeTensors weights
-are provided by mlx-community on HuggingFace. Used as the embedding stage
-in the standard food matching pipeline. Requires enabling advanced options.
+These are optional experimental Advanced downloads when shown in the app.
+They are not part of the default local embedding path and have not been
+qualified for research use. Refer to the source model card and conversion
+repository for the exact artifact terms.
 
 --------------------------------------------------------------------------------
 
@@ -171,9 +168,10 @@ Apache License 2.0
 
 Copyright (c) 2025 Alibaba Cloud / Qwen Team.
 
-Cross-encoder reranker models from the Qwen3 family. MLX-converted SafeTensors
-weights are hosted on HuggingFace. Used as the second stage in two-stage and
-smart triage pipelines. Requires enabling advanced options.
+These are optional experimental Advanced downloads when shown in the app.
+They are not part of the default local embedding path and have not been
+qualified for research use. Refer to the source model card and conversion
+repository for the exact artifact terms.
 
 --------------------------------------------------------------------------------
 
@@ -184,9 +182,19 @@ Apache License 2.0
 
 Copyright (c) 2025 Alibaba Cloud / Qwen Team.
 
-General-purpose Qwen3 language models used in generative judge mode for
-match selection via logit extraction. MLX-quantized (4-bit) SafeTensors
-weights are provided by mlx-community. Experimental. Requires advanced options.
+These are optional experimental Advanced downloads when shown in the app.
+They are not part of the default local embedding path and have not been
+qualified for research use. Refer to the source model card and conversion
+repository for the exact artifact terms.
+
+--------------------------------------------------------------------------------
+
+Gemma artifacts
+https://ai.google.dev/gemma
+
+Gemma artifact entries, if shown in Advanced mode, are optional experimental
+downloads. They are not part of the default local embedding path and have not
+been qualified for research use. Their source license and access terms apply.
 
 ================================================================================
 
