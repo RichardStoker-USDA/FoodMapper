@@ -3,6 +3,10 @@ import Darwin
 @testable import FoodMapper
 
 final class TestStorageGuard: XCTestCase {
+    private func configurationSignature(_ configuration: (root: URL, suite: String)?) -> String? {
+        configuration.map { "\($0.root.path)|\($0.suite)" }
+    }
+
     func testStorageConfigurationUsesOnlyTheIsolatedRoot() throws {
         let environment = ProcessInfo.processInfo.environment
         let expected = try XCTUnwrap(FoodMapperStorage.expectedTestConfiguration(environment: environment))
@@ -33,5 +37,295 @@ final class TestStorageGuard: XCTestCase {
         FoodMapperStorage.defaults.set(true, forKey: key)
         defer { FoodMapperStorage.defaults.removeObject(forKey: key) }
         XCTAssertTrue(FoodMapperStorage.defaults.bool(forKey: key))
+    }
+
+    func testTestConfigurationParserRejectsAmbiguousInputs() {
+        let identifier = UUID().uuidString.lowercased()
+        let otherIdentifier = UUID().uuidString.lowercased()
+        let root = "/private/tmp/foodmapper-xctest-\(identifier)"
+        let derivedRoot = "/private/tmp/foodmapper-derived-data-\(identifier)"
+        let otherDerivedRoot = "/private/tmp/foodmapper-derived-data-\(otherIdentifier)"
+        let suite = "app.foodmapper.FoodMapper.tests.\(identifier)"
+        let expected = "\(root)|\(suite)"
+        let fileManager = FileManager.default
+        let markerRoots = [
+            URL(fileURLWithPath: root, isDirectory: true),
+            URL(fileURLWithPath: derivedRoot, isDirectory: true),
+            URL(fileURLWithPath: otherDerivedRoot, isDirectory: true),
+        ]
+        for markerRoot in markerRoots {
+            guard !fileManager.fileExists(atPath: markerRoot.path) else {
+                XCTFail("Parser test root already exists: \(markerRoot.path)")
+                return
+            }
+            do {
+                try fileManager.createDirectory(at: markerRoot, withIntermediateDirectories: false)
+            } catch {
+                XCTFail("Unable to create parser test root: \(error)")
+                return
+            }
+        }
+        defer {
+            for markerRoot in markerRoots {
+                try? fileManager.removeItem(at: markerRoot)
+            }
+        }
+        let markerPaths = [
+            "\(root)/Symroot/Debug/FoodMapperTests.xctest",
+            "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+            "\(derivedRoot)/Build/Products/FoodMapperTests.xctest",
+            "\(otherDerivedRoot)/Build/Products/FoodMapperTests.xctest",
+        ]
+        for markerPath in markerPaths {
+            do {
+                try fileManager.createDirectory(
+                    at: URL(fileURLWithPath: markerPath, isDirectory: true),
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                XCTFail("Unable to create parser marker: \(error)")
+                return
+            }
+        }
+        let markerAlias = URL(fileURLWithPath: "\(derivedRoot)/Alias", isDirectory: true)
+        do {
+            try fileManager.createSymbolicLink(
+                at: markerAlias,
+                withDestinationURL: URL(fileURLWithPath: "\(derivedRoot)/Logs", isDirectory: true)
+            )
+        } catch {
+            XCTFail("Unable to create parser marker alias: \(error)")
+            return
+        }
+        let vectors: [(String, [String: String], String?)] = [
+            ("absent", [:], nil),
+            (
+                "partial root",
+                ["FOODMAPPER_TEST_STORAGE_ROOT": root],
+                nil
+            ),
+            (
+                "partial root with marker",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                ],
+                nil
+            ),
+            (
+                "partial suite",
+                ["FOODMAPPER_TEST_DEFAULTS_SUITE": suite],
+                nil
+            ),
+            (
+                "partial suite with marker",
+                [
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                ],
+                nil
+            ),
+            (
+                "relative explicit root",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": "foodmapper-xctest-\(identifier)",
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                ],
+                nil
+            ),
+            (
+                "malformed explicit suite",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": "app.foodmapper.FoodMapper.tests.invalid",
+                ],
+                nil
+            ),
+            (
+                "malformed explicit suite with marker",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": "app.foodmapper.FoodMapper.tests.invalid",
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                ],
+                nil
+            ),
+            (
+                "mismatched explicit suite",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": "app.foodmapper.FoodMapper.tests.\(otherIdentifier)",
+                ],
+                nil
+            ),
+            (
+                "valid explicit pair",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                ],
+                expected
+            ),
+            (
+                "explicit pair with matching marker",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                ],
+                expected
+            ),
+            (
+                "explicit pair with conflicting marker",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestConfigurationFilePath": "\(otherDerivedRoot)/Build/Products/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "xctest storage marker rejected",
+                [
+                    "XCTestBundlePath": "\(root)/Symroot/Debug/FoodMapper.app/Contents/PlugIns/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "valid derived-data marker",
+                [
+                    "XCTestConfigurationFilePath": "/private/tmp/foodmapper-derived-data-\(identifier)/Logs/Test/run.xctestconfiguration",
+                ],
+                expected
+            ),
+            (
+                "noncanonical /tmp alias",
+                [
+                    "XCTestBundlePath": "/tmp/foodmapper-derived-data-\(identifier)/Build/Products/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "conflicting markers",
+                [
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                    "XCInjectBundle": "/private/tmp/foodmapper-derived-data-\(otherIdentifier)/Build/Products/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "spoofed user path",
+                [
+                    "XCTestBundlePath": "/Applications/untrusted/foodmapper-xctest-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "spoofed nested tmp path",
+                [
+                    "XCTestBundlePath": "/private/tmp/untrusted/foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "case aliased tmp path",
+                [
+                    "XCTestBundlePath": "/Private/tmp/foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "parent traversal alias",
+                [
+                    "XCTestBundlePath": "/private/tmp/untrusted/../foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "malformed marker UUID",
+                [
+                    "XCTestBundlePath": "/private/tmp/foodmapper-derived-data-not-a-uuid/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "marker suffix",
+                [
+                    "XCTestBundlePath": "/private/tmp/foodmapper-derived-data-\(identifier)-suffix/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "marker symlink alias",
+                [
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Alias/Test/run.xctestconfiguration",
+                ],
+                nil
+            ),
+            (
+                "unknown marker path",
+                [
+                    "XCTestConfigurationFilePath": "/private/var/folders/test/FoodMapperTests.xctestconfiguration",
+                ],
+                nil
+            ),
+        ]
+
+        for (name, environment, expectedSignature) in vectors {
+            XCTAssertEqual(
+                configurationSignature(FoodMapperStorage.expectedTestConfiguration(environment: environment)),
+                expectedSignature,
+                name
+            )
+        }
+    }
+
+    func testKnownDirectoriesNormalizePermissionsAndPreserveFiles() throws {
+        let directory = try FoodMapperStorage.preparePrivateDirectory(["Sessions"])
+        let file = directory.appendingPathComponent("legacy-preserved-\(UUID().uuidString).json")
+        let original = Data("existing session data".utf8)
+        try original.write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+
+        try FoodMapperStorage.preparePrivateStorage()
+        try FoodMapperStorage.preparePrivateStorage()
+
+        let reopened = try FoodMapperStorage.preparePrivateDirectory(["Sessions"])
+        var info = stat()
+        XCTAssertEqual(lstat(reopened.path, &info), 0)
+        XCTAssertEqual(info.st_uid, getuid())
+        XCTAssertEqual(info.st_mode & 0o777, 0o700)
+        XCTAssertEqual(try Data(contentsOf: file), original)
+        let permissions = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+        )
+        XCTAssertEqual(permissions.intValue, 0o644)
+    }
+
+    func testPrivateDirectoryRefusesSymlinkAndRegularFile() throws {
+        let directory = try FoodMapperStorage.preparePrivateDirectory(["Sessions", "Refusal"])
+        let outside = FoodMapperStorage.temporaryURL.appendingPathComponent("refusal-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: false)
+        let marker = outside.appendingPathComponent("marker")
+        let original = Data("outside".utf8)
+        try original.write(to: marker)
+
+        let link = directory.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        XCTAssertThrowsError(
+            try FoodMapperStorage.preparePrivateDirectory(["Sessions", "Refusal", "link"])
+        )
+        var linkInfo = stat()
+        XCTAssertEqual(lstat(link.path, &linkInfo), 0)
+        XCTAssertEqual(linkInfo.st_mode & S_IFMT, S_IFLNK)
+        XCTAssertEqual(try Data(contentsOf: marker), original)
+
+        let regular = directory.appendingPathComponent("regular")
+        try original.write(to: regular)
+        XCTAssertThrowsError(
+            try FoodMapperStorage.preparePrivateDirectory(["Sessions", "Refusal", "regular"])
+        )
+        XCTAssertEqual(try Data(contentsOf: regular), original)
     }
 }

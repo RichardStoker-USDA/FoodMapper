@@ -129,10 +129,28 @@ enum FoodMapperStorage {
     /// free of symlinks at every component below Application Support.
     static func privateDirectory(_ components: [String] = []) -> URL {
         do {
-            return try createPrivateDirectory(components)
+            return try preparePrivateDirectory(components)
         } catch {
             preconditionFailure("Unable to prepare FoodMapper storage: \(error.localizedDescription)")
         }
+    }
+
+    /// Prepare known app directories without changing files inside them.
+    /// Existing directories are reduced to mode 0700 through their descriptors.
+    static func preparePrivateStorage() throws {
+        try preparePrivateStorage(
+            under: configuration.applicationSupportURL,
+            expectedRootIdentity: configuration.applicationSupportIdentity
+        )
+    }
+
+    /// Throwing form used by tests and startup code that can present a recovery error.
+    static func preparePrivateDirectory(_ components: [String]) throws -> URL {
+        try createPrivateDirectory(
+            ["FoodMapper"] + components,
+            under: configuration.applicationSupportURL,
+            expectedRootIdentity: configuration.applicationSupportIdentity
+        )
     }
 
     private static func makeConfiguration() -> Configuration {
@@ -142,6 +160,14 @@ enum FoodMapperStorage {
             ).first!.resolvingSymlinksInPath().standardizedFileURL
             guard let applicationSupportIdentity = directoryIdentity(at: applicationSupportURL) else {
                 preconditionFailure("Application Support is unavailable")
+            }
+            do {
+                try preparePrivateStorage(
+                    under: applicationSupportURL,
+                    expectedRootIdentity: applicationSupportIdentity
+                )
+            } catch {
+                preconditionFailure("Unable to prepare FoodMapper storage: \(error.localizedDescription)")
             }
             let temporaryURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("FoodMapper", isDirectory: true)
@@ -159,10 +185,10 @@ enum FoodMapperStorage {
 
         let environment = ProcessInfo.processInfo.environment
         guard let testConfiguration = testConfiguration(from: environment) else {
-            preconditionFailure("XCTest requires FOODMAPPER_TEST_STORAGE_ROOT before FoodMapper starts")
+            preconditionFailure("XCTest requires a valid isolated storage configuration before FoodMapper starts")
         }
         guard let defaults = UserDefaults(suiteName: testConfiguration.suite) else {
-            preconditionFailure("XCTest requires a unique FOODMAPPER_TEST_DEFAULTS_SUITE before FoodMapper starts")
+            preconditionFailure("XCTest requires an isolated defaults suite before FoodMapper starts")
         }
 
         let suppliedRoot = testConfiguration.root.standardizedFileURL
@@ -172,8 +198,17 @@ enum FoodMapperStorage {
         guard let applicationSupportIdentity = directoryIdentity(at: root) else {
             preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT changed during validation")
         }
-        let temporaryURL = root.appendingPathComponent("Temporary", isDirectory: true)
-        createDirectoryIfNeeded(temporaryURL)
+        let temporaryURL: URL
+        do {
+            try preparePrivateStorage(
+                under: root, expectedRootIdentity: applicationSupportIdentity
+            )
+            temporaryURL = try createPrivateDirectory(
+                ["Temporary"], under: root, expectedRootIdentity: applicationSupportIdentity
+            )
+        } catch {
+            preconditionFailure("Unable to prepare FoodMapper test temporary storage: \(error.localizedDescription)")
+        }
         return Configuration(
             applicationSupportURL: root,
             applicationSupportIdentity: applicationSupportIdentity,
@@ -194,9 +229,11 @@ enum FoodMapperStorage {
             environment.keys.contains(where: { $0.hasPrefix("FOODMAPPER_TEST_") })
     }
 
-    private static func isUniqueTestSuite(_ suite: String) -> Bool {
-        suite.hasPrefix("app.foodmapper.FoodMapper.tests.") &&
-            UUID(uuidString: String(suite.dropFirst("app.foodmapper.FoodMapper.tests.".count))) != nil
+    private static func testSuiteIdentifier(_ suite: String) -> String? {
+        let prefix = "app.foodmapper.FoodMapper.tests."
+        guard suite.hasPrefix(prefix) else { return nil }
+        let identifier = String(suite.dropFirst(prefix.count))
+        return isCanonicalUUID(identifier) ? identifier : nil
     }
 
     static func expectedTestConfiguration(
@@ -205,35 +242,153 @@ enum FoodMapperStorage {
         testConfiguration(from: environment)
     }
 
+    private enum MarkerState {
+        case absent
+        case invalid
+        case valid(String)
+    }
+
+    private static let testMarkerKeys = [
+        "XCTestBundlePath",
+        "XCInjectBundle",
+        "XCTestConfigurationFilePath",
+    ]
+
+    private static let knownDirectoryNames = ["Models", "CustomDBs", "InputFiles", "Sessions"]
+    private static let canonicalTemporaryPathPrefix = "/private/tmp/"
+    private static let derivedDataDirectoryPrefix = "foodmapper-derived-data-"
+    private static let testStorageDirectoryPrefix = "foodmapper-xctest-"
+
     private static func testConfiguration(
         from environment: [String: String]
     ) -> (root: URL, suite: String)? {
-        if let rootPath = environment["FOODMAPPER_TEST_STORAGE_ROOT"],
-           rootPath.hasPrefix("/"),
-           let suite = environment["FOODMAPPER_TEST_DEFAULTS_SUITE"],
-           isUniqueTestSuite(suite) {
-            return (URL(fileURLWithPath: rootPath, isDirectory: true), suite)
-        }
+        let explicitRoot = environment["FOODMAPPER_TEST_STORAGE_ROOT"]
+        let explicitSuite = environment["FOODMAPPER_TEST_DEFAULTS_SUITE"]
+        let markerState = markerState(from: environment)
 
-        let markerKeys = ["XCTestBundlePath", "XCInjectBundle", "XCTestConfigurationFilePath"]
-        for key in markerKeys {
-            guard let markerPath = environment[key], markerPath.hasPrefix("/") else { continue }
-            let components = URL(fileURLWithPath: markerPath).standardizedFileURL.pathComponents
-            for component in components {
-                let prefixes = ["foodmapper-xctest-", "foodmapper-derived-data-"]
-                for prefix in prefixes where component.hasPrefix(prefix) {
-                    let identifier = String(component.dropFirst(prefix.count))
-                    guard UUID(uuidString: identifier) != nil else { continue }
-                    let root = URL(
-                        fileURLWithPath: "/private/tmp/foodmapper-xctest-\(identifier)",
-                        isDirectory: true
-                    )
-                    let suite = "app.foodmapper.FoodMapper.tests.\(identifier)"
-                    return (root, suite)
+        switch (explicitRoot, explicitSuite) {
+        case (nil, nil):
+            guard case .valid(let identifier) = markerState else { return nil }
+            return wrapperTestConfiguration(identifier: identifier)
+
+        case let (rootPath?, suite?):
+            guard rootPath.hasPrefix("/"),
+                  let suiteIdentifier = testSuiteIdentifier(suite),
+                  let rootIdentifier = wrapperTestIdentifier(from: rootPath),
+                  rootIdentifier == suiteIdentifier else { return nil }
+            switch markerState {
+            case .absent:
+                return (URL(fileURLWithPath: rootPath, isDirectory: true), suite)
+            case .invalid:
+                return nil
+            case .valid(let identifier):
+                guard rootIdentifier == identifier else { return nil }
+                return (URL(fileURLWithPath: rootPath, isDirectory: true), suite)
+            }
+
+        default:
+            return nil
+        }
+    }
+
+    private static func markerState(from environment: [String: String]) -> MarkerState {
+        var identifiers: [String] = []
+        for key in testMarkerKeys {
+            guard let markerPath = environment[key] else { continue }
+            guard let identifier = markerIdentifier(in: markerPath) else { return .invalid }
+            identifiers.append(identifier)
+        }
+        guard let first = identifiers.first else { return .absent }
+        guard identifiers.allSatisfy({ $0 == first }) else { return .invalid }
+        return .valid(first)
+    }
+
+    private static func markerIdentifier(in markerPath: String) -> String? {
+        guard markerPath.hasPrefix(canonicalTemporaryPathPrefix) else { return nil }
+        let standardized = URL(fileURLWithPath: markerPath).standardizedFileURL
+        guard standardized.path == markerPath else { return nil }
+        let rawComponents = String(markerPath.dropFirst(canonicalTemporaryPathPrefix.count))
+            .split(separator: "/", omittingEmptySubsequences: true)
+        guard rawComponents.count >= 2,
+              let rawWrapper = derivedDataDirectory(String(rawComponents[0])) else { return nil }
+
+        guard let canonicalPath = canonicalExistingPath(markerPath) else { return nil }
+        guard canonicalPath == markerPath else { return nil }
+        let canonicalComponents = String(canonicalPath.dropFirst(canonicalTemporaryPathPrefix.count))
+            .split(separator: "/", omittingEmptySubsequences: true)
+        guard canonicalComponents.count >= 2,
+              let canonicalWrapper = derivedDataDirectory(String(canonicalComponents[0])),
+              rawWrapper.name == canonicalWrapper.name,
+              rawWrapper.identifier == canonicalWrapper.identifier else { return nil }
+        return canonicalWrapper.identifier
+    }
+
+    private static func wrapperTestConfiguration(identifier: String) -> (root: URL, suite: String) {
+        (
+            URL(fileURLWithPath: "/private/tmp/foodmapper-xctest-\(identifier)", isDirectory: true),
+            "app.foodmapper.FoodMapper.tests.\(identifier)"
+        )
+    }
+
+    private static func wrapperTestIdentifier(from rootPath: String) -> String? {
+        guard rootPath.hasPrefix(canonicalTemporaryPathPrefix) else { return nil }
+        let standardized = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+        guard standardized.path == rootPath else { return nil }
+        let rawComponents = String(rootPath.dropFirst(canonicalTemporaryPathPrefix.count))
+            .split(separator: "/", omittingEmptySubsequences: true)
+        guard rawComponents.count == 1,
+              let rawWrapper = testStorageDirectory(String(rawComponents[0])) else { return nil }
+
+        guard let canonicalPath = canonicalExistingPath(rootPath) else { return nil }
+        guard canonicalPath == rootPath else { return nil }
+        let canonicalComponents = String(canonicalPath.dropFirst(canonicalTemporaryPathPrefix.count))
+            .split(separator: "/", omittingEmptySubsequences: true)
+        guard canonicalComponents.count == 1,
+              let canonicalWrapper = testStorageDirectory(String(canonicalComponents[0])),
+              rawWrapper.name == canonicalWrapper.name,
+              rawWrapper.identifier == canonicalWrapper.identifier else { return nil }
+        return canonicalWrapper.identifier
+    }
+
+    private static func derivedDataDirectory(_ component: String) -> (name: String, identifier: String)? {
+        directory(named: component, prefix: derivedDataDirectoryPrefix)
+    }
+
+    private static func testStorageDirectory(_ component: String) -> (name: String, identifier: String)? {
+        directory(named: component, prefix: testStorageDirectoryPrefix)
+    }
+
+    private static func directory(
+        named component: String,
+        prefix: String
+    ) -> (name: String, identifier: String)? {
+        guard component.hasPrefix(prefix) else { return nil }
+        let identifier = String(component.dropFirst(prefix.count))
+        guard isCanonicalUUID(identifier) else { return nil }
+        return (component, identifier)
+    }
+
+    private static func isCanonicalUUID(_ value: String) -> Bool {
+        guard value.utf8.count == 36 else { return false }
+        for (index, byte) in value.utf8.enumerated() {
+            switch index {
+            case 8, 13, 18, 23:
+                guard byte == 45 else { return false }
+            default:
+                guard (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 102) else {
+                    return false
                 }
             }
         }
-        return nil
+        return UUID(uuidString: value) != nil
+    }
+
+    private static func canonicalExistingPath(_ path: String) -> String? {
+        path.withCString { pointer in
+            var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+            guard realpath(pointer, &buffer) != nil else { return nil }
+            return String(cString: buffer)
+        }
     }
 
     private static func validateTestRoot(_ root: URL, requireDirectPath: Bool) {
@@ -281,39 +436,92 @@ enum FoodMapperStorage {
         }
     }
 
-    private static func createPrivateDirectory(_ components: [String]) throws -> URL {
+    private static func preparePrivateStorage(
+        under rootURL: URL,
+        expectedRootIdentity: DirectoryIdentity
+    ) throws {
+        _ = try createPrivateDirectory(
+            ["FoodMapper"], under: rootURL, expectedRootIdentity: expectedRootIdentity
+        )
+        for name in knownDirectoryNames {
+            _ = try createPrivateDirectory(
+                ["FoodMapper", name], under: rootURL, expectedRootIdentity: expectedRootIdentity
+            )
+        }
+    }
+
+    private static func createPrivateDirectory(
+        _ components: [String],
+        under rootURL: URL,
+        expectedRootIdentity: DirectoryIdentity
+    ) throws -> URL {
         guard components.allSatisfy(isSafeLeaf) else { throw StorageError.invalidPath }
-        let applicationSupport = configuration.applicationSupportURL
-        let rootDescriptor = try openDirectory(applicationSupport)
+        let rootDescriptor = try openDirectory(rootURL)
         var rootInfo = stat()
         guard fstat(rootDescriptor, &rootInfo) == 0,
               DirectoryIdentity(device: rootInfo.st_dev, inode: rootInfo.st_ino) ==
-                configuration.applicationSupportIdentity else {
+                expectedRootIdentity else {
             close(rootDescriptor)
             throw StorageError.invalidPath
         }
         var currentDescriptor = rootDescriptor
         defer { close(currentDescriptor) }
-        var currentURL = applicationSupport
-        for component in ["FoodMapper"] + components {
-            if mkdirat(currentDescriptor, component, 0o700) != 0, errno != EEXIST {
-                throw StorageError.invalidPath
-            }
-            let nextDescriptor = openat(currentDescriptor, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-            guard nextDescriptor >= 0 else { throw StorageError.invalidPath }
-            close(currentDescriptor)
-            currentDescriptor = nextDescriptor
+        var currentURL = rootURL
+        for component in components {
+            currentDescriptor = try openPrivateChildDirectory(
+                component,
+                parentDescriptor: currentDescriptor
+            )
             currentURL.appendPathComponent(component, isDirectory: true)
-
-            var info = stat()
-            guard fstat(currentDescriptor, &info) == 0,
-                  (info.st_mode & S_IFMT) == S_IFDIR,
-                  info.st_uid == getuid(),
-                  (info.st_mode & 0o077) == 0 else {
-                throw StorageError.invalidPath
-            }
         }
         return currentURL
+    }
+
+    private static func openPrivateChildDirectory(
+        _ component: String,
+        parentDescriptor: Int32
+    ) throws -> Int32 {
+        if mkdirat(parentDescriptor, component, 0o700) != 0, errno != EEXIST {
+            throw StorageError.invalidPath
+        }
+        let childDescriptor = openat(
+            parentDescriptor,
+            component,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW
+        )
+        guard childDescriptor >= 0 else { throw StorageError.invalidPath }
+        do {
+            try makePrivateDirectory(childDescriptor)
+            try synchronizeDirectory(childDescriptor)
+            try synchronizeDirectory(parentDescriptor)
+        } catch {
+            close(childDescriptor)
+            throw error
+        }
+        close(parentDescriptor)
+        return childDescriptor
+    }
+
+    private static func makePrivateDirectory(_ descriptor: Int32) throws {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid() else {
+            throw StorageError.invalidPath
+        }
+        guard fchmod(descriptor, 0o700) == 0 else {
+            throw StorageError.invalidPath
+        }
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid(),
+              (info.st_mode & 0o777) == 0o700 else {
+                throw StorageError.invalidPath
+        }
+    }
+
+    private static func synchronizeDirectory(_ descriptor: Int32) throws {
+        guard fsync(descriptor) == 0 else { throw StorageError.invalidPath }
     }
 
     private static func openDirectory(_ url: URL) throws -> Int32 {
