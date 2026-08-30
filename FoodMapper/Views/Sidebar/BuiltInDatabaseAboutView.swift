@@ -43,7 +43,7 @@ struct BuiltInDatabaseAboutView: View {
                     infoSection(title: "Technical Details") {
                         infoRow("Text Column", value: database.textColumn)
                         infoRow("ID Column", value: database.idColumn ?? "None")
-                        infoRow("Embeddings", value: "Pre-computed (bundled with app)")
+                        infoRow("Embeddings", value: "Computed on first match and cached")
                     }
 
                     // Source section
@@ -71,7 +71,9 @@ struct BuiltInDatabaseAboutView: View {
 
                         VStack(alignment: .leading, spacing: Spacing.xxs) {
                             infoRow("Authors", value: "Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG")
-                            infoRow("Status", value: "Publication forthcoming")
+                            infoRow("Status", value: "Published")
+                            infoLinkRow("DOI", title: "10.1016/j.tjnut.2026.101678", destination: AppLinks.publication)
+                            infoLinkRow("PubMed", title: "PMID 42309308", destination: AppLinks.pubMed)
                         }
                         .padding(.top, Spacing.xs)
                     }
@@ -123,6 +125,18 @@ struct BuiltInDatabaseAboutView: View {
                 .frame(width: 100, alignment: .leading)
             Text(value)
                 .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.callout)
+    }
+
+    @ViewBuilder
+    private func infoLinkRow(_ label: String, title: String, destination: URL) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 100, alignment: .leading)
+            Link(title, destination: destination)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.callout)

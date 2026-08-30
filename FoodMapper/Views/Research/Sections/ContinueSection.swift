@@ -10,7 +10,6 @@ struct ContinueSection: View {
 
     private let paperURL = AppLinks.publication
     private let githubURL = AppLinks.researchRepository
-    private let shinyURL = URL(string: "https://richtext-semantic-food-mapper.hf.space")!
 
     var body: some View {
         VStack(alignment: .center, spacing: 0) {
@@ -180,26 +179,14 @@ struct ContinueSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                // Links
-                HStack(spacing: Spacing.lg) {
-                    Link(destination: githubURL) {
-                        HStack(spacing: Spacing.xxs) {
-                            Image("logo.github")
-                                .imageScale(.small)
-                            Text("GitHub")
-                        }
-                        .font(.caption)
-                    }
-
-                    Link(destination: shinyURL) {
-                        HStack(spacing: Spacing.xxs) {
-                            Image(systemName: "globe")
-                                .imageScale(.small)
-                            Text("Web Version")
-                        }
-                        .font(.caption)
+                Link(destination: githubURL) {
+                    HStack(spacing: Spacing.xxs) {
+                        Image("logo.github")
+                            .imageScale(.small)
+                        Text("GitHub")
                     }
                 }
+                .font(.caption)
                 .foregroundStyle(.secondary)
 
             }
