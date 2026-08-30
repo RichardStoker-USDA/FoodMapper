@@ -100,6 +100,11 @@ enum FoodMapperStorage {
 
     static var applicationSupportURL: URL { configuration.applicationSupportURL }
     static var temporaryURL: URL { configuration.temporaryURL }
+    static var processTemporaryRootURL: URL {
+        FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+    }
     static var defaults: UserDefaults { configuration.defaults }
     static var credentialStore: CredentialStore { configuration.credentialStore }
     static var isIsolatedTestStorage: Bool { configuration.isIsolatedTestStorage }

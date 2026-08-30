@@ -492,9 +492,7 @@ enum GTELargeSecurePath {
             throw GTELargeModelInstallError.unsafePath
         }
 
-        let temporaryRoot = FileManager.default.temporaryDirectory
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
+        let temporaryRoot = FoodMapperStorage.processTemporaryRootURL
         let canonicalSource = source.resolvingSymlinksInPath().standardizedFileURL
         guard isStrictChild(canonicalSource, of: temporaryRoot) else {
             throw GTELargeModelInstallError.unsafePath
