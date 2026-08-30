@@ -8,6 +8,11 @@ import MLXNN
 /// scores until that clicked. # ml-explore examples saved me here
 final class EmbeddingTests: XCTestCase {
 
+    override func setUp() async throws {
+        let installer = GTELargeModelInstaller(rootDirectory: MLXEmbeddingModel.downloadDirectory)
+        try await installer.recoverAtStartup()
+    }
+
     /// 1024-dim vector, L2-normalized. If this breaks, model load or
     /// pooling step is wrong.
     func testEmbeddingDimensions() async throws {

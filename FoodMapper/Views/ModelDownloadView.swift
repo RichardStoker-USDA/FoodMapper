@@ -116,7 +116,10 @@ struct ModelDownloadView: View {
                     HStack(spacing: Spacing.lg) {
                         Label("GTE-Large", systemImage: "cpu")
                             .font(.callout)
-                        Text("~640 MB")
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: GTELargeModelManifest.current.downloadSize,
+                            countStyle: .file
+                        ))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }

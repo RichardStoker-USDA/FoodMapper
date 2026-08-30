@@ -44,24 +44,23 @@ enum ResourceBundle {
         return dir
     }
 
-    /// Models directory - checks Application Support first (downloaded), then bundle
+    /// Verified GTE-Large model directory. A downloaded model must pass the
+    /// immutable manifest check before the loader can use it.
     static var modelsDirectory: URL? {
-        // 1. Check Application Support (downloaded models)
-        let downloadedWeights = applicationSupportModelDir.appendingPathComponent("gte-large.safetensors")
-        if FileManager.default.fileExists(atPath: downloadedWeights.path) {
-            return applicationSupportModelDir
+        let downloaded = GTELargeModelInstaller(rootDirectory: applicationSupportModelDir)
+        if let directory = downloaded.availableDirectory() {
+            return directory
         }
 
-        // 2. Check for bundled safetensors (development)
+        // Development builds may include a complete, byte-identical model in
+        // the app resources. It uses the same verification path as a download.
         if let bundled = bundledModelsDirectory {
-            let bundledWeights = bundled.appendingPathComponent("gte-large.safetensors")
-            if FileManager.default.fileExists(atPath: bundledWeights.path) {
+            let bundledInstall = GTELargeModelInstaller(rootDirectory: bundled)
+            if bundledInstall.verifyBundledFiles(in: bundled) {
                 return bundled
             }
         }
-
-        // 3. Return bundled directory (tokenizer files still there)
-        return bundledModelsDirectory
+        return nil
     }
 
     /// Databases directory in bundle
@@ -99,11 +98,9 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
         ResourceBundle.modelsDirectory
     }
 
-    /// Check if model weights file exists (safetensors format)
+    /// Check whether a complete GTE-Large installation passes verification.
     static var isModelAvailable: Bool {
-        guard let dir = modelDirectory else { return false }
-        let weightsURL = dir.appendingPathComponent("gte-large.safetensors")
-        return FileManager.default.fileExists(atPath: weightsURL.path)
+        modelDirectory != nil
     }
 
     /// Application Support directory for downloaded models
@@ -123,12 +120,9 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
             throw EmbeddingError.modelNotFound
         }
 
-        // 1. Load config - try model dir first, then bundled models
-        var configURL = modelDir.appendingPathComponent("config.json")
-        if !FileManager.default.fileExists(atPath: configURL.path),
-           let bundled = ResourceBundle.bundledModelsDirectory {
-            configURL = bundled.appendingPathComponent("config.json")
-        }
+        // The verified install is a complete set. Do not mix downloaded files
+        // with bundled files because that would bypass the manifest boundary.
+        let configURL = modelDir.appendingPathComponent("config.json")
 
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             throw EmbeddingError.configNotFound
@@ -146,15 +140,8 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
         }
         try loadWeights(from: weightsURL)
 
-        // 4. Load tokenizer - try model dir first, then bundled models
-        var tokenizerDir = modelDir
-        let tokenizerFile = modelDir.appendingPathComponent("tokenizer.json")
-        if !FileManager.default.fileExists(atPath: tokenizerFile.path),
-           let bundled = ResourceBundle.bundledModelsDirectory {
-            tokenizerDir = bundled
-        }
-
-        tokenizer = try await BertTokenizer(modelFolder: tokenizerDir)
+        // 4. Load tokenizer from the same verified set.
+        tokenizer = try await BertTokenizer(modelFolder: modelDir)
 
         logger.info("MLX GTE-Large model loaded successfully")
     }

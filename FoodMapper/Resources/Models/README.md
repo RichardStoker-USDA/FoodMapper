@@ -53,7 +53,7 @@ The converted weights run on Apple Silicon through [MLX-Swift](https://github.co
 
 ## Usage with FoodMapper
 
-FoodMapper prompts you to download this model before matching. It downloads only after you approve the prompt. Built-in database rows ship with the app; their GTE-Large embeddings are computed and cached on first use.
+FoodMapper prompts you to download this model before matching. It downloads only after you approve the prompt, and checks the downloaded files against the pinned manifest before making the model available. Built-in database rows ship with the app; their GTE-Large embeddings are computed and cached on first use.
 
 ## Usage with MLX-Swift
 

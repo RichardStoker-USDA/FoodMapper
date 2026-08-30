@@ -613,7 +613,7 @@ final class AppState: ObservableObject {
 
     // Detailed GTE-Large onboarding download state
     @Published var downloadBytesWritten: Int64 = 0
-    @Published var downloadBytesTotal: Int64 = 640_000_000
+    @Published var downloadBytesTotal: Int64 = GTELargeModelManifest.current.downloadSize
     @Published var downloadSpeedBytesPerSecond: Double = 0
     @Published var downloadTimeRemaining: Double? = nil
     @Published var downloadStartTime: Date? = nil

@@ -121,17 +121,20 @@ final class ModelManager: ObservableObject {
     /// Callback for detailed GTE-Large progress updates (progress, written, total)
     var onGTELargeProgress: (@MainActor (_ progress: Double, _ written: Int64, _ total: Int64) -> Void)?
 
-    /// Retained delegate to prevent deallocation during active download
-    private var activeDownloadDelegate: AnyObject?
-
-    /// Active download task to allow explicit cancellation
-    private var activeDownloadTask: URLSessionDownloadTask?
+    /// The explicit GTE-Large installation task. Availability checks never
+    /// create this task or make a network request.
+    private var activeGTELargeInstallTask: Task<URL, Error>?
 
     init(hardwareConfig: HardwareConfig) {
         self.hardwareConfig = hardwareConfig
         registerKnownModels()
         cleanupLegacyModels()
-        detectInstalledModels()
+        Task { [weak self] in
+            guard let self else { return }
+            let installer = GTELargeModelInstaller(rootDirectory: MLXEmbeddingModel.downloadDirectory)
+            try? await installer.recoverAtStartup()
+            self.detectInstalledModels()
+        }
     }
 
     // MARK: - Legacy Cleanup
@@ -173,7 +176,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .gteLarge,
                 sizeCategory: .legacy,
                 repoId: "richtext/foodmapper-gte-large",
-                downloadSize: 640_000_000,
+                downloadSize: GTELargeModelManifest.current.downloadSize,
                 gpuMemoryUsage: 700_000_000,
                 minimumProfile: .base
             ),
@@ -390,8 +393,7 @@ final class ModelManager: ObservableObject {
     func cancelDownload(key: String) {
         cancelledDownloadKeys.insert(key)
         if key == "gte-large" {
-            activeDownloadTask?.cancel()
-            activeDownloadTask = nil
+            activeGTELargeInstallTask?.cancel()
         }
     }
 
@@ -417,7 +419,7 @@ final class ModelManager: ObservableObject {
 
         do {
             if key == "gte-large" {
-                // GTE-Large uses flat file layout (individual files to Models/)
+                // GTE-Large uses its immutable manifest installer.
                 try await downloadGTELarge(modelKey: key)
             } else {
                 guard let repoId = repoId, let revision = registration.revision else {
@@ -442,17 +444,24 @@ final class ModelManager: ObservableObject {
                              (error as? URLError)?.code == .cancelled
 
             if isCancelled {
-                if key == "gte-large" {
-                    cleanupGTELargeFiles()
-                } else if let repoId = repoId {
+                if key != "gte-large", let repoId = repoId {
                     try? await downloader.deleteModel(repoId: repoId)
                 }
                 cancelledDownloadKeys.remove(key)
-                modelStates[key] = .notDownloaded
+                if key == "gte-large" {
+                    modelStates[key] = MLXEmbeddingModel.isModelAvailable ? .downloaded : .notDownloaded
+                } else {
+                    modelStates[key] = .notDownloaded
+                }
                 logger.info("Cancelled model download: \(key)")
                 throw error
             } else {
                 cancelledDownloadKeys.remove(key)
+                if key == "gte-large" {
+                    let message = "GTE-Large download could not be installed"
+                    modelStates[key] = .error(message)
+                    throw ModelManagerError.downloadFailed(message)
+                }
                 modelStates[key] = .error(error.localizedDescription)
                 throw error
             }
@@ -478,8 +487,8 @@ final class ModelManager: ObservableObject {
         }
 
         if key == "gte-large" {
-            // GTE-Large uses flat files in the Models directory
-            try deleteGTELargeFiles()
+            // GTE-Large keeps its verified files in a versioned private directory.
+            try await deleteGTELargeFiles()
         } else {
             try await downloader.deleteModel(repoId: registration.repoId!)
         }
@@ -487,105 +496,34 @@ final class ModelManager: ObservableObject {
         logger.info("Deleted model: \(key)")
     }
 
-    // MARK: - GTE-Large Flat File Download
+    // MARK: - GTE-Large Verified Download
 
-    /// Files required for GTE-Large model with approximate sizes for progress weighting
-    private static let gteLargeFiles: [(name: String, approximateSize: Int64)] = [
-        ("config.json", 1_000),
-        ("tokenizer.json", 500_000),
-        ("vocab.txt", 250_000),
-        ("tokenizer_config.json", 1_000),
-        ("special_tokens_map.json", 1_000),
-        ("gte-large.safetensors", 640_000_000),  // Large file downloaded last for smoother progress
-    ]
-
-    /// Download GTE-Large model files individually to flat Models/ directory.
-    /// Tracks combined progress weighted by file size across all 6 files.
+    /// Downloads the immutable GTE-Large manifest into a private staging
+    /// directory. The prior verified installation remains available until the
+    /// full replacement is checked and committed.
     private func downloadGTELarge(modelKey: String) async throws {
-        let baseURL = "https://huggingface.co/richtext/foodmapper-gte-large/resolve/main/"
-        let destDir = MLXEmbeddingModel.downloadDirectory
-
-        try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-        // Calculate total weight for progress tracking
-        let totalWeight = Double(Self.gteLargeFiles.reduce(0) { $0 + $1.approximateSize })
-        var completedWeight: Double = 0
-
-        for (filename, approximateSize) in Self.gteLargeFiles {
-            try throwIfDownloadCancelled(for: modelKey)
-            let sourceURL = URL(string: baseURL + filename)!
-            let destURL = destDir.appendingPathComponent(filename)
-
-            // Skip if already exists
-            if FileManager.default.fileExists(atPath: destURL.path) {
-                completedWeight += Double(approximateSize)
-                modelStates[modelKey] = .downloading(progress: completedWeight / totalWeight)
-                continue
+        let root = MLXEmbeddingModel.downloadDirectory
+        let installer = GTELargeModelInstaller(
+            rootDirectory: root,
+            transport: URLSessionGTELargeDownloadTransport()
+        )
+        let updateProgress: @Sendable (Int64, Int64) -> Void = { [weak self] written, total in
+            Task { @MainActor [weak self] in
+                guard let self, !self.shouldCancelDownload(for: modelKey) else { return }
+                let progress = total == 0 ? 0 : Double(written) / Double(total)
+                self.modelStates[modelKey] = .downloading(progress: progress)
+                self.onGTELargeProgress?(progress, written, total)
             }
-
-            let fileWeight = Double(approximateSize)
-            let baseProgress = completedWeight
-
-            try await downloadLargeFile(from: sourceURL, to: destURL, modelKey: modelKey, expectedContentLength: approximateSize) { [weak self] fileProgress in
-                let overall = (baseProgress + fileProgress * fileWeight) / totalWeight
-                guard let self = self else { return }
-                guard !self.shouldCancelDownload(for: modelKey) else { return }
-                self.modelStates[modelKey] = .downloading(progress: overall)
-
-                let fileWritten = Int64(fileProgress * fileWeight)
-                let totalWritten = Int64(baseProgress) + fileWritten
-                self.onGTELargeProgress?(overall, totalWritten, Int64(totalWeight))
-            }
-
-            try throwIfDownloadCancelled(for: modelKey)
-            completedWeight += fileWeight
-            let overall = completedWeight / totalWeight
-            modelStates[modelKey] = .downloading(progress: overall)
-            onGTELargeProgress?(overall, Int64(completedWeight), Int64(totalWeight))
         }
-    }
-
-    /// Download large file with progress tracking using URLSession download task.
-    /// Reports per-byte progress (0.0-1.0) for this individual file via the callback.
-    private func downloadLargeFile(
-        from sourceURL: URL,
-        to destURL: URL,
-        modelKey: String,
-        expectedContentLength: Int64,
-        onFileProgress: @escaping @MainActor (Double) -> Void = { _ in }
-    ) async throws {
-        do {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let delegate = GTEDownloadDelegate(
-                    expectedContentLength: expectedContentLength,
-                    destURL: destURL,
-                    continuation: continuation,
-                    onProgress: { progress in
-                        onFileProgress(progress)
-                    },
-                    onBytesProgress: { _, _ in }
-                )
-
-                // Retain strongly in ModelManager during active download
-                self.activeDownloadDelegate = delegate
-
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 25.0
-                config.timeoutIntervalForResource = 3600.0
-
-                let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-                let task = session.downloadTask(with: sourceURL)
-
-                self.activeDownloadTask = task
-                task.resume()
+        let task: Task<URL, Error> = Task.detached {
+            try await installer.install { written, total in
+                updateProgress(written, total)
             }
-            self.activeDownloadDelegate = nil
-            self.activeDownloadTask = nil
-        } catch {
-            self.activeDownloadDelegate = nil
-            self.activeDownloadTask = nil
-            throw error
         }
+        activeGTELargeInstallTask = task
+        defer { activeGTELargeInstallTask = nil }
+        _ = try await task.value
+        try throwIfDownloadCancelled(for: modelKey)
     }
 
     private func shouldCancelDownload(for key: String) -> Bool {
@@ -598,15 +536,11 @@ final class ModelManager: ObservableObject {
         }
     }
 
-    /// Delete GTE-Large flat model files
-    private func deleteGTELargeFiles() throws {
-        let destDir = MLXEmbeddingModel.downloadDirectory
-        for (filename, _) in Self.gteLargeFiles {
-            let fileURL = destDir.appendingPathComponent(filename)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.removeItem(at: fileURL)
-            }
-        }
+    /// Delete the verified GTE-Large installation and owned recovery artifacts.
+    private func deleteGTELargeFiles() async throws {
+        let root = MLXEmbeddingModel.downloadDirectory
+        let installer = GTELargeModelInstaller(rootDirectory: root)
+        try await installer.deleteInstallArtifacts()
     }
 
     /// List of model keys that are currently missing (not downloaded) for a given set of required keys
@@ -825,27 +759,8 @@ final class ModelManager: ObservableObject {
 
     /// Calculate disk usage for GTE-Large flat files
     private func gteLargeDiskUsage() -> Int64? {
-        let destDir = MLXEmbeddingModel.downloadDirectory
-        var totalSize: Int64 = 0
-        var found = false
-        for (filename, _) in Self.gteLargeFiles {
-            let fileURL = destDir.appendingPathComponent(filename)
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-                  let size = attrs[.size] as? Int64 else { continue }
-            totalSize += size
-            found = true
-        }
-        return found ? totalSize : nil
-    }
-
-    /// Delete all downloaded or partial flat GTE-Large files
-    private func cleanupGTELargeFiles() {
-        let destDir = MLXEmbeddingModel.downloadDirectory
-        for (filename, _) in Self.gteLargeFiles {
-            let fileURL = destDir.appendingPathComponent(filename)
-            try? FileManager.default.removeItem(at: fileURL)
-        }
-        logger.info("Cleaned up GTE-Large files")
+        let installer = GTELargeModelInstaller(rootDirectory: MLXEmbeddingModel.downloadDirectory)
+        return installer.availableDirectory() == nil ? nil : installer.manifest.downloadSize
     }
 }
 
@@ -869,90 +784,6 @@ enum ModelManagerError: LocalizedError {
             return "Insufficient GPU memory: \(reqMB)MB required, \(avaMB)MB available"
         case .downloadFailed(let message):
             return "Download failed: \(message)"
-        }
-    }
-}
-
-// MARK: - GTEDownloadDelegate
-
-/// Self-contained delegate for tracking GTE-Large progress and completion
-final class GTEDownloadDelegate: NSObject, URLSessionDownloadDelegate {
-    private let expectedContentLength: Int64
-    private let onProgress: @MainActor (Double) -> Void
-    private let onBytesProgress: (Int64, Int64) -> Void
-    private let destURL: URL
-    private let continuation: CheckedContinuation<Void, Error>
-    private var lastReportedProgress: Double = -1
-    private let minimumProgressIncrement: Double = 0.002
-    private var hasResumed = false
-
-    init(
-        expectedContentLength: Int64,
-        destURL: URL,
-        continuation: CheckedContinuation<Void, Error>,
-        onProgress: @escaping @MainActor (Double) -> Void,
-        onBytesProgress: @escaping (Int64, Int64) -> Void
-    ) {
-        self.expectedContentLength = expectedContentLength
-        self.destURL = destURL
-        self.continuation = continuation
-        self.onProgress = onProgress
-        self.onBytesProgress = onBytesProgress
-        super.init()
-    }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
-                    totalBytesExpectedToWrite: Int64) {
-        let expectedBytes = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : expectedContentLength
-        guard expectedBytes > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(expectedBytes)
-
-        if progress - lastReportedProgress >= minimumProgressIncrement || progress >= 1.0 {
-            lastReportedProgress = progress
-            DispatchQueue.main.async { [weak self] in
-                self?.onProgress(progress)
-                self?.onBytesProgress(totalBytesWritten, expectedBytes)
-            }
-        }
-    }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didFinishDownloadingTo location: URL) {
-        guard !hasResumed else { return }
-        session.finishTasksAndInvalidate()
-
-        guard let response = downloadTask.response as? HTTPURLResponse,
-              response.statusCode == 200 else {
-            let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
-            hasResumed = true
-            continuation.resume(throwing: ModelManagerError.downloadFailed("HTTP \(code)"))
-            return
-        }
-
-        do {
-            if FileManager.default.fileExists(atPath: destURL.path) {
-                try FileManager.default.removeItem(at: destURL)
-            }
-            try FileManager.default.moveItem(at: location, to: destURL)
-            hasResumed = true
-            continuation.resume()
-        } catch {
-            hasResumed = true
-            continuation.resume(throwing: error)
-        }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard !hasResumed else { return }
-        session.invalidateAndCancel()
-
-        if let error = error {
-            hasResumed = true
-            continuation.resume(throwing: error)
-        } else if let response = task.response as? HTTPURLResponse, response.statusCode != 200 {
-            hasResumed = true
-            continuation.resume(throwing: ModelManagerError.downloadFailed("HTTP \(response.statusCode)"))
         }
     }
 }

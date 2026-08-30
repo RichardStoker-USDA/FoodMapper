@@ -40,6 +40,7 @@
 		CSVDROP01AB06705BEB2F2F60 /* CSVDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSVDROP02A5867F164E2245D6 /* CSVDropDelegate.swift */; };
 		D64C84A493D91BAFC52CF782 /* MatchingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1084A0934D3073B832C7B637 /* MatchingEngine.swift */; };
 		DAE269FBCC22D19C44D342EC /* EmbeddingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */; };
+		GTETEST001BUILD /* GTELargeModelInstallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = GTETEST001FILEREF /* GTELargeModelInstallTests.swift */; };
 		DB183498F34B7F71C1F4D449 /* ScoreIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094D9E33C7187CABC3DD091E /* ScoreIndicator.swift */; };
 		DBABOUT001BF01A9CBC50FA0 /* BuiltInDatabaseAboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBABOUT002CE1405AB6CE4A0 /* BuiltInDatabaseAboutView.swift */; };
 		DD0025D62A242F979487662B /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = 9961D6D50BBED3518049962D /* MLXRandom */; };
@@ -82,6 +83,7 @@
 		PIPELINE001BUILD /* EmbeddingModelProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE001FILEREF /* EmbeddingModelProtocol.swift */; };
 		PIPELINE002BUILD /* MatchingPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE002FILEREF /* MatchingPipeline.swift */; };
 		PIPELINE003BUILD /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE003FILEREF /* ModelManager.swift */; };
+		GTEINSTALL001BUILD /* GTELargeModelInstall.swift in Sources */ = {isa = PBXBuildFile; fileRef = GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */; };
 		PIPELINE004BUILD /* EmbeddingOnlyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE004FILEREF /* EmbeddingOnlyPipeline.swift */; };
 		PIPELINE005BUILD /* QwenEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE005FILEREF /* QwenEmbeddingModel.swift */; };
 		PIPELINE006BUILD /* ModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE006FILEREF /* ModelDownloader.swift */; };
@@ -176,6 +178,7 @@
 		A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXEmbeddingModel.swift; sourceTree = "<group>"; };
 		A4FEAEF5A5867F164E2245D6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingTests.swift; sourceTree = "<group>"; };
+		GTETEST001FILEREF /* GTELargeModelInstallTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GTELargeModelInstallTests.swift; sourceTree = "<group>"; };
 		ANTHAPI002FILEREF /* AnthropicAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicAPIClient.swift; sourceTree = "<group>"; };
 		ASSETS002A5867F164E2245D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B398910584D2D6D54FD08EC7 /* FoodMapper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoodMapper.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -215,6 +218,7 @@
 		PIPELINE001FILEREF /* EmbeddingModelProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingModelProtocol.swift; sourceTree = "<group>"; };
 		PIPELINE002FILEREF /* MatchingPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchingPipeline.swift; sourceTree = "<group>"; };
 		PIPELINE003FILEREF /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
+		GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GTELargeModelInstall.swift; sourceTree = "<group>"; };
 		PIPELINE004FILEREF /* EmbeddingOnlyPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingOnlyPipeline.swift; sourceTree = "<group>"; };
 		PIPELINE005FILEREF /* QwenEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenEmbeddingModel.swift; sourceTree = "<group>"; };
 		PIPELINE006FILEREF /* ModelDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloader.swift; sourceTree = "<group>"; };
@@ -397,6 +401,7 @@
 				1084A0934D3073B832C7B637 /* MatchingEngine.swift */,
 				PIPELINE002FILEREF /* MatchingPipeline.swift */,
 				A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */,
+				GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */,
 				PIPELINE006FILEREF /* ModelDownloader.swift */,
 				PIPELINE003FILEREF /* ModelManager.swift */,
 				PIPELINE005FILEREF /* QwenEmbeddingModel.swift */,
@@ -438,6 +443,7 @@
 			isa = PBXGroup;
 			children = (
 				A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */,
+				GTETEST001FILEREF /* GTELargeModelInstallTests.swift */,
 				9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */,
 				A11E5EC71000000000000002 /* HelpSectionTests.swift */,
 			);
@@ -633,6 +639,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DAE269FBCC22D19C44D342EC /* EmbeddingTests.swift in Sources */,
+				GTETEST001BUILD /* GTELargeModelInstallTests.swift in Sources */,
 				C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */,
 				A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */,
 			);
@@ -714,6 +721,7 @@
 				PIPELINE001BUILD /* EmbeddingModelProtocol.swift in Sources */,
 				PIPELINE002BUILD /* MatchingPipeline.swift in Sources */,
 				PIPELINE003BUILD /* ModelManager.swift in Sources */,
+				GTEINSTALL001BUILD /* GTELargeModelInstall.swift in Sources */,
 				PIPELINE004BUILD /* EmbeddingOnlyPipeline.swift in Sources */,
 				PIPELINE005BUILD /* QwenEmbeddingModel.swift in Sources */,
 				PIPELINE006BUILD /* ModelDownloader.swift in Sources */,

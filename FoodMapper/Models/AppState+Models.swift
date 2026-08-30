@@ -32,7 +32,7 @@ extension AppState {
         // Initialize progress variables
         downloadStartTime = Date()
         downloadBytesWritten = 0
-        downloadBytesTotal = 640_000_000
+        downloadBytesTotal = GTELargeModelManifest.current.downloadSize
         downloadSpeedBytesPerSecond = 0
         downloadTimeRemaining = nil
 
