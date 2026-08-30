@@ -8,6 +8,9 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "astro": "^5.7.0"
+    "astro": "^7.2.9"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

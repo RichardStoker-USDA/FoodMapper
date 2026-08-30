@@ -1,0 +1,179 @@
+---
+const publicationURL = 'https://doi.org/10.1016/j.tjnut.2026.101678';
+const pubMedURL = 'https://pubmed.ncbi.nlm.nih.gov/42309308/';
+const researchRepositoryURL = 'https://github.com/dglemay/USDA-Food-Mapping';
+---
+
+<section class="section research" id="research">
+  <div class="container">
+    <div class="research-panel">
+      <div class="research-copy">
+        <p class="research-label">Published research</p>
+        <h2>From dietary records to a standard food database</h2>
+        <p class="research-summary">
+          FoodMapper builds on a peer-reviewed evaluation of fuzzy matching,
+          TF-IDF, text embeddings, and language-model-assisted matching. The
+          study includes ASA24-to-FooDB and NHANES-to-DFG2 tasks. The
+          NHANES-to-DFG2 task includes descriptions with no valid DFG2 entry.
+        </p>
+
+        <div class="research-links">
+          <a href={publicationURL} target="_blank" rel="noopener">
+            Read the paper
+            <span aria-hidden="true">↗</span>
+          </a>
+          <a href={pubMedURL} target="_blank" rel="noopener">PubMed</a>
+          <a href={researchRepositoryURL} target="_blank" rel="noopener">Research code and data</a>
+        </div>
+      </div>
+
+      <aside class="publication" aria-label="Publication details">
+        <p class="publication-journal">J Nutr. 2026 Aug;156(8):101678</p>
+        <p class="publication-title">
+          Evaluation of Large Language Models for Mapping Dietary Data to Food Databases
+        </p>
+        <p class="publication-authors">
+          Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG
+        </p>
+        <dl class="publication-details">
+          <div>
+            <dt>DOI</dt>
+            <dd>10.1016/j.tjnut.2026.101678</dd>
+          </div>
+          <div>
+            <dt>PMID</dt>
+            <dd>42309308</dd>
+          </div>
+        </dl>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<style>
+  .research-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    gap: clamp(40px, 7vw, 88px);
+    align-items: center;
+    padding: clamp(32px, 6vw, 64px);
+    background: var(--bg-card);
+    border: var(--border-width) solid var(--border-card);
+    border-radius: var(--corner-radius-xl);
+    box-shadow: var(--shadow-card);
+  }
+
+  .research-label {
+    margin-bottom: var(--space-md);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .research-copy h2 {
+    max-width: 560px;
+    margin-bottom: var(--space-lg);
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.7px;
+    line-height: 1.12;
+  }
+
+  .research-summary {
+    max-width: 600px;
+    color: var(--text-secondary);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .research-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md) var(--space-xl);
+    margin-top: var(--space-xxxl);
+  }
+
+  .research-links a {
+    font-size: 15px;
+    font-weight: 600;
+    text-underline-offset: 4px;
+  }
+
+  .research-links a:hover {
+    text-decoration: underline;
+  }
+
+  .publication {
+    padding-left: clamp(24px, 4vw, 44px);
+    border-left: var(--border-width) solid var(--border-subtle);
+  }
+
+  .publication-journal {
+    margin-bottom: var(--space-lg);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .publication-title {
+    margin-bottom: var(--space-md);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .publication-authors {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .publication-details {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+    margin-top: var(--space-xxxl);
+    padding-top: var(--space-xl);
+    border-top: var(--border-width) solid var(--border-subtle);
+  }
+
+  .publication-details dt {
+    margin-bottom: var(--space-xxs);
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .publication-details dd {
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 800px) {
+    .research-panel {
+      grid-template-columns: 1fr;
+      gap: var(--space-xxxl);
+    }
+
+    .publication {
+      padding-top: var(--space-xxxl);
+      padding-left: 0;
+      border-top: var(--border-width) solid var(--border-subtle);
+      border-left: none;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .research-panel {
+      padding: var(--space-xxl);
+    }
+
+  }
+</style>

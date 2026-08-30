@@ -3,19 +3,21 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import ThemeToggle from '../components/ThemeToggle.astro';
 import Hero from '../components/Hero.astro';
 import Features from '../components/Features.astro';
+import Research from '../components/Research.astro';
 import Workflow from '../components/Workflow.astro';
 import Screenshots from '../components/Screenshots.astro';
 import Footer from '../components/Footer.astro';
 ---
 
 <BaseLayout>
-  <nav class="site-nav">
+  <nav class="site-nav" aria-label="Primary navigation">
     <div class="site-nav-inner">
       <a href="/" class="site-nav-brand">
         <img src="/images/app-icon-nav.png" alt="" width="28" height="28" />
         <span>FoodMapper</span>
       </a>
       <div class="site-nav-right">
+        <a href="#research" class="site-nav-link">Research</a>
         <a
           href="https://github.com/RichardStoker-USDA/FoodMapper"
           class="nav-github-link"
@@ -37,8 +39,12 @@ import Footer from '../components/Footer.astro';
 
     <div class="section-divider"><hr /></div>
 
-    <div class="page-gradient">
+    <div class="page-sections">
       <Features />
+
+      <div class="section-divider"><hr /></div>
+
+      <Research />
 
       <div class="section-divider"><hr /></div>
 

@@ -4,23 +4,23 @@ Match free-text food descriptions to standardized reference databases using on-d
 
 ![FoodMapper home screen](docs/images/hero-home-light.png)
 
-**[Download FoodMapper](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)** -- macOS installer, no admin rights needed.
+**[Download FoodMapper](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)**
 
 ## What This Is
 
-Nutrition researchers collect food descriptions from study participants through surveys, dietary recalls, and food frequency questionnaires. Those descriptions need to be mapped to standardized database entries before analysis can happen. Manual matching is slow. Keyword matching misses things like "whole wheat bread" matching "whole grain bread." FoodMapper uses embedding models running on your Mac's GPU to handle the matching, then gives you a guided review workflow to verify the results. It's a companion tool to "Evaluation of Large Language Models for Mapping Dietary Data to Food Databases" by USDA ARS researchers.
+Nutrition researchers collect food descriptions from study participants through surveys, dietary recalls, and food frequency questionnaires. Those descriptions need to be mapped to standardized database entries before analysis can happen. Manual matching is slow. Keyword matching misses things like "whole wheat bread" matching "whole grain bread." FoodMapper uses the default GTE-Large embedding path on your Mac's GPU, then gives you a guided review workflow to verify the results. It's a companion tool to ["Evaluation of Large Language Models for Mapping Dietary Data to Food Databases"](https://doi.org/10.1016/j.tjnut.2026.101678) by USDA ARS researchers.
 
 ## Features
 
-- **On-device ML matching** -- Embedding models run entirely on Apple Silicon GPU via MLX. Your data never leaves your Mac.
-- **Guided review workflow** -- Auto-advancing review mode with keyboard-driven decisions. Confirm, reject, or override matches, then export.
-- **Built-in reference databases** -- FooDB (9,913 food items) and DFG2 (256 commonly consumed foods) ship with the app. Import your own CSV or TSV files too.
-- **Session persistence** -- Results and review decisions auto-save. Pick up where you left off.
-- **CSV and TSV support** -- Import and export in either format. Delimiter is auto-detected from the file header.
-- **Interactive tutorial** -- First-run walkthrough (19 steps) covers the full workflow from loading data through review and export.
-- **Behind the Research** -- Interactive showcase walking through the paper's methods, with a live matching demo.
-- **In-app updates** -- Automatic update checks via Sparkle. No need to manually check for new versions.
-- **Clean CSV/TSV export** -- Original columns plus match metadata (status, score, pipeline, notes). Row order preserved.
+- **On-device matching:** The default GTE-Large embedding path runs through MLX on Apple Silicon. Input and target data stay on the Mac for that path.
+- **Guided review:** Confirm, reject, or override results with keyboard shortcuts or Guided Review, then export.
+- **Built-in reference databases:** FooDB (9,913 food items) and DFG2 (256 commonly consumed foods) ship with the app. You can also import a CSV or TSV target database.
+- **Saved sessions:** Results and review decisions save as you work. A History export restores original input columns when the stored input file is still available and readable. Bulk History exports contain saved mapping rows.
+- **CSV and TSV support:** Import and export either format. FoodMapper detects the delimiter from the file header.
+- **Interactive tutorial:** The first-run walkthrough covers data loading, matching, review, and export.
+- **Behind the Research:** The in-app section explains the paper's methods and includes a matching demonstration.
+- **In-app updates:** FoodMapper can check for updates automatically. You can also select FoodMapper > Check for Updates.
+- **CSV/TSV export:** A current-session export includes original columns when the input remains available, plus match metadata.
 
 ## Screenshots
 
@@ -32,13 +32,13 @@ Nutrition researchers collect food descriptions from study participants through 
 
 ## Getting Started
 
-1. **[Download the installer](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)** (PKG, no admin rights needed). A [DMG](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.dmg) is also available for users who prefer drag-and-drop installation.
-2. **Install.** Double-click the PKG to install. No admin rights needed.
-3. **Launch.** Search "FoodMapper" in Spotlight (Cmd+Space) or open it from ~/Applications. Download the GTE-Large model when prompted (~640 MB, one-time).
-4. **Walk through the tutorial** -- it runs automatically on first launch and covers the full workflow in 19 steps. You can restart it later from the Help menu.
+1. **[Download FoodMapper](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.pkg)**. A [DMG](https://github.com/RichardStoker-USDA/FoodMapper/releases/latest/download/FoodMapper.dmg) is also available for drag-and-drop installation.
+2. **Install.** Open the PKG and follow the installer.
+3. **Launch.** Search "FoodMapper" in Spotlight (Cmd+Space) or open it from ~/Applications. Download the GTE-Large model when prompted (~640 MiB, one-time).
+4. **Walk through the tutorial.** It runs automatically on first launch. You can restart it later from the Help menu.
 5. **Load a CSV or TSV** with food descriptions. Drag and drop or use the file picker. A template is available on the match setup page if you need to format your data.
 6. **Pick your description column**, choose a target database, click Match.
-7. **Review results** -- confirm correct matches, fix incorrect ones by selecting a better candidate, add notes, and export when you're done.
+7. **Review results.** Confirm correct matches, select another retained candidate when needed, add notes, and export.
 
 ## System Requirements
 
@@ -46,49 +46,51 @@ Nutrition researchers collect food descriptions from study participants through 
 |---|---|
 | **macOS** | 14.0 Sonoma or later |
 | **Processor** | Apple Silicon required (M1 or later) |
-| **Memory** | 8 GB minimum, 16 GB+ recommended |
-| **Disk** | ~640 MB for the default model |
+| **Memory** | Depends on the selected model, target database, and active workload |
+| **Disk** | ~640 MiB for the default model |
 
-Intel Macs are not supported -- MLX only runs on Apple Silicon.
+Intel Macs are not supported because MLX requires Apple Silicon.
 
-The app auto-detects your hardware and adjusts batch sizes accordingly. An 8 GB MacBook Air works fine for small-to-medium datasets. Bigger machines process faster and handle larger databases.
+The app adjusts batch sizes for the detected hardware. Runtime and memory use depend on the input, target database, and Mac configuration.
 
 ## Built-In Databases
 
-**FooDB** -- 9,913 food items from [FooDB.ca](https://foodb.ca/), a database of food chemical constituents maintained by the Wishart Research Group at the University of Alberta. Good for matching specific food descriptions to a broad reference set.
+**FooDB:** 9,913 food items from [FooDB.ca](https://foodb.ca/), maintained by the Wishart Research Group at the University of Alberta.
 
-**DFG2** -- 256 food items from the [Davis Food Glycopedia 2.0](https://www.ars.usda.gov/research/publications/publication/?seqNo115=414156), a glycan encyclopedia cataloging carbohydrate structures in commonly consumed foods. Good for mapping food descriptions to molecular-level composition data.
+**DFG2:** 256 food items from the [Davis Food Glycopedia 2.0](https://www.ars.usda.gov/research/publications/publication/?seqNo115=414156), a glycan encyclopedia of commonly consumed foods.
 
-Both come with pre-computed embeddings so matching starts immediately. You can also import your own CSV or TSV as a custom database -- just map the text column and optionally an ID column. Embeddings are computed once on first use and cached.
+Both databases include their source rows in the app. After you approve the GTE-Large download, FoodMapper computes and caches embeddings the first time you match against a database. For a custom CSV or TSV target, select the text column and an optional ID column during import.
 
 ## How It Works
 
-FoodMapper loads your file, converts each food description into a high-dimensional vector using an on-device embedding model (GTE-Large by default), then finds the closest matches in the target database using cosine similarity. The whole process runs on Apple Silicon GPU through MLX. Nothing is sent to external servers.
+FoodMapper converts each food description into an embedding with GTE-Large by default, then compares it with candidate database entries by cosine similarity. The default local path runs through MLX on Apple Silicon. If you configure and select the optional Anthropic path, FoodMapper sends the input descriptions and candidate entries needed for that verification run to Anthropic.
 
-For the default embedding-only pipeline, all results above a score floor go to "Needs Review" for you to verify. An optional hybrid pipeline adds a cloud LLM verification stage that can auto-confirm high-confidence matches, reducing the number of items you need to review manually. The hybrid mode requires an Anthropic API key.
+For default embedding matching, a fixed 0.50 eligibility floor determines whether the leading retrieval becomes the selected target. The floor does not remove retrieved candidate database entries from the review list. The separate Smart Auto-Match floor and score gap can mark a selected GTE-Large result for review or match. The optional Anthropic path requires an Anthropic API key.
 
 ## Review Workflow
 
-This is where FoodMapper earns its keep versus a Python script. After matching completes, every result is displayed with its suggested match, similarity score, and alternative candidates in an inspector panel. You can scroll through and review items at your own pace, or switch to guided review mode where the app auto-advances through items flagged as "Needs Review."
+FoodMapper adds a review workflow that a batch script does not provide. After matching completes, the inspector shows a selected target and score when available, plus retrieved candidate database entries when the session stored them. You can review at your own pace or use guided review for items flagged as "Needs Review."
 
-For each item, you see the input text, the suggested match, a similarity score, and the top alternative candidates. Press **Return** to confirm a match, **Delete** to reject it, or click an alternative candidate to override. Press **N**/**P** to skip forward or back. Number keys **1-5** select from the candidate list. **R** (pressed twice) resets a decision. **Cmd+Z** undoes.
+For each item, you see the input text, a selected target when one is available, a score when one is available, and retrieved candidate database entries when the session stored them. Press **Return** to confirm a match, **Delete** to reject it, or click an alternative candidate to override. Press **N**/**P** to skip forward or back. Number keys **1-5** select from the candidate list. **R** (pressed twice) resets a decision. **Cmd+Z** undoes.
+
+Manual Override searches the deduplicated union of candidate database entries retained for the current session. It does not search the full target database.
 
 **Bulk actions:** **Cmd+A** selects all visible rows. Multi-select with **Cmd+Click** (toggle individual), **Shift+Click** (range), or click and drag to select a continuous block. The inspector shows bulk actions when multiple rows are selected: Match All, No Match All, Reset All, and a shared notes field. Filter by category with **Cmd+1** through **Cmd+4** to narrow down what you're working with before selecting.
 
-All decisions save incrementally -- close the app and come back later.
+Decisions save as you work, so you can close the app and continue later.
 
 ## Export
 
-Results export to CSV or TSV with your original columns intact, plus four metadata columns:
+A current session export includes original input columns when that input remains loaded. A single-session History export can do the same only when its stored input file is available and readable. Otherwise, FoodMapper exports saved mapping rows and metadata.
 
 | Column | Content |
 |--------|---------|
 | `fm_status` | Match, No Match, Needs Review, Match (confirmed), Match (overridden), No Match (confirmed), Match (LLM) |
-| `fm_score` | Similarity score (e.g., 0.8723) |
-| `fm_pipeline` | Which pipeline produced the match |
+| `fm_score` | Score when available (e.g., 0.8723) |
+| `fm_pipeline` | Pipeline label when stored |
 | `fm_note` | Your review notes, if any |
 
-All target database columns are appended after the metadata. Overridden rows use the override candidate's data. Row order always matches your original input.
+Target columns are included when target metadata is stored. For targets with unique configured IDs, an override's extra fields come from its retained candidate row. Bulk History exports use reduced saved mapping rows and do not restore original input columns.
 
 Export from the toolbar (Cmd+E for CSV, Shift+Cmd+E for TSV), or right-click a session in History to export without loading it first.
 
@@ -100,30 +102,33 @@ cd FoodMapper
 xcodebuild -project FoodMapper.xcodeproj -scheme FoodMapper -configuration Release build
 ```
 
-Requires Xcode 16+ and an Apple Silicon Mac. This is an Xcode project, not Swift Package Manager.
+Requires stable Xcode 26.6 or later and an Apple Silicon Mac. This is an Xcode project, not a standalone Swift package.
 
 ## Privacy
 
-- All matching runs on-device by default. Works completely offline.
+- Default local matching works offline after GTE-Large is installed.
 - No telemetry, no analytics, no tracking.
 - Data stored locally in `~/Library/Application Support/FoodMapper/`.
-- **Requires internet for:** automatic update checks (Sparkle) and the optional hybrid verification pipeline, which sends food descriptions to a cloud LLM API (you provide your own key and choose when to use it).
+- Optional Anthropic API keys are stored in the macOS Keychain.
+- **Requires internet for:** user-approved model downloads, automatic update checks (Sparkle), and the optional Anthropic verification path, which sends the input descriptions and candidate matches needed for verification after you provide your own key and select it.
 
 ## Research Background
 
-FoodMapper was built to support "Evaluation of Large Language Models for Mapping Dietary Data to Food Databases," a study on using LLMs and embedding models to match dietary data to food composition databases. The app includes a "Behind the Research" interactive showcase that walks through the paper's methods -- from the problem of free-text food matching, through embedding-based semantic search, to LLM-assisted verification. You can run the paper's exact pipeline against the DFG2 dataset right in the showcase.
+FoodMapper was built to support ["Evaluation of Large Language Models for Mapping Dietary Data to Food Databases"](https://doi.org/10.1016/j.tjnut.2026.101678), which evaluated fuzzy matching, TF-IDF, embeddings, and language-model-assisted matching. The study includes an ASA24-to-FooDB task and an NHANES-to-DFG2 task. The NHANES-to-DFG2 task includes descriptions with no valid DFG2 match. The in-app research section explains the methods and includes an NHANES-to-DFG2 demonstration.
 
 The benchmark datasets, experiments, and analysis code from the research are available at [dglemay/USDA-Food-Mapping](https://github.com/dglemay/USDA-Food-Mapping).
+
+**Citation:** Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG. Evaluation of Large Language Models for Mapping Dietary Data to Food Databases. *J Nutr.* 2026 Aug;156(8):101678. [doi:10.1016/j.tjnut.2026.101678](https://doi.org/10.1016/j.tjnut.2026.101678). [PMID: 42309308](https://pubmed.ncbi.nlm.nih.gov/42309308/).
 
 Built by researchers at the USDA Agricultural Research Service, Western Human Nutrition Research Center in Davis, California.
 
 ## License
 
-CC0 1.0 Universal -- Public Domain Dedication.
+CC0 1.0 Universal Public Domain Dedication.
 
-This software was prepared by employees of the United States Government as part of their official duties. Under 17 U.S.C. 105, no copyright protection is available for such works under U.S. law. You can copy, modify, distribute, and use this work without restriction.
+This software was prepared by employees of the United States Government as part of their official duties. Under 17 U.S.C. 105, no copyright protection is available for those works under U.S. law. Bundled third-party data and libraries retain their own terms.
 
-See [LICENSE](LICENSE) for full text and third-party dependency licenses.
+See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for source and license details.
 
 ## Authors
 

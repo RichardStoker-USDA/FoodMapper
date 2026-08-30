@@ -21,24 +21,24 @@ Removed incomplete benchmark suite from advanced settings.
 
 ## 0.1.3 (2026-03-03)
 
-UI refinements, updated research citation, and website improvements.
+Interface updates, corrected research citation, and website layout changes.
 
 ### Improvements
 - Updated research paper title across the app and documentation
-- Behind the Research hero: refined title layout with improved spacing
+- Adjusted spacing in the Behind the Research title
 - Settings reset button: solid dark red style for clear destructive intent
-- Experimental pipeline tags: polished amber capsule pills for better visibility
-- Website: improved mobile responsiveness and polished feature descriptions
+- Changed the experimental pipeline tags to muted amber capsule pills
+- Fixed the website layout on small screens and revised feature descriptions
 
 ---
 
 ## 0.1.2 (2026-03-03)
 
-UI polish and website launch.
+Website launch and interface changes.
 
 ### Features
 - API key setup help button with step-by-step instructions and cost estimate on the Configure Match screen
-- Project website at foodmapper.app with light/dark theme, screenshot gallery, and mesh gradient background
+- Project website at foodmapper.app with light/dark theme and a screenshot gallery
 
 ### Fixes
 - Inspector panel collapsing with no way to restore when dragged past minimum width
@@ -46,14 +46,14 @@ UI polish and website launch.
 - Tutorial step 10 wording: replaced jargon reference to "inspector" with clearer language
 
 ### Improvements
-- Replace animated shine effect on Behind the Research card with refined static gradient glow
-- Refine Settings > Advanced reset button: natural-width bordered button with destructive role instead of full-width red bar
-- Fix Settings API Keys Save button using inconsistent button style in dark mode
+- Changed the Behind the Research card from an animated shine to a static gradient
+- Changed the Settings > Advanced reset button to a bordered, natural-width destructive button
+- Made the Settings API Keys Save button consistent in dark mode
 - Replace filled SF Symbols in API key status badges with outlined variants
 - Clarify Hybrid Matching info popover to explain both on and off states
 - Add inline status label next to Hybrid Matching toggle showing current matching mode
 - Improve info button visibility across Configure Match screen
-- Show green checkmark with animated transition when API key is configured
+- Show a green checkmark when the API key is configured
 
 ---
 
