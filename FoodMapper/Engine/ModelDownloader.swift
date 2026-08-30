@@ -117,7 +117,7 @@ actor ModelDownloader {
             if path.hasSuffix("tokenizer.json") { hasTokenizer = isReadableJSON(at: artifactURL, under: directory) }
             if path.hasSuffix(".safetensors") { hasWeights = artifact.byteSize > 1024 }
         }
-        return hasConfig && hasTokenizer && hasWeights
+        return hasConfig && hasTokenizer && hasWeights && validateSnapshotStructure(expected, in: directory)
     }
 
     nonisolated private static func isReadableJSON(at url: URL, under directory: URL) -> Bool {
@@ -270,10 +270,78 @@ actor ModelDownloader {
         return true
     }
 
+    nonisolated private static func validateSnapshotStructure(
+        _ expected: TrustedQwenSnapshotManifest.Model, in directory: URL
+    ) -> Bool {
+        guard let configArtifact = expected.artifacts.first(where: { $0.path == "config.json" }),
+              let configURL = safeArtifactURL(directory: directory, path: configArtifact.path),
+              let configData = try? readVerifiedFile(configURL, under: directory, maximumSize: 8 * 1_048_576),
+              let config = try? JSONSerialization.jsonObject(with: configData) as? [String: Any],
+              let modelType = config["model_type"] as? String,
+              modelType.lowercased().hasPrefix("qwen"),
+              let hiddenSize = config["hidden_size"] as? NSNumber,
+              hiddenSize.intValue > 0,
+              let layers = config["num_hidden_layers"] as? NSNumber,
+              layers.intValue > 0,
+              let tokenizerArtifact = expected.artifacts.first(where: { $0.path == "tokenizer.json" }),
+              let tokenizerURL = safeArtifactURL(directory: directory, path: tokenizerArtifact.path),
+              let tokenizerData = try? readVerifiedFile(tokenizerURL, under: directory, maximumSize: 32 * 1_048_576),
+              let tokenizer = try? JSONSerialization.jsonObject(with: tokenizerData) as? [String: Any],
+              tokenizer["model"] != nil else {
+            return false
+        }
+
+        let weights = expected.artifacts.filter { $0.path.hasSuffix(".safetensors") }
+        guard !weights.isEmpty, weights.allSatisfy({ artifact in
+            guard let url = safeArtifactURL(directory: directory, path: artifact.path) else { return false }
+            return validateSafeTensorsHeader(at: url, under: directory)
+        }) else { return false }
+
+        for index in expected.artifacts where index.path.hasSuffix(".safetensors.index.json") {
+            guard let url = safeArtifactURL(directory: directory, path: index.path),
+                  let data = try? readVerifiedFile(url, under: directory, maximumSize: 32 * 1_048_576),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let weightMap = object["weight_map"] as? [String: String],
+                  !weightMap.isEmpty,
+                  weightMap.values.allSatisfy({ name in weights.contains(where: { $0.path == name }) }) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    nonisolated private static func validateSafeTensorsHeader(at url: URL, under directory: URL) -> Bool {
+        do {
+            let descriptor = try verifiedDescriptor(url, under: directory)
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, info.st_size >= 8 else { return false }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+            guard let lengthData = try handle.read(upToCount: 8), lengthData.count == 8 else { return false }
+            let headerLength = lengthData.enumerated().reduce(UInt64(0)) { value, element in
+                value | (UInt64(element.element) << UInt64(element.offset * 8))
+            }
+            guard headerLength > 1, headerLength <= 64 * 1_024 * 1_024,
+                  headerLength <= UInt64(info.st_size - 8),
+                  let headerData = try handle.read(upToCount: Int(headerLength)),
+                  headerData.count == Int(headerLength),
+                  let header = try JSONSerialization.jsonObject(with: headerData) as? [String: Any],
+                  !header.isEmpty else { return false }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     nonisolated private static func readVerifiedFile(_ url: URL, under directory: URL, maximumSize: Int) throws -> Data {
         let descriptor = try verifiedDescriptor(url, under: directory)
         defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_size >= 0, info.st_size <= off_t(maximumSize) else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
         var data = Data()
+        data.reserveCapacity(Int(info.st_size))
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         while let chunk = try handle.read(upToCount: min(1_048_576, maximumSize - data.count)), !chunk.isEmpty {
             data.append(chunk)
@@ -325,7 +393,11 @@ actor ModelDownloader {
             }
         }
         var before = stat()
-        guard lstat(url.path, &before) == 0, (before.st_mode & S_IFMT) == S_IFREG, before.st_nlink == 1 else {
+        guard lstat(url.path, &before) == 0,
+              (before.st_mode & S_IFMT) == S_IFREG,
+              before.st_nlink == 1,
+              before.st_uid == getuid(),
+              (before.st_mode & S_IWOTH) == 0 else {
             throw ModelDownloaderError.invalidSnapshot
         }
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
@@ -333,7 +405,8 @@ actor ModelDownloader {
         var after = stat()
         guard fstat(descriptor, &after) == 0,
               after.st_dev == before.st_dev, after.st_ino == before.st_ino,
-              (after.st_mode & S_IFMT) == S_IFREG, after.st_nlink == 1 else {
+              (after.st_mode & S_IFMT) == S_IFREG, after.st_nlink == 1,
+              after.st_uid == getuid(), (after.st_mode & S_IWOTH) == 0 else {
             close(descriptor)
             throw ModelDownloaderError.invalidSnapshot
         }

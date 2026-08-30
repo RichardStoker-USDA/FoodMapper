@@ -358,4 +358,19 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
         XCTAssertTrue(state.beginEngineOperation(.sessionRestore(restore)))
         state.finishEngineOperation(restore)
     }
+
+    func testCancellingEmbeddingReleasesTheOperationLease() async throws {
+        let state = AppState()
+        let operation = UUID()
+        XCTAssertTrue(state.beginEngineOperation(.databaseEmbedding(operation, "database")))
+        state.embeddingTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+        }
+        state.cancelEmbedding()
+        for _ in 0..<20 where state.activeEngineOperation != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNil(state.activeEngineOperation)
+        XCTAssertNil(state.embeddingTask)
+    }
 }

@@ -165,6 +165,7 @@ extension AppState {
         let appSupport = FoodMapperStorage.applicationSupportURL
         let dir = appSupport.appendingPathComponent("FoodMapper", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: dir.path)
         return dir.appendingPathComponent("custom_databases.json")
     }
 
@@ -252,6 +253,9 @@ extension AppState {
         let stage = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).\(UUID().uuidString).stage")
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
         try stage.lastPathComponent.data(using: .utf8)?.write(to: journal, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: journal.path)
+        try SecureFileAccess.synchronize(journal)
+        try SecureFileAccess.synchronize(directory, directory: true)
         defer { try? FileManager.default.removeItem(at: journal) }
         FileManager.default.createFile(atPath: stage.path, contents: nil)
         let handle = try FileHandle(forWritingTo: stage)
@@ -276,10 +280,32 @@ extension AppState {
     private func recoverInterruptedDatabasePersistence() {
         let directory = customDatabasesURL.deletingLastPathComponent()
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
+        guard FileManager.default.fileExists(atPath: journal.path) else { return }
         guard let name = try? String(contentsOf: journal, encoding: .utf8),
-              !name.contains("/"), !name.contains("..") else { return }
-        try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
-        try? FileManager.default.removeItem(at: journal)
+              name.hasPrefix(".\(customDatabasesURL.lastPathComponent)."),
+              name.hasSuffix(".stage"),
+              !name.contains("/"), !name.contains("..") else {
+            quarantineRegistryJournal(journal, in: directory)
+            return
+        }
+        do {
+            let stage = directory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: stage.path) { try FileManager.default.removeItem(at: stage) }
+            try FileManager.default.removeItem(at: journal)
+            try SecureFileAccess.synchronize(directory, directory: true)
+        } catch {
+            quarantineRegistryJournal(journal, in: directory)
+        }
+    }
+
+    private func quarantineRegistryJournal(_ journal: URL, in directory: URL) {
+        let quarantine = directory.appendingPathComponent(".registry-quarantine-\(UUID().uuidString)")
+        do {
+            try FileManager.default.moveItem(at: journal, to: quarantine)
+            try SecureFileAccess.synchronize(directory, directory: true)
+        } catch {
+            logger.error("Could not quarantine interrupted registry write: \(error.localizedDescription)")
+        }
     }
 
     private func syncDirectory(_ directory: URL) throws {
@@ -415,7 +441,7 @@ extension AppState {
                 let engine = try await getOrCreateEngine()
                 let startTime = Date()
                 let model = try await self.modelManager.loadEmbeddingModel(key: embeddingKey)
-                guard self.isCurrentEngineOperation(operationID) else { return }
+                guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
                 self.databaseEmbeddingStatus = .embedding(
                     completed: 0,
                     total: database.itemCount,

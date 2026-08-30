@@ -50,7 +50,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     // MARK: - Loading
 
     /// Protocol conformance. Qwen snapshots must be downloaded explicitly and
-    /// loaded through `load(localDirectory:)` after manifest validation.
+    /// loaded through `load(snapshot:)` after manifest validation.
     func load() async throws {
         throw EmbeddingError.modelNotFound
     }
