@@ -54,7 +54,7 @@ enum PreviewHelpers {
     static var sampleCustomDB: CustomDatabase {
         var db = CustomDatabase(
             displayName: "My Lab Foods",
-            csvPath: "/Users/mock/lab_foods.csv",
+            csvPath: "PreviewData/lab_foods.csv",
             textColumn: "food_name",
             idColumn: "food_id",
             itemCount: 532,

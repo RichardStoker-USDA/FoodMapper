@@ -780,7 +780,7 @@ private struct HelpGettingStartedContent: View {
 
                 HelpStep(number: 4, title: "Choose a reference database", description: "FooDB has 9,913 individual food entries. DFG2 has 256 commonly consumed foods from the Davis Food Glycopedia 2.0. You can also add your own.")
 
-                HelpStep(number: 5, title: "Run matching", description: "Click Match in the toolbar. FoodMapper embeds your descriptions and finds the closest match in the reference database for each one.")
+                HelpStep(number: 5, title: "Run matching", description: "Click Match in the toolbar. FoodMapper retrieves candidate database entries for each description and selects a target when the leading result meets the eligibility floor.")
 
                 HelpStep(number: 6, title: "Review results", description: "Results are categorized as Match, Needs Review, or No Match. Use the inspector panel to confirm, reject, or override matches.")
 
@@ -805,7 +805,7 @@ private struct HelpHowItWorksContent: View {
         )
 
         HelpCard {
-            HelpItem(title: "Semantic Embeddings", content: "Each food description is converted into a numerical vector (embedding) that captures its meaning. Similar foods have similar embeddings, even if they use different words. \"Grilled chicken breast\" matches \"roasted chicken\" because the model understands they describe similar foods.")
+            HelpItem(title: "Semantic Embeddings", content: "Each food description is converted into a numerical vector called an embedding. Descriptions with similar language or meaning can produce nearby vectors even when their words differ. Review is still needed because semantic similarity does not establish that two foods are equivalent.")
         }
 
         HelpCard {
@@ -814,28 +814,11 @@ private struct HelpHowItWorksContent: View {
 
         if appState.isAdvancedMode {
             HelpCard {
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    HStack(spacing: Spacing.sm) {
-                        Text("Multi-Stage Pipelines")
-                            .font(.body.weight(.medium))
-                        ExperimentalLabel()
-                    }
-
-                    Text("Advanced mode may show optional experimental Qwen3 and Gemma artifact downloads. They are separate from the default GTE-Large path and have not been qualified for research use.")
-                        .font(.callout)
-                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HelpWarningCard(text: "Experimental downloads are not research-qualified. Review all results before research use.")
-                }
-            }
-
-            HelpCard {
                 HelpItem(title: "Selected Targets and Candidates", content: "For default embedding matching, the fixed 0.50 eligibility floor decides whether the leading retrieval becomes the selected target. Retrieved candidate database entries remain available for review even when no target is selected. The Smart Auto-Match floor and gap are separate controls for selected GTE-Large results.")
             }
         }
 
-        HelpHint("\"Grilled chicken breast\" matches well with \"roasted chicken\" because the model understands semantic meaning. But abbreviations like \"grld chkn brst\" will match poorly -- clean input data matters.")
+        HelpHint("Abbreviations, misspellings, and preparation terms can change retrieval order. Review retained candidates before export.")
     }
 }
 
@@ -951,7 +934,7 @@ private struct HelpReviewWorkflowContent: View {
     var body: some View {
         HelpSectionTitle(
             "Review Workflow",
-            subtitle: "After matching completes, review results to confirm, reject, or override matches. This is where you turn automated results into verified data."
+            subtitle: "Review results before export. Confirm a selected target, reject it, or choose another retained candidate."
         )
 
         // The completion overlay
@@ -1353,7 +1336,7 @@ private struct HelpCustomDatabasesContent: View {
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "How Embedding Works", content: "When you first match against a custom database, FoodMapper runs the selected embedding model on your GPU to generate a vector representation of each item. This is a one-time operation per database per model. After embedding completes, the database loads quickly for future matches with that model.")
+                HelpItem(title: "How Embedding Works", content: "When you first match against a custom database, FoodMapper runs the selected embedding model on your GPU to generate a vector representation of each item. FoodMapper can reuse the saved cache for later matches with the same database and model.")
 
                 if appState.isAdvancedMode {
                     HelpItem(title: "Model-Specific Embeddings", content: "Embeddings are tied to the model that created them. If you switch models, the database needs to be re-embedded. Each model cache is stored separately, so switching back uses the existing cache.")
@@ -1364,10 +1347,6 @@ private struct HelpCustomDatabasesContent: View {
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HelpItem(title: "Embedding Cache Size", content: "Embedding cache size depends on the target database and model. FoodMapper shows the available cache state for each database.")
-
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    diskRow("GTE-Large (1024-dim)", "~400 MB")
-                }
             }
         }
 
@@ -1385,18 +1364,7 @@ private struct HelpCustomDatabasesContent: View {
             }
         }
 
-        HelpHint("Clean, complete descriptions match better than abbreviations. \"Grilled chicken breast, skinless\" outperforms \"grld chkn brst\".")
-    }
-
-    private func diskRow(_ model: String, _ size: String) -> some View {
-        HStack {
-            Text(model)
-                .font(.callout)
-            Spacer()
-            Text(size)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
+        HelpHint("Abbreviations and omitted preparation terms can change retrieval order. Review retained candidates before export.")
     }
 }
 
@@ -1602,9 +1570,9 @@ private struct HelpUnderTheHoodContent: View {
                 Text("Why Apple MLX")
                     .font(.headline)
 
-                HelpItem(title: "Built for Apple Silicon", content: "MLX is Apple's open-source machine learning framework, designed from the ground up for M-series chips. It runs transformer models directly on the Mac's GPU through Metal, with no drivers, no CUDA, and no admin install required.")
+                HelpItem(title: "Built for Apple Silicon", content: "MLX is Apple's open-source machine learning framework for Apple Silicon. It runs transformer models through Metal without separate GPU drivers or CUDA.")
 
-                HelpItem(title: "No Setup Required", content: "Metal is built into macOS. Every Mac with Apple Silicon has GPU compute ready out of the box. FoodMapper is a native .app -- no Python environment, no Docker, no command-line setup.")
+                HelpItem(title: "No Runtime Setup", content: "Metal is built into macOS. FoodMapper is a native app and does not use a Python environment, Docker, or a command-line runtime for normal use.")
 
                 HelpLinkRow(title: "MLX Framework", url: "https://github.com/ml-explore")
             }
@@ -1616,44 +1584,6 @@ private struct HelpUnderTheHoodContent: View {
                     .font(.headline)
 
                 HelpItem(title: "GTE-Large", content: "A 335-million parameter BERT-based model that produces 1024-dimensional embeddings. FoodMapper uses the pinned MIT-licensed MLX conversion for default local matching.")
-
-                if appState.isAdvancedMode {
-                    VStack(alignment: .leading, spacing: Spacing.md) {
-                        HStack(spacing: Spacing.sm) {
-                            Text("Qwen3-Embedding")
-                                .font(.body.weight(.medium))
-                            ExperimentalLabel()
-                        }
-                        Text("Optional experimental downloads are shown only in Advanced mode. They have not been qualified for research use.")
-                            .font(.callout)
-                            .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    VStack(alignment: .leading, spacing: Spacing.md) {
-                        HStack(spacing: Spacing.sm) {
-                            Text("Qwen3-Reranker")
-                                .font(.body.weight(.medium))
-                            ExperimentalLabel()
-                        }
-                        Text("Optional experimental downloads are shown only in Advanced mode. They have not been qualified for research use.")
-                            .font(.callout)
-                            .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    VStack(alignment: .leading, spacing: Spacing.md) {
-                        HStack(spacing: Spacing.sm) {
-                            Text("Qwen3-Judge")
-                                .font(.body.weight(.medium))
-                            ExperimentalLabel()
-                        }
-                        Text("Optional experimental downloads are shown only in Advanced mode. They have not been qualified for research use.")
-                            .font(.callout)
-                            .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
 
                 HelpLinkRow(title: "MLX Community Model Hub", url: "https://huggingface.co/mlx-community")
             }
@@ -1685,7 +1615,7 @@ private struct HelpUnderTheHoodContent: View {
 
                 HelpItem(title: "Adaptive Batch Sizes", content: "FoodMapper uses the detected hardware profile to choose initial batch and chunk settings. The selected settings can change with the model and workload.")
 
-                HelpItem(title: "Unified Memory", content: "M-series chips share memory between CPU and GPU. The GPU can access system RAM directly without copying data back and forth. This is a significant advantage for ML workloads compared to discrete GPUs that require explicit memory transfers.")
+                HelpItem(title: "Unified Memory", content: "M-series chips use unified memory, so the CPU and GPU share the same memory pool.")
             }
         }
 
@@ -1699,7 +1629,7 @@ private struct HelpUnderTheHoodContent: View {
 
                 HelpItem(title: "Streaming to Disk", content: "FoodMapper processes embeddings in chunks and writes each chunk to disk immediately. This prevents memory exhaustion on large databases. GPU memory cache is cleared between chunks to prevent buffer accumulation.")
 
-                HelpItem(title: "Scale", content: "The FDC Branded Foods database (nearly 2 million rows in the December 2025 release) is an example of what's possible on high-end Apple Silicon. Embedding a database that size takes time, but it's a one-time operation.")
+                HelpItem(title: "Large Targets", content: "Runtime, memory use, cache size, cancellation behavior, and free disk space must be checked for each large target database and Mac configuration.")
             }
         }
 
@@ -1722,7 +1652,7 @@ private struct HelpResearchContent: View {
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "Project Overview", content: "FoodMapper was developed at USDA Agricultural Research Service for nutrition research. It maps dietary intake data to standardized reference databases using semantic similarity, replacing manual lookup with GPU-accelerated embedding matching.")
+                HelpItem(title: "Project Overview", content: "FoodMapper was developed at USDA Agricultural Research Service for nutrition research. It supports review of dietary descriptions against reference databases using semantic retrieval.")
 
                 HelpItem(title: "Authors", content: "Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG\nUSDA Agricultural Research Service")
             }
@@ -1753,7 +1683,7 @@ private struct HelpResearchContent: View {
                 Text("Publication")
                     .font(.headline)
 
-                Text("Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG. Evaluation of Large Language Models for Mapping Dietary Data to Food Databases. J Nutr. 2026;156(8):101678.")
+                Text("Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG. Evaluation of Large Language Models for Mapping Dietary Data to Food Databases. J Nutr. 2026 Aug;156(8):101678.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 

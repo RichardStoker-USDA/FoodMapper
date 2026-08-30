@@ -50,7 +50,7 @@ struct HeroSection: View {
                 .frame(height: Spacing.sm)
 
             // Positioning
-            Text("The paper tested five categories of food-database matching, from edit-distance to LLM-powered hybrid pipelines, on 1,304 NHANES dietary recalls against a 256-food target database. Scroll through the methods, see how they compare, and run the pipeline yourself, right on your Mac.")
+            Text("The paper tested five categories of food-database matching, from edit distance to LLM-assisted hybrid pipelines, on 1,304 NHANES dietary recalls against a 256-food target database. Explore the methods and run the local demonstration in FoodMapper.")
                 .font(.body)
                 .foregroundStyle(heroBodyTextColor)
                 .multilineTextAlignment(.center)
@@ -95,7 +95,7 @@ struct HeroSection: View {
             .scaleEffect(revealProgress > 0.8 ? 1 : 0.9)
             .animation(.spring(response: 0.4, dampingFraction: 0.7), value: revealProgress > 0.8)
 
-            Text("J Nutr. 2026;156(8):101678")
+            Text("J Nutr. 2026 Aug;156(8):101678")
                 .font(.caption)
                 .foregroundStyle(doiTextColor)
 

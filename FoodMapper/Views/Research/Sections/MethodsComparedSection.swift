@@ -103,9 +103,7 @@ struct MethodsComparedSection: View {
                 icon: "arrow.triangle.branch",
                 title: "Hybrid (Embedding + Claude)",
                 accuracy: "65.4%",
-                description: "Embedding retrieval narrows candidates; Claude Haiku selects the best match.",
-                badge: "Best Overall",
-                highlighted: true
+                description: "Embedding retrieval provides up to five candidates; Claude Haiku selects a candidate or no match."
             )
             .scrollRevealStaggered(index: 3)
         }
@@ -115,9 +113,7 @@ struct MethodsComparedSection: View {
         icon: String,
         title: String,
         accuracy: String? = nil,
-        description: String,
-        badge: String? = nil,
-        highlighted: Bool = false
+        description: String
     ) -> some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(spacing: Spacing.sm) {
@@ -127,15 +123,6 @@ struct MethodsComparedSection: View {
                     .frame(width: 24)
 
                 Spacer()
-
-                if let badge {
-                    Text(badge)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, Spacing.xs)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accentColor))
-                }
 
                 if let accuracy {
                     Text(accuracy)
@@ -154,7 +141,7 @@ struct MethodsComparedSection: View {
         }
         .padding(Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .showcaseCard(highlighted: highlighted)
+        .showcaseCard()
     }
 
     // MARK: - Accuracy Breakdown
@@ -200,9 +187,6 @@ struct MethodsComparedSection: View {
                             }
                         ],
                         rows: rows,
-                        highlightRow: { row in
-                            row.method == "Hybrid Haiku K=5" ? .correct : .none
-                        },
                         compact: true
                     )
                 }

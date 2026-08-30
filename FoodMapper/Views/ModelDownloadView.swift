@@ -158,7 +158,7 @@ struct ModelDownloadView: View {
                             .tint(Color(nsColor: .controlAccentColor))
                         }
                     }
-                    Text("About 2 minutes on a fast connection")
+                    Text("Download time depends on your connection.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }

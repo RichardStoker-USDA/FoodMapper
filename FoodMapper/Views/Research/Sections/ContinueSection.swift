@@ -29,7 +29,7 @@ struct ContinueSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 560)
 
-                Text("This app was built so researchers can quickly and accurately map dietary recall data to official reference databases, such as those hosted on USDA's FoodData Central, without manual lookup.")
+                Text("FoodMapper supports mapping dietary recall data to reference databases such as USDA FoodData Central, with results available for review before export.")
                     .font(.body)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .multilineTextAlignment(.center)
@@ -175,7 +175,7 @@ struct ContinueSection: View {
                 Spacer()
                     .frame(height: Spacing.xs)
 
-                Link("J Nutr. 2026;156(8):101678", destination: paperURL)
+                Link("J Nutr. 2026 Aug;156(8):101678", destination: paperURL)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

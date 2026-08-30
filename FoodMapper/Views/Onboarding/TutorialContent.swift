@@ -30,7 +30,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 2,
             title: "Start a New Match",
-            body: "Click \"New Match\" to begin. This is where you'll load your data and configure a matching session.",
+            body: "Click \"New Match\" to load a data file and set up a matching session.",
             icon: "link.badge.plus",
             highlightAnchors: ["welcomeNewMatchCard"],
             coachMarkPosition: .right,

@@ -623,9 +623,9 @@ struct MatchSetupView: View {
                     VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text("**Off** -- On-device semantic matching only. An AI model on your Mac compares food descriptions to the database and returns the closest matches by meaning.")
 
-                        Text("**On** -- Adds a cloud verification step. After on-device matching narrows it down to the top 5, Claude Haiku reviews those candidates and picks the best one.")
+                        Text("**On** -- Adds a cloud verification step. After on-device matching returns up to five candidates, Claude Haiku selects a candidate or no match.")
 
-                        Text("Both approaches are from the research paper. The hybrid method achieved the highest accuracy.")
+                        Text("In the published NHANES-to-DFG2 comparison, Hybrid Haiku (K=5) reported 65.4% overall accuracy.")
                             .foregroundStyle(.secondary)
                     }
                     .font(.callout)
@@ -1142,7 +1142,7 @@ struct MatchSetupView: View {
                 instructionTierRow(icon: "cloud", label: "Claude API", active: appState.selectedPipelineType == .gteLargeHaiku || appState.selectedPipelineType == .gteLargeHaikuV2)
             }
 
-            Text("The default \"Best Match\" preset works well for most food matching tasks.")
+            Text("Choose Best Match when no special matching priority applies.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -229,7 +229,7 @@ struct TourTechnicalDetail<Content: View>: View {
 #Preview("Insight + Key Fact - Light") {
     VStack(spacing: Spacing.lg) {
         TourInsight(text: "These methods compare surface-level text. What if we could compare meaning instead?")
-        TourKeyFact(icon: "chart.bar.xaxis", text: "On NHANES-to-DFG2, fuzzy matching achieves ~25% accuracy. TF-IDF does better at ~40%.")
+        TourKeyFact(icon: "chart.bar.xaxis", text: "Hybrid Haiku (K=5) reported 65.4% overall accuracy in the NHANES-to-DFG2 comparison.")
     }
     .padding(Spacing.xxl)
     .frame(width: 680)
@@ -260,7 +260,7 @@ struct TourTechnicalDetail<Content: View>: View {
     VStack(spacing: Spacing.lg) {
         TourStatistic(value: "65.4%", label: "Overall hybrid accuracy")
         TourInfoLine(icon: "info.circle", text: "The hybrid approach combines embedding retrieval with LLM verification.")
-        TourInsight(text: "No single model is best at everything.")
+        TourInsight(text: "Each method has a different accuracy and runtime profile.")
         TourKeyFact(icon: "lock.shield", text: "Your API key is stored locally only.")
         TourTechnicalDetail(title: "Implementation") {
             Text("Temperature: 0 (deterministic)")
