@@ -48,7 +48,7 @@ struct CustomDatabaseCacheMetadata: Codable, Equatable {
 }
 
 struct CacheCommitJournal: Codable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     let version: Int
     let cacheName: String
@@ -70,6 +70,20 @@ struct ValidatedCustomDatabase {
     let rowOrderHash: String
     let fileFormat: DataFileFormat
     let columnNames: [String]
+    let sourceIdentity: CustomDatabaseFileIdentity
+}
+
+/// The descriptor identity captured with the bytes that were parsed. It keeps a
+/// cache write from being associated with a replacement CSV that reused the
+/// same database ID.
+struct CustomDatabaseFileIdentity: Equatable {
+    let device: UInt64
+    let inode: UInt64
+    let byteSize: Int64
+    let modifiedSeconds: Int64
+    let modifiedNanoseconds: Int64
+    let changedSeconds: Int64
+    let changedNanoseconds: Int64
 }
 
 enum CustomDatabaseValidationError: LocalizedError, Equatable {
@@ -123,9 +137,13 @@ enum CustomDatabaseValidator {
     }
 
     static func load(descriptor: Int32, textColumn: String, idColumn: String?) throws -> ValidatedCustomDatabase {
+        let before = try fileIdentity(descriptor)
         let data = try SecureFileAccess.readBounded(
             descriptor: descriptor, maximumSize: maximumImportBytes
         )
+        guard try fileIdentity(descriptor) == before else {
+            throw MatchingError.databaseNotFound
+        }
         guard let rawContent = String(data: data, encoding: .utf8) else {
             throw MatchingError.databaseNotFound
         }
@@ -227,7 +245,30 @@ enum CustomDatabaseValidator {
             schemaHash: digest(header.joined(separator: "\u{1F}")),
             rowOrderHash: digest(normalizedRows.joined(separator: "\u{1E}")),
             fileFormat: format,
-            columnNames: header
+            columnNames: header,
+            sourceIdentity: before
+        )
+    }
+
+    static func currentIdentity(of url: URL) throws -> CustomDatabaseFileIdentity {
+        let descriptor = try SecureFileAccess.openRegularFile(
+            url, maximumSize: Int64(maximumImportBytes)
+        )
+        defer { close(descriptor) }
+        return try fileIdentity(descriptor)
+    }
+
+    private static func fileIdentity(_ descriptor: Int32) throws -> CustomDatabaseFileIdentity {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_nlink == 1 else {
+            throw MatchingError.databaseNotFound
+        }
+        return CustomDatabaseFileIdentity(
+            device: UInt64(info.st_dev), inode: UInt64(info.st_ino), byteSize: Int64(info.st_size),
+            modifiedSeconds: Int64(info.st_mtimespec.tv_sec), modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+            changedSeconds: Int64(info.st_ctimespec.tv_sec), changedNanoseconds: Int64(info.st_ctimespec.tv_nsec)
         )
     }
 
@@ -515,6 +556,7 @@ actor MatchingEngine {
                         throw MatchingError.invalidEmbeddingsFile
                     }
                     let matrix = MLXArray(cacheData, [entries.count, embeddingDim], type: Float.self)
+                    try assertCurrentCustomDatabaseIdentity(database, validated: validated)
                     return DatabaseLoadResult(entries: entries, matrix: matrix, embeddings: nil)
                 }
             } catch {
@@ -525,7 +567,9 @@ actor MatchingEngine {
         // Caches without matching metadata are intentionally recomputed. Earlier cache
         // files did not describe their source rows or model artifact.
         let (finalEntries, embeddings) = try await computeAndCacheEmbeddings(for: entries, databaseId: database.id, onProgress: onEmbedProgress)
+        try assertCurrentCustomDatabaseIdentity(database, validated: validated)
         try writeCustomCache(embeddings, to: versionedURL, metadata: metadata, metadataURL: metadataURL)
+        try assertCurrentCustomDatabaseIdentity(database, validated: validated)
 
         return DatabaseLoadResult(entries: finalEntries, matrix: nil, embeddings: embeddings)
     }
@@ -595,6 +639,15 @@ actor MatchingEngine {
             embeddingDimensions: embeddingDimensions,
             embeddingDigest: ""
         )
+    }
+
+    private func assertCurrentCustomDatabaseIdentity(
+        _ database: CustomDatabase, validated: ValidatedCustomDatabase
+    ) throws {
+        guard let url = database.csvURL,
+              try CustomDatabaseValidator.currentIdentity(of: url) == validated.sourceIdentity else {
+            throw MatchingError.databaseNotFound
+        }
     }
 
     private func modelArtifactFingerprint(modelKey: String, embeddingDimensions: Int) async throws -> String {
@@ -823,18 +876,29 @@ actor MatchingEngine {
             let backupCache = transaction.appendingPathComponent("cache.backup")
             let backupMetadata = transaction.appendingPathComponent("metadata.backup")
             do {
-                if !Self.isValidCachePair(cacheURL, metadataURL, expected: journal.metadata) {
-                    if FileManager.default.fileExists(atPath: cacheURL.path) { try FileManager.default.removeItem(at: cacheURL) }
-                    if FileManager.default.fileExists(atPath: metadataURL.path) { try FileManager.default.removeItem(at: metadataURL) }
-                    guard FileManager.default.fileExists(atPath: backupCache.path),
-                          FileManager.default.fileExists(atPath: backupMetadata.path) else {
-                        throw MatchingError.invalidEmbeddingsFile
-                    }
-                    try FileManager.default.moveItem(at: backupCache, to: cacheURL)
-                    try FileManager.default.moveItem(at: backupMetadata, to: metadataURL)
-                    guard Self.isValidCachePair(cacheURL, metadataURL) else {
-                        throw MatchingError.invalidEmbeddingsFile
-                    }
+                if Self.isValidCachePair(cacheURL, metadataURL, expected: journal.metadata) {
+                    // The new pair reached durable storage. Nothing needs rollback.
+                } else if Self.isValidCachePair(backupCache, backupMetadata) {
+                    try Self.restoreCachePair(
+                        cache: backupCache, metadata: backupMetadata,
+                        atCache: cacheURL, metadataURL: metadataURL, in: directory
+                    )
+                } else if Self.isValidCachePair(backupCache, metadataURL) {
+                    // The old cache was moved first; the old metadata is still live.
+                    try Self.restoreCachePair(
+                        cache: backupCache, metadata: metadataURL,
+                        atCache: cacheURL, metadataURL: metadataURL, in: directory
+                    )
+                } else if Self.isValidCachePair(cacheURL, backupMetadata) {
+                    // The old metadata was moved after an earlier cache operation.
+                    try Self.restoreCachePair(
+                        cache: cacheURL, metadata: backupMetadata,
+                        atCache: cacheURL, metadataURL: metadataURL, in: directory
+                    )
+                } else {
+                    // Do not remove an incomplete transaction. It can contain the
+                    // only recoverable copy after an interrupted filesystem update.
+                    throw MatchingError.invalidEmbeddingsFile
                 }
                 try SecureFileAccess.synchronize(directory, directory: true)
                 try FileManager.default.removeItem(at: transaction)
@@ -867,7 +931,7 @@ actor MatchingEngine {
         journal.metadataName == "\(journal.metadata.databaseID)_embeddings_\(journal.metadata.modelKey).json" &&
         CustomDatabase.isSafeStorageIdentifier(journal.metadata.databaseID) &&
         CustomDatabase.isSafeModelKey(journal.metadata.modelKey) &&
-        journal.metadata.entryCount > 0 && journal.metadata.embeddingDimensions > 0 &&
+        isPlausibleCacheMetadata(journal.metadata) &&
         journal.metadata.sourceHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
         journal.metadata.schemaHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
         journal.metadata.rowOrderHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
@@ -876,11 +940,56 @@ actor MatchingEngine {
     }
 
     nonisolated static func expectedEmbeddingByteCount(entries: Int, dimensions: Int) throws -> Int {
-        guard entries > 0, dimensions > 0 else { throw MatchingError.invalidEmbeddingsFile }
+        // Cache metadata is untrusted until validated. These bounds apply before
+        // capacity calculation and descriptor reads so a journal cannot request a
+        // multi-gigabyte allocation merely by naming large dimensions or rows.
+        guard entries > 0, entries <= 1_000_000,
+              dimensions > 0, dimensions <= 8_192 else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
         let (values, overflowValues) = entries.multipliedReportingOverflow(by: dimensions)
         let (bytes, overflowBytes) = values.multipliedReportingOverflow(by: MemoryLayout<Float>.size)
-        guard !overflowValues, !overflowBytes else { throw MatchingError.invalidEmbeddingsFile }
+        guard !overflowValues, !overflowBytes, bytes <= 2 * 1_024 * 1_024 * 1_024 else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
         return bytes
+    }
+
+    private nonisolated static func isPlausibleCacheMetadata(_ metadata: CustomDatabaseCacheMetadata) -> Bool {
+        guard metadata.entryCount > 0, metadata.entryCount <= 1_000_000,
+              metadata.embeddingDimensions > 0, metadata.embeddingDimensions <= 8_192,
+              (try? expectedEmbeddingByteCount(
+                entries: metadata.entryCount, dimensions: metadata.embeddingDimensions
+              )) != nil else { return false }
+        return true
+    }
+
+    private nonisolated static func restoreCachePair(
+        cache sourceCache: URL,
+        metadata sourceMetadata: URL,
+        atCache destinationCache: URL,
+        metadataURL destinationMetadata: URL,
+        in directory: URL
+    ) throws {
+        // A source and destination can be the same live file. Only remove a
+        // destination when it is a different inode/path than the verified source.
+        let manager = FileManager.default
+        if sourceCache.path != destinationCache.path, manager.fileExists(atPath: destinationCache.path) {
+            try manager.removeItem(at: destinationCache)
+        }
+        if sourceMetadata.path != destinationMetadata.path, manager.fileExists(atPath: destinationMetadata.path) {
+            try manager.removeItem(at: destinationMetadata)
+        }
+        if sourceCache.path != destinationCache.path {
+            try manager.moveItem(at: sourceCache, to: destinationCache)
+        }
+        if sourceMetadata.path != destinationMetadata.path {
+            try manager.moveItem(at: sourceMetadata, to: destinationMetadata)
+        }
+        guard isValidCachePair(destinationCache, destinationMetadata) else {
+            throw MatchingError.invalidEmbeddingsFile
+        }
+        try SecureFileAccess.synchronize(directory, directory: true)
     }
 
     nonisolated static func isValidCachePair(
@@ -893,20 +1002,20 @@ actor MatchingEngine {
             defer { close(metadataDescriptor) }
             let metadataData = try SecureFileAccess.readBounded(descriptor: metadataDescriptor, maximumSize: 1_048_576)
             let metadata = try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData)
-            let expectedBytes = try expectedEmbeddingByteCount(
-                entries: metadata.entryCount, dimensions: metadata.embeddingDimensions
-            )
+            guard metadata.version == CustomDatabaseCacheMetadata.currentVersion,
+                  CustomDatabase.isSafeStorageIdentifier(metadata.databaseID),
+                  CustomDatabase.isSafeModelKey(metadata.modelKey),
+                  isPlausibleCacheMetadata(metadata),
+                  metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+                  metadata.embeddingDigest.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+                  expected.map({ metadata == $0 }) ?? true else { return false }
+            let expectedBytes = try expectedEmbeddingByteCount(entries: metadata.entryCount, dimensions: metadata.embeddingDimensions)
             let cacheDescriptor = try SecureFileAccess.openRegularFile(
                 cacheURL, maximumSize: Int64(expectedBytes)
             )
             defer { close(cacheDescriptor) }
             let cacheData = try SecureFileAccess.readBounded(descriptor: cacheDescriptor, maximumSize: expectedBytes)
-            guard metadata.version == CustomDatabaseCacheMetadata.currentVersion,
-                  expected.map({ metadata == $0 }) ?? true,
-                  CustomDatabase.isSafeStorageIdentifier(metadata.databaseID),
-                  CustomDatabase.isSafeModelKey(metadata.modelKey),
-                  metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
-                  metadata.embeddingDigest == CustomDatabaseValidator.digest(cacheData),
+            guard metadata.embeddingDigest == CustomDatabaseValidator.digest(cacheData),
                   cacheData.count == expectedBytes else { return false }
             return cacheData.withUnsafeBytes { $0.bindMemory(to: Float.self).allSatisfy(\.isFinite) }
         } catch {

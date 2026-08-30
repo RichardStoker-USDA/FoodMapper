@@ -266,8 +266,7 @@ enum CSVParser {
                         continue
                     }
                 } else if !character.isWhitespace {
-                    field.append(character)
-                    afterClosingQuote = false
+                    throw CSVParseError.unexpectedCharacterAfterClosingQuote(character)
                 }
                 index = nextIndex
                 continue
@@ -336,6 +335,7 @@ enum CSVParseError: LocalizedError, Equatable {
     case duplicateColumns([String])
     case tooManyFields(row: Int, expected: Int, actual: Int)
     case unterminatedQuotedField
+    case unexpectedCharacterAfterClosingQuote(Character)
 
     var errorDescription: String? {
         switch self {
@@ -353,6 +353,8 @@ enum CSVParseError: LocalizedError, Equatable {
             return "Row \(row) has \(actual) fields; the header has \(expected)"
         case .unterminatedQuotedField:
             return "A quoted field is missing its closing quote"
+        case let .unexpectedCharacterAfterClosingQuote(character):
+            return "Unexpected character '\(character)' after a closing quote"
         }
     }
 }

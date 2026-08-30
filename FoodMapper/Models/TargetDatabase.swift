@@ -14,40 +14,39 @@ enum SecureFileAccess {
         maximumSize: Int64? = nil,
         requireOwner: Bool = true
     ) throws -> Int32 {
-        let path = try canonicalFilePath(url)
-        guard path.hasPrefix("/") else { throw MatchingError.databaseNotFound }
+        let target = try pathComponents(for: url)
+        let parent: [String]
+        let leaf: String
         if let root {
-            let rootPath = try canonicalDirectoryPath(root)
-            guard path.hasPrefix(rootPath + "/") else { throw MatchingError.databaseNotFound }
+            let rootComponents = try pathComponents(for: root)
+            guard target.starts(with: rootComponents), target.count > rootComponents.count else {
+                throw MatchingError.databaseNotFound
+            }
             try validateStorageDirectory(root)
+            parent = rootComponents + Array(target.dropFirst(rootComponents.count).dropLast())
+            leaf = target.last!
         } else {
-            try validateAncestorChain(forAbsolutePath: path)
+            guard target.count > 1 else { throw MatchingError.databaseNotFound }
+            parent = Array(target.dropLast())
+            leaf = target.last!
         }
 
-        var before = stat()
-        guard lstat(path, &before) == 0,
-              (before.st_mode & S_IFMT) == S_IFREG,
-              before.st_nlink == 1,
-              (!requireOwner || before.st_uid == getuid()),
-              (before.st_mode & S_IWOTH) == 0 else {
-            throw MatchingError.databaseNotFound
-        }
-        if let maximumSize, before.st_size > off_t(maximumSize) {
-            throw CustomDatabaseValidationError.importTooLarge(actual: Int64(before.st_size), limit: Int(maximumSize))
-        }
-
-        let descriptor = open(path, O_RDONLY | O_NOFOLLOW)
+        let parentDescriptor = try openDirectory(components: parent)
+        defer { close(parentDescriptor) }
+        let descriptor = openat(parentDescriptor, leaf, O_RDONLY | O_NOFOLLOW)
         guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
-        var after = stat()
-        guard fstat(descriptor, &after) == 0,
-              after.st_dev == before.st_dev,
-              after.st_ino == before.st_ino,
-              (after.st_mode & S_IFMT) == S_IFREG,
-              after.st_nlink == 1,
-              (!requireOwner || after.st_uid == getuid()),
-              (after.st_mode & S_IWOTH) == 0 else {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_nlink == 1,
+              (!requireOwner || info.st_uid == getuid()),
+              (info.st_mode & S_IWOTH) == 0 else {
             close(descriptor)
             throw MatchingError.databaseNotFound
+        }
+        if let maximumSize, info.st_size > off_t(maximumSize) {
+            close(descriptor)
+            throw CustomDatabaseValidationError.importTooLarge(actual: Int64(info.st_size), limit: Int(maximumSize))
         }
         return descriptor
     }
@@ -92,17 +91,21 @@ enum SecureFileAccess {
     }
 
     static func synchronize(_ url: URL, directory: Bool = false) throws {
-        let descriptor = open(url.path, O_RDONLY | (directory ? O_DIRECTORY : O_NOFOLLOW))
-        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        let descriptor: Int32
+        if directory {
+            descriptor = try openDirectory(components: pathComponents(for: url))
+        } else {
+            descriptor = try openRegularFile(url, requireOwner: false)
+        }
         defer { close(descriptor) }
         guard fsync(descriptor) == 0 else { throw MatchingError.databaseNotFound }
     }
 
     static func validateStorageDirectory(_ directory: URL) throws {
-        let resolved = try canonicalDirectoryPath(directory)
-        try validateDirectoryChain(URL(fileURLWithPath: resolved, isDirectory: true))
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(descriptor) }
         var info = stat()
-        guard lstat(resolved, &info) == 0,
+        guard fstat(descriptor, &info) == 0,
               (info.st_mode & S_IFMT) == S_IFDIR,
               info.st_uid == getuid(),
               (info.st_mode & 0o077) == 0 else {
@@ -110,40 +113,43 @@ enum SecureFileAccess {
         }
     }
 
-    private static func validateDirectoryChain(_ root: URL) throws {
-        let path = root.standardizedFileURL.path
-        try validateAncestorChain(forAbsolutePath: path)
-        var info = stat()
-        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+    static func safeLeaf(_ value: String) -> Bool {
+        !value.isEmpty && value != "." && value != ".." &&
+        !value.contains("/") && !value.contains("\\") && !value.contains("\0")
+    }
+
+    private static func pathComponents(for url: URL) throws -> [String] {
+        guard url.isFileURL, url.path.hasPrefix("/") else { throw MatchingError.databaseNotFound }
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ safeLeaf($0) }) else {
             throw MatchingError.databaseNotFound
         }
+        return components
     }
 
-    private static func canonicalDirectoryPath(_ url: URL) throws -> String {
-        guard let resolved = realpath(url.standardizedFileURL.path, nil) else {
-            throw MatchingError.databaseNotFound
-        }
-        defer { free(resolved) }
-        return String(cString: resolved)
-    }
-
-    private static func canonicalFilePath(_ url: URL) throws -> String {
-        let leaf = url.lastPathComponent
-        guard !leaf.isEmpty, leaf != ".", leaf != ".." else { throw MatchingError.databaseNotFound }
-        let parent = try canonicalDirectoryPath(url.deletingLastPathComponent())
-        return URL(fileURLWithPath: parent, isDirectory: true).appendingPathComponent(leaf).path
-    }
-
-    private static func validateAncestorChain(forAbsolutePath path: String) throws {
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        var current = ""
-        for component in components.dropLast() {
-            current += "/\(component)"
-            var info = stat()
-            guard lstat(current, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+    /// Traverses from the root directory using directory descriptors. Every
+    /// component is opened with O_NOFOLLOW, so an attacker cannot swap an
+    /// ancestor between a validation pass and the next path-based open.
+    private static func openDirectory(components: [String]) throws -> Int32 {
+        var descriptor = open("/", O_RDONLY | O_DIRECTORY)
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        for component in components {
+            guard safeLeaf(component) else {
+                close(descriptor)
                 throw MatchingError.databaseNotFound
             }
+            let next = openat(descriptor, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            close(descriptor)
+            guard next >= 0 else { throw MatchingError.databaseNotFound }
+            var info = stat()
+            guard fstat(next, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+                close(next)
+                throw MatchingError.databaseNotFound
+            }
+            descriptor = next
         }
+        return descriptor
     }
 }
 
@@ -154,6 +160,10 @@ enum FoodMapperStorage {
     }
 
     private static let rootStore = RootStore()
+    private static let testApplicationSupportURL: URL = {
+        URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-xctest-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+    }()
 
     static var applicationSupportOverride: URL? {
         get {
@@ -169,7 +179,14 @@ enum FoodMapperStorage {
     }
 
     static var applicationSupportURL: URL {
-        applicationSupportOverride ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        if let override = applicationSupportOverride { return override }
+        // XCTest launches the host application before individual test setup.
+        // Direct all app-level storage to a per-process directory so startup
+        // discovery and GTE checks cannot touch the user's Application Support.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return testApplicationSupportURL
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
     }
 }
 
@@ -345,10 +362,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// URL for the self-contained CSV copy stored in app support
     var storedCsvURL: URL {
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        let directory = appSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
-        guard hasSafeStorageIdentifier else { return directory.appendingPathComponent("invalid_data.csv") }
-        return directory.appendingPathComponent("\(id)_data.csv")
+        Self.storageURL(databaseID: id, leaf: "\(id)_data.csv") ?? Self.invalidStorageURL
     }
 
     var csvURL: URL? {
@@ -367,24 +381,42 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
         return appSupport.appendingPathComponent("FoodMapper/CustomDBs")
     }
 
+    private static var invalidStorageURL: URL {
+        cacheDirectoryURL.appendingPathComponent("invalid", isDirectory: false)
+    }
+
+    private static var cacheDirectoryURL: URL {
+        FoodMapperStorage.applicationSupportURL
+            .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+    }
+
+    /// The sole construction point for custom-database storage paths. Callers
+    /// must validate the identifier before deriving a leaf name.
+    static func storageURL(databaseID: String, leaf: String) -> URL? {
+        guard isSafeStorageIdentifier(databaseID), SecureFileAccess.safeLeaf(leaf),
+              leaf.hasPrefix("\(databaseID)_") else { return nil }
+        return cacheDirectoryURL.appendingPathComponent(leaf, isDirectory: false)
+    }
+
     /// Cache file URL for a specific model key (model-versioned path)
     func cacheURL(for modelKey: String) -> URL {
-        guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey) else { return cacheDirectory.appendingPathComponent("invalid.bin") }
-        return cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).bin")
+        guard Self.isSafeModelKey(modelKey) else { return Self.invalidStorageURL }
+        return Self.storageURL(databaseID: id, leaf: "\(id)_embeddings_\(modelKey).bin") ?? Self.invalidStorageURL
     }
 
     func cacheMetadataURL(for modelKey: String) -> URL {
-        guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey) else { return cacheDirectory.appendingPathComponent("invalid.json") }
-        return cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).json")
+        guard Self.isSafeModelKey(modelKey) else { return Self.invalidStorageURL }
+        return Self.storageURL(databaseID: id, leaf: "\(id)_embeddings_\(modelKey).json") ?? Self.invalidStorageURL
     }
 
     /// Legacy unversioned cache URL (for migration/cleanup)
     var legacyCacheURL: URL {
-        cacheDirectory.appendingPathComponent("\(id)_embeddings.bin")
+        Self.storageURL(databaseID: id, leaf: "\(id)_embeddings.bin") ?? Self.invalidStorageURL
     }
 
     /// Find all embedding cache files for this database (any model version)
     var allCacheFiles: [URL] {
+        guard hasSafeStorageIdentifier else { return [] }
         let dir = cacheDirectory
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
             return []
@@ -394,6 +426,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     }
 
     var allCacheMetadataFiles: [URL] {
+        guard hasSafeStorageIdentifier else { return [] }
         let dir = cacheDirectory
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
             return []
@@ -638,8 +671,11 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             }
             // Check versioned cache in app support (covers all models including gte-large
             // when bundle embeddings aren't present)
-            let appSupport = FoodMapperStorage.applicationSupportURL
-            let versionedURL = appSupport.appendingPathComponent("FoodMapper/CustomDBs/\(db.id)_embeddings_\(modelKey).bin")
+            guard CustomDatabase.isSafeStorageIdentifier(db.id),
+                  CustomDatabase.isSafeModelKey(modelKey),
+                  let versionedURL = CustomDatabase.storageURL(
+                    databaseID: db.id, leaf: "\(db.id)_embeddings_\(modelKey).bin"
+                  ) else { return false }
             return FileManager.default.fileExists(atPath: versionedURL.path)
         case .custom(let db):
             return db.hasEmbeddings(for: modelKey)
@@ -655,15 +691,16 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
                 keys.append("gte-large")
             }
             // Check versioned caches in app support
-            let appSupport = FoodMapperStorage.applicationSupportURL
-            let dir = appSupport.appendingPathComponent("FoodMapper/CustomDBs")
+            guard CustomDatabase.isSafeStorageIdentifier(db.id) else { return keys }
+            let dir = FoodMapperStorage.applicationSupportURL
+                .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
             let prefix = "\(db.id)_embeddings_"
             if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
                 for file in files where file.pathExtension == "bin" {
                     let name = file.deletingPathExtension().lastPathComponent
                     if name.hasPrefix(prefix) {
                         let modelKey = String(name.dropFirst(prefix.count))
-                        if !modelKey.isEmpty && modelKey != "gte-large" {
+                        if CustomDatabase.isSafeModelKey(modelKey), modelKey != "gte-large" {
                             keys.append(modelKey)
                         }
                     }

@@ -68,6 +68,14 @@ final class CSVParserTests: XCTestCase {
         }
     }
 
+    func testNonWhitespaceAfterClosingQuoteIsRejected() {
+        let input = "id,description\n1,\"Milk\"unexpected\n"
+
+        XCTAssertThrowsError(try CSVParser.parse(content: input, url: csvURL)) { error in
+            XCTAssertEqual(error as? CSVParseError, .unexpectedCharacterAfterClosingQuote("u"))
+        }
+    }
+
     func testUTF8BOMIsRemovedFromHeader() throws {
         let input = "\u{FEFF}id,description\n1,Milk\n"
         let file = try CSVParser.parse(content: input, url: csvURL)
@@ -110,7 +118,7 @@ final class CustomDatabaseValidationTests: XCTestCase {
     private var isolatedApplicationSupport: URL!
 
     override func setUpWithError() throws {
-        isolatedApplicationSupport = FileManager.default.temporaryDirectory
+        isolatedApplicationSupport = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-app-support-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
         FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
@@ -121,7 +129,7 @@ final class CustomDatabaseValidationTests: XCTestCase {
         try? FileManager.default.removeItem(at: isolatedApplicationSupport)
     }
     private func writeDatabase(_ content: String, extension fileExtension: String = "csv") throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-database-\(UUID().uuidString).\(fileExtension)")
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
@@ -172,8 +180,9 @@ final class CustomDatabaseValidationTests: XCTestCase {
 
     func testRejectsSymbolicAndHardLinkedSources() throws {
         let source = try writeDatabase("id,description\n1,Milk\n")
-        let symbolic = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-symbolic-\(UUID().uuidString).csv")
-        let hard = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-hard-\(UUID().uuidString).csv")
+        let temporaryDirectory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        let symbolic = temporaryDirectory.appendingPathComponent("foodmapper-symbolic-\(UUID().uuidString).csv")
+        let hard = temporaryDirectory.appendingPathComponent("foodmapper-hard-\(UUID().uuidString).csv")
         defer {
             try? FileManager.default.removeItem(at: source)
             try? FileManager.default.removeItem(at: symbolic)
@@ -191,6 +200,27 @@ final class CustomDatabaseValidationTests: XCTestCase {
         let descriptor = try SecureFileAccess.openRegularFile(url, maximumSize: 5)
         defer { close(descriptor) }
         XCTAssertThrowsError(try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 4))
+    }
+
+    func testRejectsSymlinkedStorageRoot() throws {
+        let physicalRoot = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-root-\(UUID().uuidString)", isDirectory: true)
+        let linkedRoot = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-link-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: linkedRoot)
+            try? FileManager.default.removeItem(at: physicalRoot)
+        }
+        try FileManager.default.createDirectory(at: physicalRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: physicalRoot.path)
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: physicalRoot)
+        let file = physicalRoot.appendingPathComponent("data.csv")
+        try "id,description\n1,Milk\n".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+
+        XCTAssertThrowsError(try SecureFileAccess.openRegularFile(
+            linkedRoot.appendingPathComponent("data.csv"), under: linkedRoot
+        ))
     }
 
     func testRejectsMalformedAndBlankTextRows() throws {
@@ -258,6 +288,98 @@ final class CustomDatabaseValidationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(cacheName)), cacheData)
         XCTAssertEqual(try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: Data(contentsOf: directory.appendingPathComponent(metadataName))), metadata)
         XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+    }
+
+    func testCacheRecoveryRestoresWhenOnlyCacheBackupRemains() async throws {
+        let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let cacheName = "database_embeddings_model.bin"
+        let metadataName = "database_embeddings_model.json"
+        let transaction = directory.appendingPathComponent(".cache-transaction-cache-only", isDirectory: true)
+        try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
+        let data = [Float(1), 2].withUnsafeBufferPointer { Data(buffer: $0) }
+        let metadata = CustomDatabaseCacheMetadata(
+            version: 1, databaseID: "database", sourceHash: String(repeating: "b", count: 64),
+            schemaHash: String(repeating: "c", count: 64), rowOrderHash: String(repeating: "d", count: 64),
+            textColumn: "description", idColumn: "id", modelKey: "model",
+            modelArtifactFingerprint: String(repeating: "a", count: 64), entryCount: 1,
+            embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(data)
+        )
+        try data.write(to: transaction.appendingPathComponent("cache.backup"))
+        try JSONEncoder().encode(metadata).write(to: directory.appendingPathComponent(metadataName))
+        try Data([0]).write(to: directory.appendingPathComponent(cacheName))
+        try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName, metadata: metadata))
+            .write(to: transaction.appendingPathComponent("journal.json"))
+        for url in [transaction.appendingPathComponent("cache.backup"), directory.appendingPathComponent(metadataName), directory.appendingPathComponent(cacheName), transaction.appendingPathComponent("journal.json")] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+
+        _ = try await MatchingEngine()
+
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(cacheName)), data)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+    }
+
+    func testCacheRecoveryRestoresWhenOnlyMetadataBackupRemains() async throws {
+        let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let cacheName = "database_embeddings_model.bin"
+        let metadataName = "database_embeddings_model.json"
+        let transaction = directory.appendingPathComponent(".cache-transaction-metadata-only", isDirectory: true)
+        try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
+        let data = [Float(1), 2].withUnsafeBufferPointer { Data(buffer: $0) }
+        let metadata = CustomDatabaseCacheMetadata(
+            version: 1, databaseID: "database", sourceHash: String(repeating: "b", count: 64),
+            schemaHash: String(repeating: "c", count: 64), rowOrderHash: String(repeating: "d", count: 64),
+            textColumn: "description", idColumn: "id", modelKey: "model",
+            modelArtifactFingerprint: String(repeating: "a", count: 64), entryCount: 1,
+            embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(data)
+        )
+        try data.write(to: directory.appendingPathComponent(cacheName))
+        try JSONEncoder().encode(metadata).write(to: transaction.appendingPathComponent("metadata.backup"))
+        try Data([0]).write(to: directory.appendingPathComponent(metadataName))
+        try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName, metadata: metadata))
+            .write(to: transaction.appendingPathComponent("journal.json"))
+        for url in [directory.appendingPathComponent(cacheName), transaction.appendingPathComponent("metadata.backup"), directory.appendingPathComponent(metadataName), transaction.appendingPathComponent("journal.json")] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+
+        _ = try await MatchingEngine()
+
+        XCTAssertEqual(try JSONDecoder().decode(
+            CustomDatabaseCacheMetadata.self,
+            from: Data(contentsOf: directory.appendingPathComponent(metadataName))
+        ), metadata)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+    }
+
+    func testGiantCacheJournalIsQuarantinedBeforeReadingCache() async throws {
+        let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let transaction = directory.appendingPathComponent(".cache-transaction-giant", isDirectory: true)
+        try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
+        let metadata = CustomDatabaseCacheMetadata(
+            version: 1, databaseID: "database", sourceHash: String(repeating: "b", count: 64),
+            schemaHash: String(repeating: "c", count: 64), rowOrderHash: String(repeating: "d", count: 64),
+            textColumn: "description", idColumn: nil, modelKey: "model",
+            modelArtifactFingerprint: String(repeating: "a", count: 64), entryCount: 1_000_001,
+            embeddingDimensions: 8_192, embeddingDigest: String(repeating: "d", count: 64)
+        )
+        try JSONEncoder().encode(CacheCommitJournal(
+            cacheName: "database_embeddings_model.bin", metadataName: "database_embeddings_model.json", metadata: metadata
+        )).write(to: transaction.appendingPathComponent("journal.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: transaction.appendingPathComponent("journal.json").path)
+
+        _ = try await MatchingEngine()
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix(".cache-quarantine-") })
     }
 
     func testCacheValidationRejectsNonFiniteValues() throws {
