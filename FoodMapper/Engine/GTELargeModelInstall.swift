@@ -129,6 +129,12 @@ enum GTELargeSecurePath {
     static let privateDirectoryMode: mode_t = 0o700
     static let privateFileMode: mode_t = 0o600
 
+    static func isSafePathComponent(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." &&
+            !name.contains("/") && !name.contains("\\") && !name.contains("\u{0}") &&
+            URL(fileURLWithPath: name).lastPathComponent == name
+    }
+
     /// Opens the directory through already-open parent descriptors. Do not
     /// standardize the URL: `/private/tmp` and `/tmp` are distinct path walks
     /// on this platform, even though the latter is a symlink by design.
@@ -139,6 +145,10 @@ enum GTELargeSecurePath {
         guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
         let remaining = Array(components.dropFirst())
         for (index, component) in remaining.enumerated() {
+            guard isSafePathComponent(component) else {
+                close(descriptor)
+                throw GTELargeModelInstallError.unsafePath
+            }
             var expected = stat()
             let present = component.withCString {
                 fstatat(descriptor, $0, &expected, AT_SYMLINK_NOFOLLOW)
@@ -180,7 +190,7 @@ enum GTELargeSecurePath {
         let parent = try openDirectoryDescriptor(at: url.deletingLastPathComponent())
         defer { close(parent) }
         let name = url.lastPathComponent
-        guard !name.isEmpty, name != ".", name != ".." else {
+        guard isSafePathComponent(name) else {
             throw GTELargeModelInstallError.unsafePath
         }
         return try body(parent, name)
@@ -224,7 +234,7 @@ enum GTELargeSecurePath {
                 }
             }
             guard name != ".", name != ".." else { continue }
-            guard !name.contains("/") && !name.contains("\\") else {
+            guard isSafePathComponent(name) else {
                 throw GTELargeModelInstallError.unsafePath
             }
             // Stop before growing the collection beyond the caller's recovery
@@ -289,40 +299,6 @@ enum GTELargeSecurePath {
             throw GTELargeModelInstallError.unsafePath
         }
         try removePrivateTree(at: url, tree: tree, maximumDepth: 0)
-    }
-
-    private struct PrivateRemovalBudget {
-        let maximumEntries: Int
-        let maximumDepth: Int
-        let maximumBytes: Int64
-        var entries = 0
-        var bytes: Int64 = 0
-
-        init(
-            maximumEntries: Int = 4_096,
-            maximumDepth: Int = 16,
-            maximumBytes: Int64 = 2_147_483_648
-        ) {
-            self.maximumEntries = maximumEntries
-            self.maximumDepth = maximumDepth
-            self.maximumBytes = maximumBytes
-        }
-
-        mutating func consume(_ status: stat, depth: Int) throws {
-            guard depth <= maximumDepth, entries < maximumEntries else {
-                throw GTELargeModelInstallError.unsafePath
-            }
-            entries += 1
-            if (status.st_mode & S_IFMT) == S_IFREG {
-                let size = Int64(truncatingIfNeeded: status.st_size)
-                guard size >= 0 else { throw GTELargeModelInstallError.unsafePath }
-                let (next, overflow) = bytes.addingReportingOverflow(size)
-                guard !overflow, next <= maximumBytes else {
-                    throw GTELargeModelInstallError.unsafePath
-                }
-                bytes = next
-            }
-        }
     }
 
     private struct PrivateTreeBudget {
@@ -443,6 +419,7 @@ enum GTELargeSecurePath {
                 }
             }
             guard child != ".", child != ".." else { continue }
+            guard isSafePathComponent(child) else { throw GTELargeModelInstallError.unsafePath }
             var childStatus = stat()
             guard child.withCString({ fstatat(descriptor, $0, &childStatus, AT_SYMLINK_NOFOLLOW) }) == 0 else {
                 throw GTELargeModelInstallError.unsafePath
@@ -463,83 +440,6 @@ enum GTELargeSecurePath {
         }
         children.sort { $0.name < $1.name }
         return .directory(name: name, identity: recordedIdentity, children: children)
-    }
-
-    private static func removePrivateEntry(parent: Int32, name: String, expected: stat, budget: inout PrivateRemovalBudget, depth: Int = 0) throws {
-        let type = expected.st_mode & S_IFMT
-        guard expected.st_uid == getuid(),
-              (type == S_IFREG && expected.st_nlink == 1 && (expected.st_mode & 0o777) == privateFileMode) ||
-              (type == S_IFDIR && (expected.st_mode & 0o777) == privateDirectoryMode) else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        try budget.consume(expected, depth: depth)
-
-        // Darwin has no unlink-by-file-descriptor API. Move the verified entry
-        // to a fresh private name before recursion or unlinking, then bind the
-        // new name to the recorded identity. A same-UID rename between the
-        // check and rename is rejected before any unlink or rmdir.
-        let quarantinedName = try quarantinePrivateEntry(parent: parent, name: name, expected: expected)
-
-        if type == S_IFREG {
-            var current = stat()
-            guard quarantinedName.withCString({ fstatat(parent, $0, &current, AT_SYMLINK_NOFOLLOW) }) == 0,
-                  sameObject(expected, current),
-                  current.st_nlink == 1,
-                  quarantinedName.withCString({ unlinkat(parent, $0, 0) }) == 0 else {
-                throw GTELargeModelInstallError.unsafePath
-            }
-            return
-        }
-
-        guard type == S_IFDIR else { throw GTELargeModelInstallError.unsafePath }
-        let descriptor = quarantinedName.withCString { openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW) }
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
-        var opened = stat()
-        guard fstat(descriptor, &opened) == 0, sameObject(expected, opened),
-              opened.st_uid == getuid(), (opened.st_mode & 0o777) == privateDirectoryMode else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        guard let stream = fdopendir(dup(descriptor)) else {
-            throw GTELargeModelInstallError.unreadableInstall
-        }
-        defer { closedir(stream) }
-        while true {
-            errno = 0
-            guard let entry = readdir(stream) else {
-                guard errno == 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                break
-            }
-            let child = withUnsafePointer(to: entry.pointee.d_name) {
-                $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
-                    String(cString: $0)
-                }
-            }
-            guard child != ".", child != ".." else { continue }
-            var childStatus = stat()
-            guard child.withCString({ fstatat(descriptor, $0, &childStatus, AT_SYMLINK_NOFOLLOW) }) == 0 else {
-                throw GTELargeModelInstallError.unsafePath
-            }
-            try removePrivateEntry(parent: descriptor, name: child, expected: childStatus, budget: &budget, depth: depth + 1)
-        }
-        var current = stat()
-        // `unlinkat` has no expected-inode argument. The identity checks for
-        // this function reject replacements observed before its final unlink.
-        // A hostile same-UID process can still replace either a regular file
-        // or an empty directory between that final `fstatat` and `unlinkat`.
-        // Darwin provides no atomic expected-inode unlink operation. Removal
-        // stays within app-private, same-UID paths; all non-empty directory
-        // work is descriptor-walked and snapshot-bound before that interval.
-        guard quarantinedName.withCString({ fstatat(parent, $0, &current, AT_SYMLINK_NOFOLLOW) }) == 0,
-              sameObject(expected, current),
-              quarantinedName.withCString({ unlinkat(parent, $0, AT_REMOVEDIR) }) == 0 else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-    }
-
-    static func removePrivateEntry(parent: Int32, name: String, expected: stat) throws {
-        var budget = PrivateRemovalBudget()
-        try removePrivateEntry(parent: parent, name: name, expected: expected, budget: &budget)
     }
 
     static func removePrivateTree(at url: URL, tree: GTELargePrivateTree, maximumDepth: Int) throws {
@@ -565,18 +465,17 @@ enum GTELargeSecurePath {
                 entry: rootEntry,
                 maximumDepth: maximumDepth
             )
-            var budget = PrivateRemovalBudget(
-                maximumEntries: tree.entries,
-                maximumDepth: maximumDepth,
-                maximumBytes: tree.bytes
-            )
-            try removeSnapshotPrivateTreeEntry(
-                parent: parent,
-                entry: rootEntry,
-                budget: &budget,
-                depth: 0
-            )
-            guard budget.entries == tree.entries, budget.bytes == tree.bytes,
+            // Darwin does not expose descriptor-bound name removal. A last
+            // fstatat followed by pathname removal could delete a same-UID
+            // replacement. Retire the
+            // verified root with RENAME_EXCL and retain it for bounded startup
+            // validation instead. A replacement that wins the rename is never
+            // unlinked, and the post-rename identity check fails closed.
+            let quarantinedName = try quarantinePrivateEntry(parent: parent, name: name, expected: root)
+            var quarantined = stat()
+            guard quarantinedName.withCString({ fstatat(parent, $0, &quarantined, AT_SYMLINK_NOFOLLOW) }) == 0,
+                  sameObject(root, quarantined),
+                  (quarantined.st_mode & S_IFMT) == (tree.isDirectory ? S_IFDIR : S_IFREG),
                   fsync(parent) == 0 else {
                 throw GTELargeModelInstallError.unsafePath
             }
@@ -625,68 +524,6 @@ enum GTELargeSecurePath {
               sameIdentity(identity(from: opened), identity(from: after)) else {
             throw GTELargeModelInstallError.unsafePath
         }
-    }
-
-    private static func removeSnapshotPrivateTreeEntry(
-        parent: Int32,
-        entry: GTELargePrivateTreeEntry,
-        budget: inout PrivateRemovalBudget,
-        depth: Int
-    ) throws {
-        let expected = try snapshotStatus(for: entry)
-        try budget.consume(expected, depth: depth)
-        let quarantinedName = try quarantinePrivateEntry(parent: parent, name: entry.name, expected: expected)
-
-        guard case .directory(_, _, let children) = entry else {
-            try unlinkQuarantinedPrivateEntry(parent: parent, name: quarantinedName, expected: expected, flags: 0)
-            return
-        }
-
-        let descriptor = quarantinedName.withCString {
-            openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-        }
-        guard descriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
-        defer { close(descriptor) }
-        var opened = stat()
-        guard fstat(descriptor, &opened) == 0,
-              sameObject(expected, opened),
-              opened.st_uid == getuid(),
-              (opened.st_mode & S_IFMT) == S_IFDIR,
-              (opened.st_mode & 0o777) == privateDirectoryMode else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        let expectedNames = Set(children.map(\.name))
-        guard expectedNames.count == children.count,
-              try directoryEntryNames(descriptor, maximumEntries: children.count) == expectedNames else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        for child in children {
-            try removeSnapshotPrivateTreeEntry(
-                parent: descriptor,
-                entry: child,
-                budget: &budget,
-                depth: depth + 1
-            )
-        }
-        try unlinkQuarantinedPrivateEntry(
-            parent: parent,
-            name: quarantinedName,
-            expected: expected,
-            flags: AT_REMOVEDIR
-        )
-    }
-
-    private static func snapshotStatus(for entry: GTELargePrivateTreeEntry) throws -> stat {
-        var status = stat()
-        status.st_size = off_t(truncatingIfNeeded: entry.identity.size)
-        status.st_dev = dev_t(truncatingIfNeeded: entry.identity.device)
-        status.st_ino = ino_t(truncatingIfNeeded: entry.identity.inode)
-        status.st_ctimespec.tv_sec = time_t(truncatingIfNeeded: entry.identity.changeSeconds)
-        status.st_ctimespec.tv_nsec = Int(truncatingIfNeeded: entry.identity.changeNanoseconds)
-        status.st_nlink = nlink_t(truncatingIfNeeded: entry.identity.linkCount)
-        status.st_mode = mode_t(truncatingIfNeeded: entry.identity.mode) | (entry.isDirectory ? S_IFDIR : S_IFREG)
-        status.st_uid = uid_t(truncatingIfNeeded: entry.identity.owner)
-        return status
     }
 
     private static func matchesSnapshotIdentity(
@@ -748,27 +585,6 @@ enum GTELargeSecurePath {
         try directoryEntryNames(descriptor, maximumEntries: maximumEntries, read: read)
     }
     #endif
-
-    private static func unlinkQuarantinedPrivateEntry(
-        parent: Int32,
-        name: String,
-        expected: stat,
-        flags: Int32
-    ) throws {
-        var current = stat()
-        // See the corresponding comment in `removePrivateEntry`: Darwin has
-        // no expected-inode unlink primitive, so a same-UID replacement in the
-        // final check-to-unlink interval cannot be excluded for either files
-        // or empty directories.
-        guard name.withCString({ fstatat(parent, $0, &current, AT_SYMLINK_NOFOLLOW) }) == 0,
-              sameObject(expected, current),
-              current.st_uid == getuid(),
-              (current.st_mode & S_IFMT) == (flags == AT_REMOVEDIR ? S_IFDIR : S_IFREG),
-              (flags == AT_REMOVEDIR || current.st_nlink == 1),
-              name.withCString({ unlinkat(parent, $0, flags) }) == 0 else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-    }
 
     private static func quarantinePrivateEntry(parent: Int32, name: String, expected: stat) throws -> String {
         let recordedIdentity = identity(from: expected)
@@ -1129,13 +945,15 @@ enum GTELargeSecurePath {
     }
 
     static func sameDirectoryIdentity(_ left: GTELargeFileIdentity, _ right: GTELargeFileIdentity) -> Bool {
-        left.device == right.device && left.inode == right.inode &&
-            left.owner == right.owner && left.mode == right.mode && left.linkCount == right.linkCount
+        left == right
     }
 
     static func sameFileIdentity(_ left: GTELargeFileIdentity, _ right: GTELargeFileIdentity) -> Bool {
-        left.device == right.device && left.inode == right.inode && left.owner == right.owner &&
-            left.mode == right.mode && left.linkCount == right.linkCount && left.size == right.size
+        left == right
+    }
+
+    static func sameObjectIdentity(_ left: GTELargeFileIdentity, _ right: GTELargeFileIdentity) -> Bool {
+        left.device == right.device && left.inode == right.inode
     }
 }
 
@@ -1150,6 +968,7 @@ protocol GTELargeFileSystem: Sendable {
     func moveItem(at source: URL, to destination: URL) throws
     func moveItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws
     func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws
+    func replaceFileAtomically(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws
     func copyItem(
         at source: URL,
         to destination: URL,
@@ -1237,6 +1056,61 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
         try moveItem(at: source, to: destination, expectedSourceIdentity: Optional(expectedSourceIdentity))
     }
 
+    func replaceFileAtomically(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws {
+        try GTELargeSecurePath.withParentDescriptor(of: source) { sourceParent, sourceName in
+            try GTELargeSecurePath.withParentDescriptor(of: destination) { destinationParent, destinationName in
+                var sourceBefore = stat()
+                guard sourceName.withCString({ fstatat(sourceParent, $0, &sourceBefore, AT_SYMLINK_NOFOLLOW) }) == 0,
+                      (sourceBefore.st_mode & S_IFMT) == S_IFREG,
+                      sourceBefore.st_uid == getuid(), sourceBefore.st_nlink == 1,
+                      (sourceBefore.st_mode & 0o777) == GTELargeSecurePath.privateFileMode,
+                      GTELargeSecurePath.sameFileIdentity(GTELargeSecurePath.identity(from: sourceBefore), expectedSourceIdentity) else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+                let sourceDescriptor = sourceName.withCString { openat(sourceParent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+                guard sourceDescriptor >= 0 else { throw GTELargeModelInstallError.unsafePath }
+                defer { close(sourceDescriptor) }
+                var sourceOpened = stat()
+                guard fstat(sourceDescriptor, &sourceOpened) == 0,
+                      GTELargeSecurePath.sameIdentity(
+                          GTELargeSecurePath.identity(from: sourceOpened),
+                          expectedSourceIdentity
+                      ) else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+                var existing = stat()
+                let destinationExists = destinationName.withCString {
+                    fstatat(destinationParent, $0, &existing, AT_SYMLINK_NOFOLLOW)
+                } == 0
+                if destinationExists {
+                    guard (existing.st_mode & S_IFMT) == S_IFREG,
+                          existing.st_uid == getuid(), existing.st_nlink == 1,
+                          (existing.st_mode & 0o777) == GTELargeSecurePath.privateFileMode else {
+                        throw GTELargeModelInstallError.unsafePath
+                    }
+                } else {
+                    guard errno == ENOENT else { throw GTELargeModelInstallError.unsafePath }
+                }
+                let result = sourceName.withCString { sourcePointer in
+                    destinationName.withCString { destinationPointer in
+                        renameatx_np(sourceParent, sourcePointer, destinationParent, destinationPointer, 0)
+                    }
+                }
+                guard result == 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                var published = stat()
+                guard destinationName.withCString({ fstatat(destinationParent, $0, &published, AT_SYMLINK_NOFOLLOW) }) == 0,
+                      GTELargeSecurePath.sameObject(sourceOpened, published),
+                      (published.st_mode & S_IFMT) == S_IFREG,
+                      published.st_uid == getuid(), published.st_nlink == 1,
+                      (published.st_mode & 0o777) == GTELargeSecurePath.privateFileMode,
+                      fsync(sourceParent) == 0,
+                      fsync(destinationParent) == 0 else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+            }
+        }
+    }
+
     private func moveItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity?) throws {
         try GTELargeSecurePath.withParentDescriptor(of: source) { sourceParent, sourceName in
             try GTELargeSecurePath.withParentDescriptor(of: destination) { destinationParent, destinationName in
@@ -1294,66 +1168,32 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                         throw GTELargeModelInstallError.unsafePath
                     }
 
-                    let temporaryName = ".gte-large-copy-\(UUID().uuidString)"
-                    let temporaryDescriptor = temporaryName.withCString {
-                        openat(destinationParent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, GTELargeSecurePath.privateFileMode)
-                    }
-                    guard temporaryDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                    defer { close(temporaryDescriptor) }
-                    var buffer = [UInt8](repeating: 0, count: 65_536)
-                    var copied: Int64 = 0
-                    while true {
-                        let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
-                        if count == 0 { break }
-                        guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                        let (nextCopied, overflow) = copied.addingReportingOverflow(Int64(count))
-                        guard !overflow, nextCopied <= sourceStatus.st_size else {
-                            throw GTELargeModelInstallError.unsafePath
-                        }
-                        copied = nextCopied
-                        var offset = 0
-                        while offset < count {
-                            let written = Darwin.write(temporaryDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
-                            guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                            offset += written
-                        }
-                    }
-                    var sourceAfter = stat()
-                    var temporaryStatus = stat()
-                    guard fstat(sourceDescriptor, &sourceAfter) == 0,
+                    guard fstat(sourceDescriptor, &openedSource) == 0,
                           GTELargeSecurePath.sameIdentity(
-                              GTELargeSecurePath.identity(from: openedSource),
-                              GTELargeSecurePath.identity(from: sourceAfter)
+                              GTELargeSecurePath.identity(from: sourceStatus),
+                              GTELargeSecurePath.identity(from: openedSource)
                           ),
                           expectedSourceIdentity.map({
-                          GTELargeSecurePath.sameFileIdentity(GTELargeSecurePath.identity(from: sourceAfter), $0)
-                          }) ?? true,
-                          copied == sourceStatus.st_size,
-                          fstat(temporaryDescriptor, &temporaryStatus) == 0,
-                          (temporaryStatus.st_mode & S_IFMT) == S_IFREG,
-                          temporaryStatus.st_uid == getuid(), temporaryStatus.st_nlink == 1,
-                          fchmod(temporaryDescriptor, GTELargeSecurePath.privateFileMode) == 0,
-                          fsync(temporaryDescriptor) == 0 else {
+                              GTELargeSecurePath.sameFileIdentity(GTELargeSecurePath.identity(from: openedSource), $0)
+                          }) ?? true else {
                         throw GTELargeModelInstallError.unsafePath
                     }
-                    let promoted = temporaryName.withCString { temporaryPointer in
+                    let promoted = sourceName.withCString { sourcePointer in
                         destinationName.withCString { destinationPointer in
-                            renameatx_np(destinationParent, temporaryPointer, destinationParent, destinationPointer, UInt32(RENAME_EXCL))
+                            renameatx_np(sourceParent, sourcePointer, destinationParent, destinationPointer, UInt32(RENAME_EXCL))
                         }
                     }
-                    guard promoted == 0, fsync(destinationParent) == 0 else {
-                        throw GTELargeModelInstallError.unreadableInstall
-                    }
+                    guard promoted == 0 else { throw GTELargeModelInstallError.unreadableInstall }
                     var publishedStatus = stat()
                     guard destinationName.withCString({ fstatat(destinationParent, $0, &publishedStatus, AT_SYMLINK_NOFOLLOW) }) == 0,
-                          GTELargeSecurePath.sameObject(temporaryStatus, publishedStatus),
+                          GTELargeSecurePath.sameObject(openedSource, publishedStatus),
                           publishedStatus.st_uid == getuid(), publishedStatus.st_nlink == 1,
                           (publishedStatus.st_mode & S_IFMT) == S_IFREG,
-                          (publishedStatus.st_mode & 0o777) == GTELargeSecurePath.privateFileMode else {
+                          (publishedStatus.st_mode & 0o777) == GTELargeSecurePath.privateFileMode,
+                          fsync(sourceParent) == 0,
+                          fsync(destinationParent) == 0 else {
                         throw GTELargeModelInstallError.unsafePath
                     }
-                    try GTELargeSecurePath.removePrivateEntry(parent: sourceParent, name: sourceName, expected: openedSource)
-                    guard fsync(sourceParent) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
                     return
                 }
 
@@ -1373,23 +1213,12 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
                     (movedStatus.st_mode & S_IFMT) == S_IFDIR &&
                     (movedStatus.st_mode & 0o777) == GTELargeSecurePath.privateDirectoryMode &&
                     (expectedSourceIdentity.map({
-                        GTELargeSecurePath.sameDirectoryIdentity(GTELargeSecurePath.identity(from: movedStatus), $0)
+                        GTELargeSecurePath.sameObjectIdentity(GTELargeSecurePath.identity(from: movedStatus), $0)
                     }) ?? true)
                 guard validDestination else {
-                    // Darwin cannot rename a directory by descriptor. If a
-                    // same-UID name swap wins this small interval, quarantine
-                    // only the object that arrived at the destination. The
-                    // durable journal retains the recorded source identity for
-                    // recovery; no unverified directory is published.
-                    if (movedStatus.st_mode & S_IFMT) == S_IFDIR,
-                       movedStatus.st_uid == getuid(),
-                       (movedStatus.st_mode & 0o777) == GTELargeSecurePath.privateDirectoryMode {
-                        try GTELargeSecurePath.removePrivateItem(
-                            at: destination,
-                            expectedDirectoryIdentity: GTELargeSecurePath.identity(from: movedStatus)
-                        )
-                        guard fsync(destinationParent) == 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                    }
+                    // Do not clean this destination. A directory rename has
+                    // no descriptor form on Darwin, so a replacement observed
+                    // after the move must remain available for inspection.
                     throw GTELargeModelInstallError.unsafePath
                 }
                 guard fsync(sourceParent) == 0, fsync(destinationParent) == 0 else {
@@ -2272,16 +2101,17 @@ struct GTELargeModelInstaller: Sendable {
         do {
             try fileSystem.write(try JSONEncoder().encode(pointer), to: temporary, permissions: 0o600)
             let temporaryIdentity = try fileSystem.fileIdentity(at: temporary)
-            if fileSystem.itemExists(at: currentPointerURL) {
-                let currentIdentity = try fileSystem.fileIdentity(at: currentPointerURL)
-                try fileSystem.removeItem(at: currentPointerURL, expectedFileIdentity: currentIdentity)
-            }
-            try fileSystem.moveItem(at: temporary, to: currentPointerURL, expectedSourceIdentity: temporaryIdentity)
+            // A failed rename leaves the current pointer in place. This is
+            // the availability boundary for a verified existing install.
+            try fileSystem.replaceFileAtomically(
+                at: temporary,
+                to: currentPointerURL,
+                expectedSourceIdentity: temporaryIdentity
+            )
             try fileSystem.syncDirectory(at: rootDirectory)
         } catch {
-            if let identity = try? fileSystem.fileIdentity(at: temporary) {
-                try? fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
-            }
+            // Retain a written temporary for recovery. Removing it through a
+            // second pathname lookup would reintroduce an identity race.
             throw error
         }
     }
@@ -2327,12 +2157,17 @@ struct GTELargeModelInstaller: Sendable {
         var backupIdentity: GTELargeFileIdentity?
 
         do {
+            // Staging is writable user state. Re-hash from descriptor-bound
+            // reads immediately before moving it into the published name.
+            guard verifyRecord(in: staging), verifyFiles(in: staging, useCache: false) else {
+                throw GTELargeModelInstallError.verificationFailed
+            }
             if fileSystem.itemExists(at: installedDirectory) {
                 let installedIdentity = try fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)
                 try writeJournal(staging: staging, backup: backup)
                 try fileSystem.moveItem(at: installedDirectory, to: backup, expectedSourceDirectoryIdentity: installedIdentity)
                 let movedIdentity = try fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)
-                guard GTELargeSecurePath.sameDirectoryIdentity(movedIdentity, installedIdentity) else {
+                guard GTELargeSecurePath.sameObjectIdentity(movedIdentity, installedIdentity) else {
                     throw GTELargeModelInstallError.unsafePath
                 }
                 backupIdentity = installedIdentity
@@ -2342,13 +2177,25 @@ struct GTELargeModelInstaller: Sendable {
             }
             try fileSystem.moveItem(at: staging, to: installedDirectory, expectedSourceDirectoryIdentity: stagingIdentity)
             let promotedIdentity = try fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)
-            guard GTELargeSecurePath.sameDirectoryIdentity(promotedIdentity, stagingIdentity) else {
+            guard GTELargeSecurePath.sameObjectIdentity(promotedIdentity, stagingIdentity) else {
                 throw GTELargeModelInstallError.unsafePath
             }
+            // Directory rename changes ctime, so identity continuity is checked
+            // by device/inode above. Content is then re-hashed at the final
+            // destination before a pointer can publish it.
+            guard verifyRecord(in: installedDirectory),
+                  verifyFiles(in: installedDirectory, useCache: false) else {
+                throw GTELargeModelInstallError.verificationFailed
+            }
+            try fileSystem.syncDirectory(at: installedDirectory)
             try writeCurrentPointer()
             if movedExisting, fileSystem.itemExists(at: backup) {
-                guard let backupIdentity else { throw GTELargeModelInstallError.unsafePath }
-                try fileSystem.removeItem(at: backup, expectedDirectoryIdentity: backupIdentity)
+                guard backupIdentity != nil,
+                      verifyRecord(in: backup), verifyFiles(in: backup, useCache: false) else {
+                    throw GTELargeModelInstallError.unsafePath
+                }
+                let cleanupIdentity = try fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)
+                try fileSystem.removeItem(at: backup, expectedDirectoryIdentity: cleanupIdentity)
             }
             if fileSystem.itemExists(at: promotionJournalURL) {
                 try removeVerifiedPrivateFile(at: promotionJournalURL)
@@ -2359,12 +2206,13 @@ struct GTELargeModelInstaller: Sendable {
             if movedExisting, !fileSystem.itemExists(at: installedDirectory), fileSystem.itemExists(at: backup) {
                 guard let backupIdentity,
                       let currentBackup = try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700),
-                      GTELargeSecurePath.sameDirectoryIdentity(currentBackup, backupIdentity) else {
+                      GTELargeSecurePath.sameObjectIdentity(currentBackup, backupIdentity),
+                      verifyRecord(in: backup), verifyFiles(in: backup, useCache: false) else {
                     throw GTELargeModelInstallError.unsafePath
                 }
                 try fileSystem.moveItem(at: backup, to: installedDirectory, expectedSourceDirectoryIdentity: backupIdentity)
                 let restored = try fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)
-                guard GTELargeSecurePath.sameDirectoryIdentity(restored, backupIdentity) else {
+                guard GTELargeSecurePath.sameObjectIdentity(restored, backupIdentity) else {
                     throw GTELargeModelInstallError.unsafePath
                 }
             }
@@ -2469,12 +2317,12 @@ struct GTELargeModelInstaller: Sendable {
         }
 
         if isPrivateDirectory(installedDirectory),
-           (try? fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameDirectoryIdentity($0, stagingIdentity) }) == true,
+           (try? fileSystem.directoryIdentity(at: installedDirectory, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameObjectIdentity($0, stagingIdentity) }) == true,
            verifyRecord(in: installedDirectory), verifyFiles(in: installedDirectory) {
             try writeCurrentPointer()
         } else if let backup,
                   let backupIdentity = journal.backupIdentity,
-                  (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameDirectoryIdentity($0, backupIdentity) }) == true,
+                  (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameObjectIdentity($0, backupIdentity) }) == true,
                   verifyRecord(in: backup), verifyFiles(in: backup) {
             if fileSystem.itemExists(at: installedDirectory) {
                 // A name collision after an interrupted promotion is not safe
@@ -2501,8 +2349,10 @@ struct GTELargeModelInstaller: Sendable {
         if let backup,
            let backupIdentity = journal.backupIdentity,
            fileSystem.itemExists(at: backup),
-           (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameDirectoryIdentity($0, backupIdentity) }) == true {
-            try fileSystem.removeItem(at: backup, expectedDirectoryIdentity: backupIdentity)
+           (try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700)).map({ GTELargeSecurePath.sameObjectIdentity($0, backupIdentity) }) == true,
+           verifyRecord(in: backup), verifyFiles(in: backup, useCache: false),
+           let currentBackup = try? fileSystem.directoryIdentity(at: backup, requiredPermissions: 0o700) {
+            try fileSystem.removeItem(at: backup, expectedDirectoryIdentity: currentBackup)
         }
         try removeVerifiedPrivateFile(at: promotionJournalURL)
         try recoverCurrentPointerTemporaries()
@@ -2533,12 +2383,12 @@ struct GTELargeModelInstaller: Sendable {
                 continue
             }
             if !currentIsValid {
-                if fileSystem.itemExists(at: currentPointerURL) {
-                    let identity = try fileSystem.fileIdentity(at: currentPointerURL)
-                    try fileSystem.removeItem(at: currentPointerURL, expectedFileIdentity: identity)
-                }
                 let identity = try fileSystem.fileIdentity(at: temporary)
-                try fileSystem.moveItem(at: temporary, to: currentPointerURL, expectedSourceIdentity: identity)
+                try fileSystem.replaceFileAtomically(
+                    at: temporary,
+                    to: currentPointerURL,
+                    expectedSourceIdentity: identity
+                )
                 currentIsValid = true
             } else {
                 let identity = try fileSystem.fileIdentity(at: temporary)
@@ -2781,9 +2631,9 @@ struct GTELargeModelInstaller: Sendable {
         var totalBytes: Int64 = 0
 
         for artifact in artifacts {
-            // Account for every descendant before any quarantine or removal.
-            // The returned root identity binds the later removal to this
-            // descriptor walk rather than a second pathname lookup.
+              // Retire each bounded tree again under a fresh exclusive name.
+              // This makes recovery progress without descriptor-unbound name
+              // removal. The original name is never reused for cleanup.
             let remaining = maximumBytes - totalBytes
             let tree = try fileSystem.privateTree(
                 at: artifact,
@@ -2792,13 +2642,13 @@ struct GTELargeModelInstaller: Sendable {
                 maximumBytes: remaining
             )
             let (next, additionOverflow) = totalBytes.addingReportingOverflow(tree.bytes)
-            guard !additionOverflow, next <= maximumBytes else {
-                throw GTELargeModelInstallError.unsafePath
-            }
-            totalBytes = next
-            try fileSystem.removePrivateTree(at: artifact, tree: tree, maximumDepth: 16)
-        }
-        if !artifacts.isEmpty { try fileSystem.syncDirectory(at: rootDirectory) }
+              guard !additionOverflow, next <= maximumBytes else {
+                  throw GTELargeModelInstallError.unsafePath
+              }
+              totalBytes = next
+              try fileSystem.removePrivateTree(at: artifact, tree: tree, maximumDepth: 16)
+          }
+          if !artifacts.isEmpty { try fileSystem.syncDirectory(at: rootDirectory) }
     }
 
     private func validateQuarantinedArtifacts() throws {

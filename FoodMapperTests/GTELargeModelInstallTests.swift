@@ -761,6 +761,35 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".gte-large-promotion.json").path))
     }
 
+    func testCurrentPointerReplacementFailureKeepsPriorInstallAvailable() async throws {
+        let prior = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await prior.install()
+        XCTAssertEqual(prior.availableDirectory(), prior.installedDirectory)
+
+        let replacementManifest = GTELargeModelManifest(
+            formatVersion: fixtureManifest.formatVersion,
+            repositoryID: fixtureManifest.repositoryID,
+            revision: "fedcba9876543210fedcba9876543210fedcba98",
+            upstreamRepositoryID: fixtureManifest.upstreamRepositoryID,
+            upstreamRevision: fixtureManifest.upstreamRevision,
+            upstreamLicense: fixtureManifest.upstreamLicense,
+            conversion: fixtureManifest.conversion,
+            files: fixtureManifest.files
+        )
+        let replacement = GTELargeModelInstaller(
+            rootDirectory: root,
+            manifest: replacementManifest,
+            fileSystem: FailingPromotionWriteFileSystem(failure: .current),
+            transport: FixtureTransport(files: fixtureFiles)
+        )
+
+        do {
+            _ = try await replacement.install()
+            XCTFail("Expected current-pointer replacement failure")
+        } catch {}
+        XCTAssertEqual(prior.availableDirectory(), prior.installedDirectory)
+    }
+
     func testAvailabilityDoesNotMutateInterruptedInstall() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
@@ -1074,6 +1103,33 @@ final class GTELargeModelInstallTests: XCTestCase {
 
         XCTAssertEqual(identity.device, UInt64(UInt32.max))
         XCTAssertEqual(identity.inode, UInt64.max)
+    }
+
+    func testIdentityRejectsInPlaceChangeNanosecondMutation() {
+        var first = stat()
+        first.st_dev = 7
+        first.st_ino = 11
+        first.st_size = 5
+        first.st_ctimespec.tv_sec = 42
+        first.st_ctimespec.tv_nsec = 1
+        first.st_nlink = 1
+        first.st_mode = S_IFREG | 0o600
+        first.st_uid = getuid()
+        var second = first
+        second.st_ctimespec.tv_nsec = 2
+
+        XCTAssertFalse(GTELargeSecurePath.sameFileIdentity(
+            GTELargeSecurePath.identity(from: first),
+            GTELargeSecurePath.identity(from: second)
+        ))
+    }
+
+    func testDescriptorWalkRejectsParentTraversalComponent() throws {
+        let protected = root.appendingPathComponent("protected", isDirectory: true)
+        try FileManager.default.createDirectory(at: protected, withIntermediateDirectories: true)
+        let traversal = URL(fileURLWithPath: root.path + "/missing/../protected", isDirectory: true)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.openDirectoryDescriptor(at: traversal))
     }
 
     func testPrivateTreeRejectsBlockDeviceWhenTheHostAllowsCreation() throws {
@@ -1432,6 +1488,10 @@ private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchec
         try failIfNeeded(source: source, destination: destination)
         try local.moveItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
     }
+    func replaceFileAtomically(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws {
+        try failIfNeeded(source: source, destination: destination)
+        try local.replaceFileAtomically(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
+    }
     func copyItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity, expectedSize: Int64) throws {
         try local.copyItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity, expectedSize: expectedSize)
     }
@@ -1506,6 +1566,9 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
             throw CocoaError(.fileWriteUnknown)
         }
         try local.moveItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
+    }
+    func replaceFileAtomically(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity) throws {
+        try local.replaceFileAtomically(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity)
     }
     func copyItem(at source: URL, to destination: URL, expectedSourceIdentity: GTELargeFileIdentity, expectedSize: Int64) throws {
         try local.copyItem(at: source, to: destination, expectedSourceIdentity: expectedSourceIdentity, expectedSize: expectedSize)
