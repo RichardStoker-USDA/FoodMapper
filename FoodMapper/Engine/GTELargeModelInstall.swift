@@ -389,7 +389,8 @@ enum GTELargeSecurePath {
             )
         }
         var after = stat()
-        guard fstat(descriptor, &after) == 0, sameObject(expected, after) else {
+        guard fstat(descriptor, &after) == 0,
+              sameIdentity(identity(from: expected), identity(from: after)) else {
             throw GTELargeModelInstallError.unsafePath
         }
     }
