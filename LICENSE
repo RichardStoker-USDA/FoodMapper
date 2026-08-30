@@ -48,31 +48,23 @@ texts are in THIRD_PARTY_NOTICES.
 --------------------------------------------------------------------------------
 
 mlx-swift
-Source: https://github.com/ml-explore/mlx-swift/tree/6ba4827fb82c97d012eec9ab4b2de21f85c3b33d
+Source: https://github.com/ml-explore/mlx-swift/tree/4dccaeda1d83cf8697f235d2786c2d72ad4bb925
 License: MIT License
-License text: https://github.com/ml-explore/mlx-swift/blob/6ba4827fb82c97d012eec9ab4b2de21f85c3b33d/LICENSE
+License text: https://github.com/ml-explore/mlx-swift/blob/4dccaeda1d83cf8697f235d2786c2d72ad4bb925/LICENSE
 
 --------------------------------------------------------------------------------
 
 mlx-swift-lm
-Source: https://github.com/ml-explore/mlx-swift-lm/tree/7e19e09027923d89ac47dd087d9627f610e5a91a
+Source: https://github.com/ml-explore/mlx-swift-lm/tree/360c5052b81cc154b04ee0933597a4ad6db4b8ae
 License: MIT License
-License text: https://github.com/ml-explore/mlx-swift-lm/blob/7e19e09027923d89ac47dd087d9627f610e5a91a/LICENSE
+License text: https://github.com/ml-explore/mlx-swift-lm/blob/360c5052b81cc154b04ee0933597a4ad6db4b8ae/LICENSE
 
 --------------------------------------------------------------------------------
 
 Sparkle
-Source: https://github.com/sparkle-project/Sparkle/tree/ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a
+Source: https://github.com/sparkle-project/Sparkle/tree/21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2
 License: MIT License
-License text: https://github.com/sparkle-project/Sparkle/blob/ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a/LICENSE
-
---------------------------------------------------------------------------------
-
-swift-asn1
-Source: https://github.com/apple/swift-asn1/tree/a9a5efd40eaf558a2bcd48d64b1d1646be686008
-License: Apache License 2.0
-License text: https://github.com/apple/swift-asn1/blob/a9a5efd40eaf558a2bcd48d64b1d1646be686008/LICENSE.txt
-Package notice: THIRD_PARTY_NOTICES, SwiftASN1 NOTICE
+License text: https://github.com/sparkle-project/Sparkle/blob/21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2/LICENSE
 
 --------------------------------------------------------------------------------
 
@@ -80,14 +72,6 @@ swift-collections
 Source: https://github.com/apple/swift-collections/tree/7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e
 License: Apache License 2.0 with Runtime Library Exception
 License text: https://github.com/apple/swift-collections/blob/7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e/LICENSE.txt
-
---------------------------------------------------------------------------------
-
-swift-crypto
-Source: https://github.com/apple/swift-crypto/tree/47d3869a7291f085c1fb9fb1e6d3b97a793f45c6
-License: Apache License 2.0
-License text: https://github.com/apple/swift-crypto/blob/47d3869a7291f085c1fb9fb1e6d3b97a793f45c6/LICENSE.txt
-Package notice: THIRD_PARTY_NOTICES, SwiftCrypto NOTICE
 
 --------------------------------------------------------------------------------
 
@@ -106,16 +90,9 @@ License text: https://github.com/apple/swift-numerics/blob/0c0290ff6b24942dadb83
 --------------------------------------------------------------------------------
 
 swift-transformers
-Source: https://github.com/huggingface/swift-transformers/tree/150169bfba0889c229a2ce7494cf8949f18e6906
+Source: https://github.com/huggingface/swift-transformers/tree/573e5c9036c2f136b3a8a071da8e8907322403d0
 License: Apache License 2.0
-License text: https://github.com/huggingface/swift-transformers/blob/150169bfba0889c229a2ce7494cf8949f18e6906/LICENSE
-
---------------------------------------------------------------------------------
-
-yyjson
-Source: https://github.com/ibireme/yyjson/tree/8b4a38dc994a110abaec8a400615567bd996105f
-License: MIT License
-License text: https://github.com/ibireme/yyjson/blob/8b4a38dc994a110abaec8a400615567bd996105f/LICENSE
+License text: https://github.com/huggingface/swift-transformers/blob/573e5c9036c2f136b3a8a071da8e8907322403d0/LICENSE
 
 ================================================================================
 
