@@ -123,6 +123,7 @@ enum FoodMapperStorage {
     struct Configuration {
         let applicationSupportURL: URL
         let applicationSupportIdentity: DirectoryIdentity
+        let processTemporaryRootURL: URL
         let temporaryURL: URL
         let defaults: UserDefaults
         let credentialStore: CredentialStore
@@ -132,13 +133,14 @@ enum FoodMapperStorage {
 
     private struct BootstrapInput {
         let applicationSupportURL: URL
-        let temporaryRootURL: URL
+        let processTemporaryRootURL: URL
         let temporaryComponents: [String]
         let defaults: UserDefaults
         let credentialStore: CredentialStore
         let isIsolatedTestStorage: Bool
         let defaultsSuite: String?
         let beforePrepare: (() throws -> Void)?
+        let testIdentifier: String?
     }
 
     private static let storageBootstrap = FoodMapperStorageBootstrap<Configuration> {
@@ -164,7 +166,7 @@ enum FoodMapperStorage {
 
     static var applicationSupportURL: URL { configuration.applicationSupportURL }
     static var temporaryURL: URL { configuration.temporaryURL }
-    static var processTemporaryRootURL: URL { configuration.temporaryURL }
+    static var processTemporaryRootURL: URL { configuration.processTemporaryRootURL }
     static var defaults: UserDefaults { configuration.defaults }
     static var credentialStore: CredentialStore { configuration.credentialStore }
     static var isIsolatedTestStorage: Bool { configuration.isIsolatedTestStorage }
@@ -220,19 +222,17 @@ enum FoodMapperStorage {
             let applicationSupportURL = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
             ).first!.resolvingSymlinksInPath().standardizedFileURL
-            let temporaryRootURL = FileManager.default.temporaryDirectory
-                .resolvingSymlinksInPath()
-                .standardizedFileURL
             return try makeConfiguration(
                 BootstrapInput(
                     applicationSupportURL: applicationSupportURL,
-                    temporaryRootURL: temporaryRootURL,
+                    processTemporaryRootURL: FileManager.default.temporaryDirectory,
                     temporaryComponents: ["FoodMapper"],
                     defaults: .standard,
                     credentialStore: KeychainCredentialStore(),
                     isIsolatedTestStorage: false,
                     defaultsSuite: nil,
-                    beforePrepare: nil
+                    beforePrepare: nil,
+                    testIdentifier: nil
                 )
             )
         }
@@ -252,23 +252,25 @@ enum FoodMapperStorage {
         }
         let root = URL(fileURLWithPath: canonicalRootPath, isDirectory: true)
         try validateTestRoot(root, requireDirectPath: false)
+        let identifier = try testIdentifier(for: testConfiguration.suite)
         return try makeConfiguration(
             BootstrapInput(
                 applicationSupportURL: root,
-                temporaryRootURL: root,
-                temporaryComponents: ["Temporary"],
+                processTemporaryRootURL: FileManager.default.temporaryDirectory,
+                temporaryComponents: ["FoodMapper"],
                 defaults: defaults,
                 credentialStore: InMemoryCredentialStore(),
                 isIsolatedTestStorage: true,
                 defaultsSuite: testConfiguration.suite,
-                beforePrepare: nil
+                beforePrepare: nil,
+                testIdentifier: identifier
             )
         )
     }
 
     static func bootstrapForTesting(
         applicationSupportURL: URL,
-        temporaryRootURL: URL,
+        processTemporaryRootURL: URL,
         temporaryComponents: [String] = ["FoodMapper"],
         defaults: UserDefaults,
         beforePrepare: (() throws -> Void)? = nil
@@ -277,21 +279,26 @@ enum FoodMapperStorage {
             try makeConfiguration(
                 BootstrapInput(
                     applicationSupportURL: applicationSupportURL,
-                    temporaryRootURL: temporaryRootURL,
+                    processTemporaryRootURL: processTemporaryRootURL,
                     temporaryComponents: temporaryComponents,
                     defaults: defaults,
                     credentialStore: InMemoryCredentialStore(),
                     isIsolatedTestStorage: true,
                     defaultsSuite: nil,
-                    beforePrepare: beforePrepare
+                    beforePrepare: beforePrepare,
+                    testIdentifier: nil
                 )
             )
         }
     }
 
     private static func makeConfiguration(_ input: BootstrapInput) throws -> Configuration {
+        let processTemporaryRoot = try validatedProcessTemporaryRoot(
+            input.processTemporaryRootURL,
+            testIdentifier: input.testIdentifier
+        )
         guard let applicationSupportIdentity = directoryIdentity(at: input.applicationSupportURL),
-              let temporaryRootIdentity = directoryIdentity(at: input.temporaryRootURL) else {
+              let temporaryRootIdentity = directoryIdentity(at: processTemporaryRoot) else {
             throw StorageError.invalidPath
         }
         try input.beforePrepare?()
@@ -301,12 +308,13 @@ enum FoodMapperStorage {
         )
         let temporaryURL = try createPrivateDirectory(
             input.temporaryComponents,
-            under: input.temporaryRootURL,
+            under: processTemporaryRoot,
             expectedRootIdentity: temporaryRootIdentity
         )
         return Configuration(
             applicationSupportURL: input.applicationSupportURL,
             applicationSupportIdentity: applicationSupportIdentity,
+            processTemporaryRootURL: processTemporaryRoot,
             temporaryURL: temporaryURL,
             defaults: input.defaults,
             credentialStore: input.credentialStore,
@@ -329,6 +337,13 @@ enum FoodMapperStorage {
         guard suite.hasPrefix(prefix) else { return nil }
         let identifier = String(suite.dropFirst(prefix.count))
         return isCanonicalUUID(identifier) ? identifier : nil
+    }
+
+    private static func testIdentifier(for suite: String) throws -> String {
+        guard let identifier = testSuiteIdentifier(suite) else {
+            throw StorageError.invalidTestConfiguration
+        }
+        return identifier
     }
 
     static func expectedTestConfiguration(
@@ -543,6 +558,50 @@ enum FoodMapperStorage {
               (info.st_mode & 0o777) == 0o700 else {
             throw StorageError.invalidTestConfiguration
         }
+    }
+
+    private static func validatedProcessTemporaryRoot(
+        _ suppliedRoot: URL,
+        testIdentifier: String?
+    ) throws -> URL {
+        guard suppliedRoot.isFileURL,
+              suppliedRoot.host == nil || suppliedRoot.host?.isEmpty == true else {
+            throw processTemporaryRootError(testIdentifier: testIdentifier)
+        }
+        var suppliedInfo = stat()
+        guard lstat(suppliedRoot.path, &suppliedInfo) == 0,
+              (suppliedInfo.st_mode & S_IFMT) == S_IFDIR,
+              let canonicalPath = canonicalExistingPath(suppliedRoot.path) else {
+            throw processTemporaryRootError(testIdentifier: testIdentifier)
+        }
+        let root = URL(fileURLWithPath: canonicalPath, isDirectory: true)
+        var info = stat()
+        guard lstat(root.path, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid(),
+              (info.st_mode & 0o777) == 0o700 else {
+            throw processTemporaryRootError(testIdentifier: testIdentifier)
+        }
+
+        if let testIdentifier {
+            let derivedRoot = URL(
+                fileURLWithPath: "/private/tmp/foodmapper-derived-data-\(testIdentifier)",
+                isDirectory: true
+            )
+            try validateTestRoot(derivedRoot, requireDirectPath: true)
+            guard isStrictChild(root.path, of: derivedRoot.path) else {
+                throw StorageError.invalidTestConfiguration
+            }
+        }
+        return root
+    }
+
+    private static func processTemporaryRootError(testIdentifier: String?) -> StorageError {
+        testIdentifier == nil ? .invalidPath : .invalidTestConfiguration
+    }
+
+    private static func isStrictChild(_ child: String, of parent: String) -> Bool {
+        child.hasPrefix(parent.hasSuffix("/") ? parent : parent + "/")
     }
 
     private static func pathsOverlap(_ left: String, _ right: String) -> Bool {

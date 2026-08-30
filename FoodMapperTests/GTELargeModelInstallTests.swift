@@ -8,7 +8,8 @@ final class GTELargeModelInstallTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        try FoodMapperStorage.bootstrap()
+        root = FoodMapperStorage.temporaryURL
             .appendingPathComponent("foodmapper-gte-install-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
@@ -213,8 +214,7 @@ final class GTELargeModelInstallTests: XCTestCase {
     }
 
     func testSymlinkedInstallRootAndFileAreUnavailable() async throws {
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("foodmapper-gte-target-\(UUID().uuidString)", isDirectory: true)
+        let target = root.appendingPathComponent("symlink-target", isDirectory: true)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: target) }
         let linkedRoot = root.appendingPathComponent("linked", isDirectory: true)
@@ -235,8 +235,7 @@ final class GTELargeModelInstallTests: XCTestCase {
     }
 
     func testSymlinkedAncestorAndRelaxedPermissionsAreUnavailable() async throws {
-        let target = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            .appendingPathComponent("foodmapper-gte-ancestor-target-\(UUID().uuidString)", isDirectory: true)
+        let target = root.appendingPathComponent("ancestor-target", isDirectory: true)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: target) }
         let link = root.appendingPathComponent("ancestor")
@@ -652,9 +651,7 @@ final class GTELargeModelInstallTests: XCTestCase {
     }
 
     func testURLSessionTemporaryPathCopiesThroughRegularDescriptor() throws {
-        // URLSession stores delegate downloads below the per-user `/var/folders`
-        // temporary root on macOS. That path traverses system-managed aliases.
-        let source = FileManager.default.temporaryDirectory
+        let source = FoodMapperStorage.processTemporaryRootURL
             .appendingPathComponent("foodmapper-urlsession-\(UUID().uuidString)")
         let destination = root.appendingPathComponent("payload")
         let data = Data("download payload".utf8)
@@ -668,17 +665,21 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
     }
 
-    func testURLSessionTemporaryPathRejectsTraversalAliasesAndForeignRoots() throws {
-        let temporaryRoot = FileManager.default.temporaryDirectory
-        let foreign = root.appendingPathComponent("foreign")
+    func testURLSessionTemporaryPathRejectsTraversalSymlinksAndCrossRootFiles() throws {
+        let temporaryRoot = FoodMapperStorage.processTemporaryRootURL
+        let foreign = FoodMapperStorage.applicationSupportURL
+            .appendingPathComponent("urlsession-cross-root-\(UUID().uuidString)")
         try Data("x".utf8).write(to: foreign)
+        defer { try? FileManager.default.removeItem(at: foreign) }
         XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(foreign))
 
         let traversal = URL(string: "file://\(temporaryRoot.path)/%2E%2E/foreign")!
         XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(traversal))
 
-        let outside = root.appendingPathComponent("outside")
+        let outside = FoodMapperStorage.applicationSupportURL
+            .appendingPathComponent("urlsession-symlink-target-\(UUID().uuidString)")
         try Data("x".utf8).write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
         let link = temporaryRoot.appendingPathComponent("foodmapper-temp-link-\(UUID().uuidString)")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
         defer { try? FileManager.default.removeItem(at: link) }

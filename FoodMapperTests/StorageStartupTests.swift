@@ -39,7 +39,7 @@ final class StorageStartupTests: XCTestCase {
 
         let bootstrap = FoodMapperStorage.bootstrapForTesting(
             applicationSupportURL: root,
-            temporaryRootURL: temporaryRoot,
+            processTemporaryRootURL: temporaryRoot,
             defaults: try makeDefaults()
         )
 
@@ -53,6 +53,7 @@ final class StorageStartupTests: XCTestCase {
         XCTAssertEqual(unlink(blocked.path), 0)
         let configuration = try bootstrap.bootstrap()
         XCTAssertEqual(configuration.applicationSupportURL, root)
+        XCTAssertEqual(configuration.processTemporaryRootURL, temporaryRoot)
         XCTAssertEqual(configuration.temporaryURL, temporaryRoot.appendingPathComponent("FoodMapper"))
         XCTAssertNotNil(bootstrap.valueIfReady)
     }
@@ -70,7 +71,7 @@ final class StorageStartupTests: XCTestCase {
 
         let bootstrap = FoodMapperStorage.bootstrapForTesting(
             applicationSupportURL: root,
-            temporaryRootURL: temporaryRoot,
+            processTemporaryRootURL: temporaryRoot,
             defaults: try makeDefaults()
         )
 
@@ -81,6 +82,34 @@ final class StorageStartupTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: blocked.path), outside.path)
     }
 
+    func testProcessTemporaryRootSymlinkRemainsUntouchedAndRetryRevalidates() throws {
+        let root = try makeScratchDirectory()
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        let processRoot = root.appendingPathComponent("process", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outside.path)
+        try FileManager.default.createSymbolicLink(at: processRoot, withDestinationURL: outside)
+
+        let bootstrap = FoodMapperStorage.bootstrapForTesting(
+            applicationSupportURL: root,
+            processTemporaryRootURL: processRoot,
+            defaults: try makeDefaults()
+        )
+
+        XCTAssertThrowsError(try bootstrap.bootstrap())
+        var before = stat()
+        XCTAssertEqual(lstat(processRoot.path, &before), 0)
+        XCTAssertEqual(before.st_mode & S_IFMT, S_IFLNK)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("FoodMapper").path))
+
+        try FileManager.default.removeItem(at: processRoot)
+        try FileManager.default.createDirectory(at: processRoot, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: processRoot.path)
+        let configuration = try bootstrap.bootstrap()
+        XCTAssertEqual(configuration.processTemporaryRootURL, processRoot)
+        XCTAssertEqual(configuration.temporaryURL, processRoot.appendingPathComponent("FoodMapper"))
+    }
+
     func testOwnedLegacyDirectoriesMigrateWithoutChangingContents() throws {
         let root = try makeScratchDirectory()
         let temporaryRoot = root.appendingPathComponent("temporary", isDirectory: true)
@@ -89,6 +118,7 @@ final class StorageStartupTests: XCTestCase {
             .appendingPathComponent("Sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: temporaryRoot.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sessions.path)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
@@ -100,7 +130,7 @@ final class StorageStartupTests: XCTestCase {
 
         let bootstrap = FoodMapperStorage.bootstrapForTesting(
             applicationSupportURL: root,
-            temporaryRootURL: temporaryRoot,
+            processTemporaryRootURL: temporaryRoot,
             defaults: try makeDefaults()
         )
         _ = try bootstrap.bootstrap()
@@ -120,10 +150,11 @@ final class StorageStartupTests: XCTestCase {
         let displaced = parent.appendingPathComponent("displaced", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: temporaryRoot.path)
 
         let bootstrap = FoodMapperStorage.bootstrapForTesting(
             applicationSupportURL: root,
-            temporaryRootURL: temporaryRoot,
+            processTemporaryRootURL: temporaryRoot,
             defaults: try makeDefaults(),
             beforePrepare: {
                 try FileManager.default.moveItem(at: root, to: displaced)

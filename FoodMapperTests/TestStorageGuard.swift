@@ -25,24 +25,39 @@ final class TestStorageGuard: XCTestCase {
         )
         let expectedSuite = "app.foodmapper.FoodMapper.tests.\(identifier)"
         let canonicalRoot = expectedRoot
+        let suppliedProcessTemporaryRoot = try XCTUnwrap(environment["TMPDIR"])
+        let expectedProcessTemporaryRoot = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let expectedDerivedDataRoot = URL(
+            fileURLWithPath: "/private/tmp/foodmapper-derived-data-\(identifier)",
+            isDirectory: true
+        )
 
         XCTAssertTrue(FoodMapperStorage.isIsolatedTestStorage)
         XCTAssertTrue(FoodMapperStorage.usesInMemoryCredentials)
         XCTAssertEqual(suppliedRoot, expectedRoot.path)
         XCTAssertEqual(FoodMapperStorage.applicationSupportURL, canonicalRoot)
         XCTAssertEqual(
+            URL(fileURLWithPath: suppliedProcessTemporaryRoot, isDirectory: true)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL,
+            expectedProcessTemporaryRoot
+        )
+        XCTAssertEqual(
             FoodMapperStorage.temporaryURL.standardizedFileURL,
-            canonicalRoot.appendingPathComponent("Temporary", isDirectory: true).standardizedFileURL
+            expectedProcessTemporaryRoot.appendingPathComponent("FoodMapper", isDirectory: true).standardizedFileURL
         )
         XCTAssertEqual(
             FoodMapperStorage.processTemporaryRootURL.standardizedFileURL,
-            FoodMapperStorage.temporaryURL.standardizedFileURL
+            expectedProcessTemporaryRoot
         )
         XCTAssertEqual(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"], expectedSuite)
         XCTAssertEqual(FoodMapperStorage.defaultsSuite, expectedSuite)
         XCTAssertFalse(FoodMapperStorage.defaults === UserDefaults.standard)
         XCTAssertNotEqual(FoodMapperStorage.applicationSupportURL, FoodMapperStorage.liveApplicationSupportURL)
-        XCTAssertTrue(FoodMapperStorage.temporaryURL.path.hasPrefix(canonicalRoot.path + "/"))
+        XCTAssertTrue(FoodMapperStorage.processTemporaryRootURL.path.hasPrefix(expectedDerivedDataRoot.path + "/"))
+        XCTAssertTrue(FoodMapperStorage.temporaryURL.path.hasPrefix(expectedProcessTemporaryRoot.path + "/"))
 
         var info = stat()
         XCTAssertEqual(lstat(canonicalRoot.path, &info), 0)
