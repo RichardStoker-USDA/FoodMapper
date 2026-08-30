@@ -147,10 +147,14 @@ extension AppState {
     /// Read first N non-empty lines by streaming only the first 8KB.
     /// Fast for any size file (critical for large custom CSVs).
     func readFirstLinesStreaming(from url: URL, maxLines: Int) -> [String]? {
-        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+        guard let descriptor = try? SecureFileAccess.openRegularFile(url) else {
             return nil
         }
-        defer { try? fileHandle.close() }
+        let fileHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        defer {
+            try? fileHandle.close()
+            close(descriptor)
+        }
 
         guard let data = try? fileHandle.read(upToCount: 8192),
               let chunk = String(data: data, encoding: .utf8) else {
@@ -609,10 +613,16 @@ extension AppState {
     /// Used during embedding and for migrating legacy databases.
     nonisolated func generateDatabaseMetadata(from csvPath: String, textColumn: String) -> (sampleValues: [String]?, columnNames: [String]?) {
         let url = URL(fileURLWithPath: csvPath)
-        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+        guard let descriptor = try? SecureFileAccess.openRegularFile(
+            url, maximumSize: Int64(CustomDatabaseValidator.maximumImportBytes)
+        ) else {
             return (nil, nil)
         }
-        defer { try? fileHandle.close() }
+        let fileHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        defer {
+            try? fileHandle.close()
+            close(descriptor)
+        }
 
         guard let data = try? fileHandle.read(upToCount: 8192),
               let chunk = String(data: data, encoding: .utf8) else {

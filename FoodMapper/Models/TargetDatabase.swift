@@ -449,7 +449,11 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     var csvURL: URL? {
         let stored = storedCsvURL
-        return FileManager.default.fileExists(atPath: stored.path) ? stored : nil
+        guard let descriptor = try? SecureFileAccess.openRegularFile(stored, under: cacheDirectory) else {
+            return nil
+        }
+        close(descriptor)
+        return stored
     }
 
     var embeddingsURL: URL? {
