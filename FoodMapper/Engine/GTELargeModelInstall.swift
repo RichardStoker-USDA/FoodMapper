@@ -472,7 +472,7 @@ enum GTELargeSecurePath {
     /// URLSession owns its download temporary directory. Canonicalize the
     /// delegate location to the process temporary root before opening it, then
     /// copy only from the checked regular-file descriptor.
-    static func copyURLSessionDownloadPayload(from source: URL, to destination: URL) throws {
+    static func copyURLSessionDownloadPayload(from source: URL, to destination: URL, expectedSize: Int64) throws {
         let canonicalSource = try validatedURLSessionTemporaryFile(source)
         try withParentDescriptor(of: canonicalSource) { parent, name in
             let sourceDescriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
@@ -484,7 +484,8 @@ enum GTELargeSecurePath {
                   sourceStatus.st_uid == getuid(), sourceStatus.st_nlink == 1 else {
                 throw GTELargeModelInstallError.unsafePath
             }
-            try copyOpenFileDescriptor(sourceDescriptor, sourceStatus: sourceStatus, to: destination)
+            guard sourceStatus.st_size == expectedSize else { throw GTELargeModelInstallError.downloadTooLarge }
+            try copyOpenFileDescriptor(sourceDescriptor, sourceStatus: sourceStatus, to: destination, maximumSize: expectedSize)
         }
     }
 
@@ -533,7 +534,7 @@ enum GTELargeSecurePath {
         return child.path.hasPrefix(parentPath)
     }
 
-    private static func copyOpenFileDescriptor(_ sourceDescriptor: Int32, sourceStatus: stat, to destination: URL) throws {
+    private static func copyOpenFileDescriptor(_ sourceDescriptor: Int32, sourceStatus: stat, to destination: URL, maximumSize: Int64 = .max) throws {
         try withParentDescriptor(of: destination) { destinationParent, destinationName in
             let destinationDescriptor = destinationName.withCString {
                 openat(destinationParent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, privateFileMode)
@@ -541,10 +542,14 @@ enum GTELargeSecurePath {
             guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
             defer { close(destinationDescriptor) }
             var buffer = [UInt8](repeating: 0, count: 1_048_576)
+            var copied: Int64 = 0
             while true {
                 let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
                 if count == 0 { break }
                 guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                let (next, overflow) = copied.addingReportingOverflow(Int64(count))
+                guard !overflow, next <= maximumSize else { throw GTELargeModelInstallError.downloadTooLarge }
+                copied = next
                 var offset = 0
                 while offset < count {
                     let written = Darwin.write(destinationDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
@@ -1086,7 +1091,7 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
         }
 
         do {
-            try GTELargeSecurePath.copyURLSessionDownloadPayload(from: location, to: destination)
+            try GTELargeSecurePath.copyURLSessionDownloadPayload(from: location, to: destination, expectedSize: expectedSize)
             finish(session: session, result: .success(()))
         } catch {
             finish(session: session, result: .failure(error))

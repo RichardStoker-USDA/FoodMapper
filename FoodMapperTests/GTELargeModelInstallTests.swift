@@ -31,7 +31,7 @@ final class GTELargeModelInstallTests: XCTestCase {
 
     func testProductionManifestPinsRevisionSizesAndHashes() {
         let manifest = GTELargeModelManifest.current
-        XCTAssertEqual(manifest.revision, "0b7a78872ae6fd502fe2db3273b1b3e065a3d9db")
+        XCTAssertEqual(manifest.revision, "200d1bf79e6a152736fe1517703d0079a0bd16fa")
         XCTAssertEqual(manifest.upstreamRepositoryID, "thenlper/gte-large")
         XCTAssertEqual(manifest.upstreamRevision, "4bef63f39fcc5e2d6b0aae83089f307af4970164")
         XCTAssertEqual(manifest.upstreamLicense, "MIT")
@@ -701,14 +701,26 @@ final class GTELargeModelInstallTests: XCTestCase {
         try data.write(to: source)
         defer { try? FileManager.default.removeItem(at: source) }
 
-        try GTELargeSecurePath.copyURLSessionDownloadPayload(from: source, to: destination)
+        try GTELargeSecurePath.copyURLSessionDownloadPayload(from: source, to: destination, expectedSize: Int64(data.count))
 
         XCTAssertEqual(try Data(contentsOf: destination), data)
         let mode = try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
     }
 
-    func testURLSessionTemporaryPathRejectsTraversalSymlinksAndCrossRootFiles() throws {
+    func testURLSessionTemporaryPathRejectsOversizedPayload() throws {
+        let source = FoodMapperStorage.processTemporaryRootURL
+            .appendingPathComponent("foodmapper-oversized-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: source) }
+        try Data(repeating: 1, count: 16).write(to: source)
+        XCTAssertThrowsError(try GTELargeSecurePath.copyURLSessionDownloadPayload(
+            from: source,
+            to: root.appendingPathComponent("oversized"),
+            expectedSize: 15
+        ))
+    }
+
+    func testURLSessionTemporaryPathRejectsTraversalAliasesAndForeignRoots() throws {
         let temporaryRoot = FoodMapperStorage.processTemporaryRootURL
         let foreign = FoodMapperStorage.applicationSupportURL
             .appendingPathComponent("urlsession-cross-root-\(UUID().uuidString)")
