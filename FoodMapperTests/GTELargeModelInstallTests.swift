@@ -297,6 +297,27 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
     }
 
+    func testRecoveryPromotesExactCurrentPointerTemporary() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let pointer = root.appendingPathComponent("current.json")
+        try FileManager.default.removeItem(at: pointer)
+        let temporary = root.appendingPathComponent(".gte-large-current-\(UUID().uuidString)")
+        let value = GTELargeInstallPointer(
+            schema: 1,
+            directoryName: fixtureManifest.installationDirectoryName,
+            record: GTELargeModelInstallRecord(manifest: fixtureManifest)
+        )
+        try JSONEncoder().encode(value).write(to: temporary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pointer.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+    }
+
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
         try writeLegacyFixture()
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
@@ -351,6 +372,21 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("config.json").path))
         let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 0)
+    }
+
+    func testConcurrentLegacyMigrationsPublishOneVerifiedInstall() async throws {
+        try writeLegacyFixture()
+        let transport = FixtureTransport(files: fixtureFiles)
+        let installer = makeInstaller(transport: transport)
+
+        async let first = installer.install()
+        async let second = installer.install()
+        let directories = try await [first, second]
+        let requestCount = await transport.requestCount
+
+        XCTAssertEqual(directories, [installer.installedDirectory, installer.installedDirectory])
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
         XCTAssertEqual(requestCount, 0)
     }
 

@@ -772,7 +772,11 @@ private struct HelpGettingStartedContent: View {
         // Steps
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                HelpStep(number: 1, title: "Download a model", description: appState.isAdvancedMode ? "On first launch, FoodMapper prompts you to download GTE-Large (640 MB). Additional models are available in Settings > Models for experimental pipelines." : "On first launch, FoodMapper prompts you to download GTE-Large (640 MB).")
+<<<<<<< HEAD
+                HelpStep(number: 1, title: "Download a model", description: appState.isAdvancedMode ? "On first launch, FoodMapper prompts you to download GTE-Large (640 MiB). Additional models are available in Settings > Models for experimental pipelines." : "On first launch, FoodMapper prompts you to download GTE-Large (640 MiB).")
+=======
+                HelpStep(number: 1, title: "Download a model", description: "On first launch, FoodMapper prompts you to download GTE-Large (640 MiB). Additional models are available in Settings > Models if you want to use Qwen3 pipelines.")
+>>>>>>> a280749 (Harden GTE startup recovery)
 
                 HelpStep(number: 2, title: "Load your data", description: "Drop a CSV or TSV file onto the drop zone, or click to browse. The file needs at least one column with food descriptions.")
 
@@ -1366,12 +1370,19 @@ private struct HelpCustomDatabasesContent: View {
                 HelpItem(title: "Disk Space by Model", content: "Embedding size depends on the model's output dimensions. For a 100,000-item database:")
 
                 VStack(alignment: .leading, spacing: Spacing.xs) {
+<<<<<<< HEAD
                     diskRow("GTE-Large (1024-dim)", "~400 MB")
                     if appState.isAdvancedMode {
                         diskRow("Qwen3-Embedding 0.6B (1024-dim)", "~400 MB")
                         diskRow("Qwen3-Embedding 4B (2560-dim)", "~1 GB")
                         diskRow("Qwen3-Embedding 8B (4096-dim)", "~1.6 GB")
                     }
+=======
+                    diskRow("GTE-Large (1024-dim)", "~640 MiB")
+                    diskRow("Qwen3-Embedding 0.6B (1024-dim)", "~400 MB")
+                    diskRow("Qwen3-Embedding 4B (2560-dim)", "~1 GB")
+                    diskRow("Qwen3-Embedding 8B (4096-dim)", "~1.6 GB")
+>>>>>>> a280749 (Harden GTE startup recovery)
                 }
             }
         }
@@ -1912,7 +1923,11 @@ private struct HelpTroubleshootingContent: View {
 
                 HelpTroubleshootItem(
                     problem: "Model download fails",
-                    solution: appState.isAdvancedMode ? "Check your internet connection and free disk space. If the download fails repeatedly, restart the app and try again." : "Check your internet connection and free disk space. GTE-Large is about 640 MB. If the download fails repeatedly, restart the app and try again."
+<<<<<<< HEAD
+                    solution: appState.isAdvancedMode ? "Check your internet connection and free disk space. If the download fails repeatedly, restart the app and try again." : "Check your internet connection and free disk space. GTE-Large is about 640 MiB. If the download fails repeatedly, restart the app and try again."
+=======
+                    solution: "Check your internet connection. Model sizes range from 351 MB (Qwen3-Embedding 0.6B) to 4.5 GB (Qwen3-Embedding 8B). GTE-Large is about 640 MiB. If the download fails repeatedly, try restarting the app."
+>>>>>>> a280749 (Harden GTE startup recovery)
                 )
 
                 HelpTroubleshootItem(

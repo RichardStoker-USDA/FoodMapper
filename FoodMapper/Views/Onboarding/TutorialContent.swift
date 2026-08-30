@@ -8,7 +8,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 0,
             title: "Download the Embedding Model",
-            body: "FoodMapper needs a 640MB embedding model to match food descriptions. Click \"Download Model\" to get started. This is a one-time download.",
+            body: "FoodMapper needs a 640 MiB embedding model to match food descriptions. Click \"Download Model\" to get started. This is a one-time download.",
             icon: "arrow.down.circle",
             highlightAnchors: ["modelDownloadArea"],
             coachMarkPosition: .below,

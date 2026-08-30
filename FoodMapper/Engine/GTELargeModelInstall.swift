@@ -745,7 +745,7 @@ private actor GTELargeOperationCoordinator {
     }
 }
 
-private struct GTELargeInstallPointer: Codable {
+struct GTELargeInstallPointer: Codable {
     let schema: Int
     let directoryName: String
     let record: GTELargeModelInstallRecord
