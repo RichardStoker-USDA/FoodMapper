@@ -166,6 +166,11 @@ final class AppState: ObservableObject {
     // Deduplicated candidate list for fast override search
     var allUniqueCandidates: [MatchCandidate] = []
 
+    /// Target bytes captured at matching start. This is persisted with the
+    /// session so manual full-target search can reopen the same database after
+    /// a custom database changes or is removed.
+    var activeTargetSnapshot: TargetSnapshotReference?
+
     // Intermediate unsorted filtered results (avoids re-filtering on sort-only changes)
     var cachedUnsortedFilteredResults: [MatchResult] = []
 

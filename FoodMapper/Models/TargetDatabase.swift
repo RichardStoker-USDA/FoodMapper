@@ -310,6 +310,79 @@ enum SecureFileAccess {
         try synchronize(directory, directory: true)
     }
 
+    /// Remove an app-owned directory without following symlinks. Snapshot and
+    /// transaction cleanup use this instead of FileManager recursion so a
+    /// replaced directory entry cannot redirect cleanup outside app storage.
+    static func removePrivateDirectoryTree(_ leaf: String, from directory: URL) throws {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        let parent = try openDirectory(components: pathComponents(for: directory))
+        defer { close(parent) }
+        let child = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard child >= 0 else { throw MatchingError.databaseNotFound }
+        do {
+            try removeDirectoryContents(child)
+            guard unlinkat(parent, leaf, AT_REMOVEDIR) == 0 else {
+                throw MatchingError.databaseNotFound
+            }
+            close(child)
+        } catch {
+            close(child)
+            throw error
+        }
+        try synchronize(directory, directory: true)
+    }
+
+    private static func removeDirectoryContents(_ descriptor: Int32) throws {
+        var directoryInfo = stat()
+        guard fstat(descriptor, &directoryInfo) == 0,
+              (directoryInfo.st_mode & S_IFMT) == S_IFDIR,
+              directoryInfo.st_uid == getuid(),
+              (directoryInfo.st_mode & 0o077) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        let duplicate = dup(descriptor)
+        guard duplicate >= 0, let stream = fdopendir(duplicate) else {
+            if duplicate >= 0 { close(duplicate) }
+            throw MatchingError.databaseNotFound
+        }
+        defer { closedir(stream) }
+        while let entry = readdir(stream) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
+                    String(cString: $0)
+                }
+            }
+            if name == "." || name == ".." { continue }
+            guard safeLeaf(name) else { throw MatchingError.databaseNotFound }
+            var info = stat()
+            guard fstatat(descriptor, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+                throw MatchingError.databaseNotFound
+            }
+            if (info.st_mode & S_IFMT) == S_IFDIR {
+                let child = openat(descriptor, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                guard child >= 0 else { throw MatchingError.databaseNotFound }
+                do {
+                    try removeDirectoryContents(child)
+                    close(child)
+                } catch {
+                    close(child)
+                    throw error
+                }
+                guard unlinkat(descriptor, name, AT_REMOVEDIR) == 0 else {
+                    throw MatchingError.databaseNotFound
+                }
+            } else {
+                guard (info.st_mode & S_IFMT) == S_IFREG,
+                      info.st_nlink == 1,
+                      info.st_uid == getuid(),
+                      (info.st_mode & S_IWOTH) == 0,
+                      unlinkat(descriptor, name, 0) == 0 else {
+                    throw MatchingError.databaseNotFound
+                }
+            }
+        }
+    }
+
     private static func pathComponents(for url: URL) throws -> [String] {
         guard url.isFileURL, url.path.hasPrefix("/") else { throw MatchingError.databaseNotFound }
         let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
@@ -752,11 +825,13 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 enum AnyDatabase: Identifiable, Hashable, Codable {
     case builtIn(BuiltInDatabase)
     case custom(CustomDatabase)
+    case snapshot(TargetSnapshotDatabase)
 
     var id: String {
         switch self {
         case .builtIn(let db): return "builtin_\(db.id)"
         case .custom(let db): return "custom_\(db.id)"
+        case .snapshot(let db): return db.id
         }
     }
 
@@ -764,6 +839,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.displayName
         case .custom(let db): return db.displayName
+        case .snapshot(let db): return db.displayName
         }
     }
 
@@ -771,6 +847,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.itemCount
         case .custom(let db): return db.itemCount
+        case .snapshot(let db): return db.itemCount
         }
     }
 
@@ -778,6 +855,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.csvURL
         case .custom(let db): return db.csvURL
+        case .snapshot(let db): return db.csvURL
         }
     }
 
@@ -785,6 +863,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.textColumn
         case .custom(let db): return db.textColumn
+        case .snapshot(let db): return db.textColumn
         }
     }
 
@@ -792,6 +871,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.idColumn
         case .custom(let db): return db.idColumn
+        case .snapshot(let db): return db.idColumn
         }
     }
 
@@ -799,6 +879,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.columnNames
         case .custom(let db): return db.columnNames
+        case .snapshot(let db): return db.columnNames
         }
     }
 
@@ -836,6 +917,8 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             return FileManager.default.fileExists(atPath: versionedURL.path)
         case .custom(let db):
             return db.hasEmbeddings(for: modelKey)
+        case .snapshot:
+            return false
         }
     }
 
@@ -865,6 +948,8 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             return keys
         case .custom(let db):
             return db.embeddedModelKeys
+        case .snapshot:
+            return []
         }
     }
 }

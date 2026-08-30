@@ -105,6 +105,179 @@ final class CSVParserTests: XCTestCase {
     }
 }
 
+final class TargetSnapshotTests: XCTestCase {
+    override func setUpWithError() throws {
+        try FoodMapperStorage.bootstrap()
+    }
+
+    private func sourceURL(_ content: String) throws -> URL {
+        let url = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-snapshot-\(UUID().uuidString).csv")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return url
+    }
+
+    func testFullTargetSearchFindsBroccoliRowsOutsideRetrievedCandidates() async throws {
+        let source = try sourceURL(
+            "code,description,energy\n" +
+            "72302000,Broccoli soup,44\n" +
+            "72302100,\"Broccoli cheese soup, prepared with milk\",61\n" +
+            "72302100,\"Broccoli cheese soup, prepared with milk\",62\n"
+        )
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source,
+            databaseIdentity: "custom_fndds",
+            displayName: "FNDDS",
+            sourceKind: .custom,
+            textColumn: "description",
+            idColumn: "code",
+            selectedFields: ["energy"],
+            requireSourceOwner: true
+        )
+
+        let results = try await store.search(
+            reference: snapshot.reference,
+            query: "Broccoli cheese soup, prepared with milk"
+        )
+        XCTAssertEqual(results.map(\.kind), [.exactDescription, .exactDescription])
+        XCTAssertEqual(results.prefix(2).map(\.matchID), ["72302100", "72302100"])
+        XCTAssertEqual(results.first?.selection.fields["energy"], "61")
+        XCTAssertEqual(results.first?.selection.snapshotDigest, snapshot.reference.digest)
+    }
+
+    func testSearchRankingNormalizesUnicodeAndKeepsSourceOrder() async throws {
+        let source = try sourceURL(
+            "id,description\n1,Café au lait\n2,cafe beans\n3,iced café au lait\n"
+        )
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "custom_unicode", displayName: "Unicode",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let results = try await store.search(reference: snapshot.reference, query: "CAFE AU LAIT")
+        XCTAssertEqual(results.first?.kind, .exactDescription)
+        XCTAssertEqual(results.first?.matchID, "1")
+        XCTAssertEqual(results.last?.kind, .allTokens)
+        XCTAssertEqual(results.last?.matchID, "3")
+    }
+
+    func testCaptureDeduplicatesByExactSourceDigest() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let first = try await store.capture(
+            sourceURL: source, databaseIdentity: "custom_same", displayName: "Same",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let second = try await store.capture(
+            sourceURL: source, databaseIdentity: "custom_same", displayName: "Same",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        XCTAssertEqual(first.reference.digest, second.reference.digest)
+        XCTAssertEqual(first.manifest.rowCount, 1)
+    }
+
+    func testSnapshotRejectsMalformedRowsAndSymbolicSources() async throws {
+        let malformed = try sourceURL("id,description\n1,Milk,extra\n")
+        let symbolic = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-snapshot-link-\(UUID().uuidString).csv")
+        defer {
+            try? FileManager.default.removeItem(at: malformed)
+            try? FileManager.default.removeItem(at: symbolic)
+        }
+        try FileManager.default.createSymbolicLink(at: symbolic, withDestinationURL: malformed)
+        let store = TargetSnapshotStore()
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.capture(
+                sourceURL: malformed, databaseIdentity: "bad", displayName: "Bad", sourceKind: .custom,
+                textColumn: "description", idColumn: "id", requireSourceOwner: true
+            )
+        }
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.capture(
+                sourceURL: symbolic, databaseIdentity: "link", displayName: "Link", sourceKind: .custom,
+                textColumn: "description", idColumn: "id", requireSourceOwner: true
+            )
+        }
+    }
+
+    func testStaleAndCorruptSnapshotsDoNotReturnRows() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "custom_integrity", displayName: "Integrity",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let snapshotRoot = FoodMapperStorage.privateDirectory(["TargetSnapshots", snapshot.reference.digest])
+        let snapshotSource = snapshotRoot.appendingPathComponent(TargetSnapshotStore.sourceFilename)
+        try "id,description\n1,Changed\n".write(to: snapshotSource, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotSource.path)
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.search(reference: snapshot.reference, query: "milk")
+        }
+        let stale = TargetSnapshotReference(
+            digest: String(repeating: "a", count: 64), databaseIdentity: "missing",
+            displayName: "Missing", sourceKind: .custom
+        )
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.search(reference: stale, query: "milk")
+        }
+    }
+
+    func testLegacySessionDecodesWithoutSnapshot() throws {
+        let payload = """
+        {"id":"00000000-0000-0000-0000-000000000001","inputFileName":"input.csv","databaseName":"Target","threshold":0.5,"totalCount":1,"matchedCount":1,"resultsFilename":"00000000-0000-0000-0000-000000000001.json","date":0}
+        """
+        let session = try JSONDecoder().decode(MatchingSession.self, from: Data(payload.utf8))
+        XCTAssertNil(session.targetSnapshot)
+    }
+
+    func testCancelledCaptureLeavesNoCommittedSnapshot() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let task = Task {
+            try await store.capture(
+                sourceURL: source, databaseIdentity: "cancelled", displayName: "Cancelled",
+                sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+            )
+        }
+        task.cancel()
+        await XCTAssertThrowsErrorAsync {
+            _ = try await task.value
+        }
+    }
+
+    func testCaptureEnforcesConfiguredByteLimit() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "limit-\(UUID().uuidString)"])
+        let store = TargetSnapshotStore(root: root, maximumSourceBytes: 8)
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.capture(
+                sourceURL: source, databaseIdentity: "limited", displayName: "Limited",
+                sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+            )
+        }
+    }
+}
+
+private func XCTAssertThrowsErrorAsync(
+    _ expression: @escaping () async throws -> Void,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        try await expression()
+        XCTFail("Expected an error", file: file, line: line)
+    } catch {}
+}
+
 final class HaikuBatchSubmissionTests: XCTestCase {
     func testV1SkipsSubmissionWhenAllCandidatesAreBelowTheFloor() {
         XCTAssertFalse(HaikuBatchSubmission.shouldSubmit(taskCount: 0))

@@ -274,7 +274,8 @@ extension AppState {
     func setReviewDecision(_ status: ReviewStatus, for resultId: UUID, note: String? = nil,
                            overrideText: String? = nil, overrideID: String? = nil,
                            overrideScore: Double? = nil,
-                           candidateIndex: Int? = nil) {
+                           candidateIndex: Int? = nil,
+                           manualTargetSelection: TargetSnapshotSelection? = nil) {
         // Push previous state to undo stack
         let previous = reviewDecisions[resultId]
         reviewUndoStack.append((resultId, previous))
@@ -289,6 +290,7 @@ extension AppState {
         let finalOverrideScore: Double?
         let finalNote: String?
         let finalCandidateIndex: Int?
+        let finalManualTargetSelection: TargetSnapshotSelection?
 
         if overrideText == nil, overrideID == nil, let existing = previous {
             if status == .accepted {
@@ -298,6 +300,7 @@ extension AppState {
                 finalOverrideScore = nil
                 finalNote = note ?? existing.note
                 finalCandidateIndex = candidateIndex ?? existing.selectedCandidateIndex
+                finalManualTargetSelection = nil
             } else {
                 // Non-accept statuses (rejected, skipped) -- carry forward existing overrides
                 finalOverrideText = existing.overrideMatchText
@@ -305,6 +308,7 @@ extension AppState {
                 finalOverrideScore = overrideScore ?? existing.overrideScore
                 finalNote = note ?? existing.note
                 finalCandidateIndex = candidateIndex ?? existing.selectedCandidateIndex
+                finalManualTargetSelection = existing.manualTargetSelection
             }
         } else {
             finalOverrideText = overrideText
@@ -312,6 +316,7 @@ extension AppState {
             finalOverrideScore = overrideScore
             finalNote = note
             finalCandidateIndex = candidateIndex
+            finalManualTargetSelection = manualTargetSelection
         }
 
         let newDecision = ReviewDecision(
@@ -321,7 +326,8 @@ extension AppState {
             overrideScore: finalOverrideScore,
             note: finalNote,
             reviewedAt: Date(),
-            selectedCandidateIndex: finalCandidateIndex
+            selectedCandidateIndex: finalCandidateIndex,
+            manualTargetSelection: finalManualTargetSelection
         )
         reviewDecisions[resultId] = newDecision
         reviewDecisionVersion += 1
@@ -335,6 +341,19 @@ extension AppState {
         }
 
         saveReviewDecisions()
+    }
+
+    /// Apply a target-row selection from TargetSnapshotStore. The row was not
+    /// scored by the matching pipeline, so no override score is persisted.
+    func setManualTargetSelection(_ selection: TargetSnapshotSelection, for resultId: UUID) {
+        setReviewDecision(
+            .overridden,
+            for: resultId,
+            overrideText: selection.matchText,
+            overrideID: selection.matchID,
+            overrideScore: nil,
+            manualTargetSelection: selection
+        )
     }
 
     /// Undo the last review decision. Returns the result ID that was undone (for selection).

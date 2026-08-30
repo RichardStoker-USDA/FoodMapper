@@ -41,6 +41,7 @@ extension AppState {
         selectedColumn = nil
         results = []
         error = nil
+        activeTargetSnapshot = nil
         showMatchSetup = true
         sidebarSelection = .home
     }
@@ -77,6 +78,7 @@ extension AppState {
         matchingPhase = .loadingDatabase
         results = []
         error = nil
+        activeTargetSnapshot = nil
 
         let inputs = file.values(for: column)
         let totalCount = inputs.count
@@ -91,6 +93,14 @@ extension AppState {
 
         matchingTask = Task { [self] in
             do {
+                // Capture the immutable bytes before the engine opens the target.
+                // The pipeline below reads this snapshot, so session provenance and
+                // manual search refer to the same rows used for matching.
+                let snapshot = try await TargetSnapshotStore.shared.capture(database: database)
+                try Task.checkCancellation()
+                guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
+                self.activeTargetSnapshot = snapshot.reference
+                let matchingDatabase = AnyDatabase.snapshot(snapshot)
                 let engine = try await getOrCreateEngine()
 
                 // Load the correct embedding model via ModelManager (uses selected size)
@@ -136,7 +146,7 @@ extension AppState {
 
                 let matchResults = try await pipeline.match(
                     inputs: inputs,
-                    database: database,
+                    database: matchingDatabase,
                     threshold: threshold,
                     hardwareConfig: hwConfig,
                     instruction: self.resolvedEmbeddingInstruction,

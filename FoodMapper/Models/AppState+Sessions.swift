@@ -28,6 +28,7 @@ extension AppState {
         cachedCategoryCounts.removeAll()
         resultsByID.removeAll()
         allUniqueCandidates.removeAll()
+        activeTargetSnapshot = nil
         reviewUndoStack.removeAll()
         isReviewMode = false
         showInspector = false
@@ -221,7 +222,8 @@ extension AppState {
             selectedColumn: selectedColumn,
             targetTextColumn: selectedDatabase?.textColumn,
             targetIdColumn: selectedDatabase?.idColumn,
-            targetColumnNames: selectedDatabase?.columnNames
+            targetColumnNames: selectedDatabase?.columnNames,
+            targetSnapshot: activeTargetSnapshot
         )
         session.apiTokensUsed = apiTokensUsed
 
@@ -264,7 +266,8 @@ extension AppState {
             selectedColumn: selectedColumn,
             targetTextColumn: selectedDatabase?.textColumn,
             targetIdColumn: selectedDatabase?.idColumn,
-            targetColumnNames: selectedDatabase?.columnNames
+            targetColumnNames: selectedDatabase?.columnNames,
+            targetSnapshot: activeTargetSnapshot
         )
         session.apiTokensUsed = apiTokensUsed
 
@@ -329,7 +332,8 @@ extension AppState {
             selectedColumn: selectedColumn,
             targetTextColumn: selectedDatabase?.textColumn,
             targetIdColumn: selectedDatabase?.idColumn,
-            targetColumnNames: selectedDatabase?.columnNames
+            targetColumnNames: selectedDatabase?.columnNames,
+            targetSnapshot: activeTargetSnapshot
         )
         session.apiTokensUsed = apiTokensUsed
 
@@ -382,6 +386,7 @@ extension AppState {
                     self.results = loadedResults
                     self.threshold = session.threshold
                     self.currentSessionId = session.id
+                    self.activeTargetSnapshot = session.targetSnapshot
 
                     // Restore input file and column selection from session
                     self.inputFile = reloadedInputFile

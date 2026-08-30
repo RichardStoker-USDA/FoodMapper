@@ -78,6 +78,8 @@ enum CSVExporter {
             return result.candidates?.first(where: { $0.matchID == overrideID })
         }()
 
+        let manualFields = useOverride ? decision?.manualTargetSelection?.fields : nil
+
         // Build field values from the resolved source
         return targetColumnNames.map { col in
             if col == targetTextColumn {
@@ -91,6 +93,9 @@ enum CSVExporter {
                 }
                 return result.matchID ?? ""
             } else {
+                if let manualFields {
+                    return manualFields[col] ?? ""
+                }
                 // Additional fields: use override candidate's fields if available
                 if let candidate = overrideCandidate {
                     return candidate.additionalFields?[col] ?? ""
@@ -162,10 +167,11 @@ enum CSVExporter {
                 outputRow.append(escapeField(status, delimiter: delim))
                 // fm_score (use override candidate's score when overridden)
                 let exportScore: Double = {
+                    if decision?.manualTargetSelection != nil { return .nan }
                     if let d = decision, d.status == .overridden, let s = d.overrideScore { return s }
                     return result.score
                 }()
-                outputRow.append(String(format: "%.4f", exportScore))
+                outputRow.append(exportScore.isNaN ? "" : String(format: "%.4f", exportScore))
                 // fm_pipeline
                 outputRow.append(escapeField(pipelineName, delimiter: delim))
                 // fm_note
@@ -251,13 +257,14 @@ enum CSVExporter {
 
                 // Use override candidate's score when overridden
                 let exportScore: Double = {
+                    if decision?.manualTargetSelection != nil { return .nan }
                     if let d = decision, d.status == .overridden, let s = d.overrideScore { return s }
                     return result.score
                 }()
                 var row = [
                     escapeField(result.inputText, delimiter: delim),
                     escapeField(status, delimiter: delim),
-                    String(format: "%.4f", exportScore),
+                    exportScore.isNaN ? "" : String(format: "%.4f", exportScore),
                     escapeField(pipelineName, delimiter: delim),
                     escapeField(decision?.note ?? "", delimiter: delim)
                 ]
@@ -318,6 +325,7 @@ enum CSVExporter {
 
             // Use override candidate's score when overridden
             let exportScore: Double = {
+                if decision?.manualTargetSelection != nil { return .nan }
                 if let d = decision, d.status == .overridden, let s = d.overrideScore { return s }
                 return result.score
             }()
@@ -327,7 +335,7 @@ enum CSVExporter {
                 escapeField(matchText, delimiter: delim),
                 escapeField(matchId, delimiter: delim),
                 escapeField(status, delimiter: delim),
-                String(format: "%.4f", exportScore),
+                exportScore.isNaN ? "" : String(format: "%.4f", exportScore),
                 escapeField(pipelineName, delimiter: delim),
                 escapeField(decision?.note ?? "", delimiter: delim)
             ]
@@ -345,6 +353,13 @@ enum CSVExporter {
                 row.append(contentsOf: Array(repeating: "", count: additionalKeys.count))
             } else {
                 // Use override candidate's fields if available
+                if let manualFields = decision?.manualTargetSelection?.fields {
+                    for key in additionalKeys {
+                        row.append(escapeField(manualFields[key] ?? "", delimiter: delim))
+                    }
+                    csv += row.joined(separator: delimStr) + "\n"
+                    continue
+                }
                 let overrideCandidate: MatchCandidate? = {
                     guard decision?.status == .overridden,
                           let overrideID = decision?.overrideMatchID else { return nil }

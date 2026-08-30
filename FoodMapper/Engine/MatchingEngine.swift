@@ -440,6 +440,8 @@ actor MatchingEngine {
             return try await loadBuiltInDatabaseEntries(for: builtIn)
         case .custom(let custom):
             return try await loadCustomDatabaseEntries(for: custom)
+        case .snapshot(let snapshot):
+            return try await TargetSnapshotStore.shared.loadEntries(for: snapshot)
         }
     }
 
@@ -491,6 +493,14 @@ actor MatchingEngine {
             entries = result.entries
             matrix = result.matrix
             embeddings = result.embeddings
+        case .snapshot(let snapshot):
+            entries = try await TargetSnapshotStore.shared.loadEntries(for: snapshot)
+            matrix = nil
+            embeddings = try await computeAndCacheEmbeddings(
+                for: entries,
+                databaseId: snapshot.id,
+                onProgress: onEmbedProgress
+            ).1
         }
 
         // Store entries and build ID array (preserving order)

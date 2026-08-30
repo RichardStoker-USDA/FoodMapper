@@ -21,6 +21,9 @@ struct MatchingSession: Identifiable, Codable {
     var targetTextColumn: String?
     var targetIdColumn: String?
     var targetColumnNames: [String]?
+    /// Immutable target bytes used by this run. Nil identifies sessions created
+    /// before target snapshots were introduced.
+    var targetSnapshot: TargetSnapshotReference?
 
     // API usage tracking (for Haiku pipeline)
     var apiTokensUsed: Int?
@@ -55,7 +58,8 @@ struct MatchingSession: Identifiable, Codable {
         selectedColumn: String? = nil,
         targetTextColumn: String? = nil,
         targetIdColumn: String? = nil,
-        targetColumnNames: [String]? = nil
+        targetColumnNames: [String]? = nil,
+        targetSnapshot: TargetSnapshotReference? = nil
     ) {
         self.id = id
         self.inputFileName = inputFileName
@@ -72,6 +76,7 @@ struct MatchingSession: Identifiable, Codable {
         self.targetTextColumn = targetTextColumn
         self.targetIdColumn = targetIdColumn
         self.targetColumnNames = targetColumnNames
+        self.targetSnapshot = targetSnapshot
     }
 
     // Coding keys for backwards compatibility (new fields may not exist in old sessions)
@@ -79,7 +84,7 @@ struct MatchingSession: Identifiable, Codable {
         case id, inputFileName, databaseName, threshold, totalCount
         case matchedCount, resultsFilename, date, pipelineName, inputFileId
         case matchingInstruction
-        case selectedColumn, targetTextColumn, targetIdColumn, targetColumnNames
+        case selectedColumn, targetTextColumn, targetIdColumn, targetColumnNames, targetSnapshot
         case apiTokensUsed
         case reviewDecisionsFilename
     }
@@ -107,6 +112,7 @@ struct MatchingSession: Identifiable, Codable {
         targetTextColumn = try container.decodeIfPresent(String.self, forKey: .targetTextColumn)
         targetIdColumn = try container.decodeIfPresent(String.self, forKey: .targetIdColumn)
         targetColumnNames = try container.decodeIfPresent([String].self, forKey: .targetColumnNames)
+        targetSnapshot = try container.decodeIfPresent(TargetSnapshotReference.self, forKey: .targetSnapshot)
         apiTokensUsed = try container.decodeIfPresent(Int.self, forKey: .apiTokensUsed)
         let decodedReviewFilename = try container.decodeIfPresent(String.self, forKey: .reviewDecisionsFilename)
         if let decodedReviewFilename, !Self.isSafePersistedFilename(decodedReviewFilename) {

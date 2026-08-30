@@ -33,6 +33,7 @@
 		B259B4F7194B9E2513F7560F /* MLXEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */; };
 		BBC18C9D20BA1A5DD87D3DA0 /* TargetDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* FoodMapperStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* FoodMapperStorage.swift */; };
+		TSNAP001BUILD00000000001 /* TargetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = TSNAP001FILEREF000000001 /* TargetSnapshot.swift */; };
 		STARTUP001BUILD /* FoodMapperStartupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = STARTUP002FILEREF /* FoodMapperStartupCoordinator.swift */; };
 		STARTUP003BUILD /* StorageStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = STARTUP004FILEREF /* StorageStartupTests.swift */; };
 		C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */; };
@@ -158,6 +159,7 @@
 		250D88C3658300D3F23B0660 /* CSVExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVExporter.swift; sourceTree = "<group>"; };
 		2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetDatabase.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5D /* FoodMapperStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperStorage.swift; sourceTree = "<group>"; };
+		TSNAP001FILEREF000000001 /* TargetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetSnapshot.swift; sourceTree = "<group>"; };
 		STARTUP002FILEREF /* FoodMapperStartupCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperStartupCoordinator.swift; sourceTree = "<group>"; };
 		STARTUP004FILEREF /* StorageStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageStartupTests.swift; sourceTree = "<group>"; };
 		472AA2860CE1405AB6CE4ABD /* DatabaseInfoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseInfoSheet.swift; sourceTree = "<group>"; };
@@ -368,6 +370,7 @@
 				REVDEC002FILEREF /* ReviewDecision.swift */,
 				P10INPUT002FILEREF /* StoredInputFile.swift */,
 				A1B2C3D4E5F60718293A4B5D /* FoodMapperStorage.swift */,
+				TSNAP001FILEREF000000001 /* TargetSnapshot.swift */,
 				2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */,
 				TOUR001FILEREF /* TourData.swift */,
 				TUTORIAL002STATE /* TutorialState.swift */,
@@ -715,6 +718,7 @@
 				MCOVRLAY01BUILD /* MatchCompletionOverlay.swift in Sources */,
 				BBC18C9D20BA1A5DD87D3DA0 /* TargetDatabase.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* FoodMapperStorage.swift in Sources */,
+				TSNAP001BUILD00000000001 /* TargetSnapshot.swift in Sources */,
 				E8C299E88DC8EBA01ED9D0DB /* ThresholdControl.swift in Sources */,
 				WELCOME001AB06705BEB2F2F60 /* WelcomeLandingView.swift in Sources */,
 				CSVDROP01AB06705BEB2F2F60 /* CSVDropDelegate.swift in Sources */,

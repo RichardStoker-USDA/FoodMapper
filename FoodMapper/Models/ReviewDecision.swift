@@ -49,6 +49,9 @@ struct ReviewDecision: Codable {
     var reviewedAt: Date?
     /// Index of the selected candidate (0-based) if the user picked from the candidates list
     var selectedCandidateIndex: Int?
+    /// Full target-row provenance for a manual search selection. This is nil
+    /// for retrieved candidates and for sessions written before snapshots.
+    var manualTargetSelection: TargetSnapshotSelection? = nil
 }
 
 // MARK: - Unified Results Filter
