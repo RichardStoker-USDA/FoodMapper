@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Scrolling showcase for the "Behind the Research" experience.
 /// Replaces the paginated 8-stop tour with a single continuous ScrollView
-/// containing 6 visually distinct sections. Each section fades in on scroll.
+/// containing 7 visually distinct sections. Each section fades in on scroll.
 struct ResearchShowcaseView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.colorScheme) private var colorScheme

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// How the score was produced -- determines interpretation and thresholds
 enum ScoreType: String, Codable, CaseIterable {
-    case cosineSimilarity       // Embedding dot product (0..1)
+    case cosineSimilarity       // Embedding dot product (-1...1)
     case rerankerProbability    // Cross-encoder softmax probability (0..1)
     case llmSelected            // Binary: API LLM chose this match (score is embedding score)
     case generativeSelection    // Local LLM logit-based selection (0..1)
