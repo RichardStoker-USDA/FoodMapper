@@ -160,16 +160,16 @@ extension AppState {
     /// Delete all app data (sessions, custom databases, model, preferences) and relaunch
     func resetAllData() {
         let fm = FileManager.default
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        let foodMapperDir = appSupport.appendingPathComponent("FoodMapper", isDirectory: true)
+        let foodMapperDir = FoodMapperStorage.privateDirectory()
 
         // Delete the entire FoodMapper application support directory
         // (Models, CustomDBs, Sessions, custom_databases.json)
         try? fm.removeItem(at: foodMapperDir)
 
         // Clear UserDefaults
-        if let bundleID = Bundle.main.bundleIdentifier {
-            FoodMapperStorage.defaults.removePersistentDomain(forName: bundleID)
+        let domain = FoodMapperStorage.defaultsSuite ?? Bundle.main.bundleIdentifier
+        if let domain {
+            FoodMapperStorage.defaults.removePersistentDomain(forName: domain)
         }
 
         // Spawn a background shell script that waits for this process to exit,

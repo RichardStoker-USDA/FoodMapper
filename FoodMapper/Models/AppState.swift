@@ -781,10 +781,7 @@ final class AppState: ObservableObject {
 
     // Session storage
     var sessionsDirectory: URL {
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        let dir = appSupport.appendingPathComponent("FoodMapper/Sessions", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        FoodMapperStorage.privateDirectory(["Sessions"])
     }
 
     var sessionsIndexURL: URL {

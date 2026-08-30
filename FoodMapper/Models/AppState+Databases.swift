@@ -194,10 +194,7 @@ extension AppState {
     // MARK: - Custom Database Management
 
     var customDatabasesURL: URL {
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        let dir = appSupport.appendingPathComponent("FoodMapper", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: dir.path)
+        let dir = FoodMapperStorage.privateDirectory()
         return dir.appendingPathComponent("custom_databases.json")
     }
 
@@ -285,8 +282,6 @@ extension AppState {
     private func persistCustomDatabases(_ databases: [CustomDatabase]) throws {
         let data = try JSONEncoder().encode(databases)
         let directory = customDatabasesURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         try SecureFileAccess.validateStorageDirectory(directory)
         let stage = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).\(UUID().uuidString).stage")
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
@@ -417,8 +412,6 @@ extension AppState {
             )
         }
         let directory = destinationURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: directory.path)
         try SecureFileAccess.validateStorageDirectory(directory)
         let stagedURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
@@ -720,12 +713,12 @@ extension AppState {
         guard database.hasSafeStorageIdentifier else { throw MatchingError.databaseNotFound }
         let fileManager = FileManager.default
         let directory = database.cacheDirectory
-        let stagingDirectory = directory.appendingPathComponent(".delete-\(database.id)-\(UUID().uuidString)")
+        let stagingName = ".delete-\(database.id)-\(UUID().uuidString)"
+        let stagingDirectory = directory.appendingPathComponent(stagingName, isDirectory: true)
         let files = database.allCacheFiles + database.allCacheMetadataFiles + [database.legacyCacheURL, database.storedCsvURL]
         let existingFiles = Array(Set(files)).filter { fileManager.fileExists(atPath: $0.path) }
-        try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingDirectory.path)
         try SecureFileAccess.validateStorageDirectory(directory)
+        try SecureFileAccess.createPrivateDirectory(stagingName, in: directory)
         try SecureFileAccess.validateStorageDirectory(stagingDirectory)
         let priorRegistry = try registryData(
             at: customDatabasesURL, in: customDatabasesURL.deletingLastPathComponent()
@@ -782,8 +775,7 @@ extension AppState {
     }
 
     private func recoverInterruptedDatabaseDeletions(registeredIDs: Set<String>?) {
-        let directory = FoodMapperStorage.applicationSupportURL
-            .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        let directory = FoodMapperStorage.privateDirectory(["CustomDBs"])
         guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         for stage in contents where stage.lastPathComponent.hasPrefix(".delete-") {
             let journalURL = stage.appendingPathComponent("journal.json")

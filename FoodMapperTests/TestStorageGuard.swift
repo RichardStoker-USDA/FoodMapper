@@ -7,13 +7,21 @@ final class TestStorageGuard: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         let expectedRoot = try XCTUnwrap(environment["FOODMAPPER_TEST_STORAGE_ROOT"])
         let expectedSuite = try XCTUnwrap(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"])
+        let canonicalRoot = URL(fileURLWithPath: expectedRoot, isDirectory: true)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
 
         XCTAssertTrue(FoodMapperStorage.isIsolatedTestStorage)
         XCTAssertTrue(FoodMapperStorage.usesInMemoryCredentials)
-        XCTAssertEqual(FoodMapperStorage.applicationSupportURL.path, expectedRoot)
+        XCTAssertEqual(FoodMapperStorage.applicationSupportURL, canonicalRoot)
+        XCTAssertEqual(
+            FoodMapperStorage.temporaryURL.standardizedFileURL,
+            canonicalRoot.appendingPathComponent("Temporary", isDirectory: true).standardizedFileURL
+        )
         XCTAssertEqual(FoodMapperStorage.defaultsSuite, expectedSuite)
+        XCTAssertFalse(FoodMapperStorage.defaults === UserDefaults.standard)
         XCTAssertNotEqual(FoodMapperStorage.applicationSupportURL, FoodMapperStorage.liveApplicationSupportURL)
-        XCTAssertTrue(FoodMapperStorage.temporaryURL.path.hasPrefix(expectedRoot + "/"))
+        XCTAssertTrue(FoodMapperStorage.temporaryURL.path.hasPrefix(canonicalRoot.path + "/"))
 
         var info = stat()
         XCTAssertEqual(lstat(expectedRoot, &info), 0)

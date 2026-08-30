@@ -69,10 +69,7 @@ enum ResourceBundle {
             return testingApplicationSupportModelDir
         }
         #endif
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        let directory = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
+        FoodMapperStorage.privateDirectory(["Models"])
     }
 
     /// Verified GTE-Large model directory. A downloaded model must pass the

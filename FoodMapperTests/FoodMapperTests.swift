@@ -2,6 +2,10 @@ import XCTest
 import CryptoKit
 @testable import FoodMapper
 
+private extension XCTestCase {
+    var isolatedApplicationSupport: URL { FoodMapperStorage.applicationSupportURL }
+}
+
 final class CSVParserTests: XCTestCase {
     private let csvURL = URL(fileURLWithPath: "/tmp/foodmapper-parser.csv")
     private let tsvURL = URL(fileURLWithPath: "/tmp/foodmapper-parser.tsv")

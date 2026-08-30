@@ -536,8 +536,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Directory where embedding cache files are stored
     var cacheDirectory: URL {
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        return appSupport.appendingPathComponent("FoodMapper/CustomDBs")
+        FoodMapperStorage.privateDirectory(["CustomDBs"])
     }
 
     private static var invalidStorageURL: URL {
@@ -545,8 +544,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     }
 
     private static var cacheDirectoryURL: URL {
-        FoodMapperStorage.applicationSupportURL
-            .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        FoodMapperStorage.privateDirectory(["CustomDBs"])
     }
 
     /// The sole construction point for custom-database storage paths. Callers
@@ -851,8 +849,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             }
             // Check versioned caches in app support
             guard CustomDatabase.isSafeStorageIdentifier(db.id) else { return keys }
-            let dir = FoodMapperStorage.applicationSupportURL
-                .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+            let dir = FoodMapperStorage.privateDirectory(["CustomDBs"])
             let prefix = "\(db.id)_embeddings_"
             if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
                 for file in files where file.pathExtension == "bin" {

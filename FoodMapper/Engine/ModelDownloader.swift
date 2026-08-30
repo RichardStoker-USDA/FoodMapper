@@ -101,14 +101,11 @@ actor ModelDownloader {
     nonisolated let modelsBase: URL
 
     init() {
-        let appSupport = FoodMapperStorage.applicationSupportURL
         // Set downloadBase to FoodMapper/ (not FoodMapper/Models/).
         // Hub library appends "models/" internally (repo.type.rawValue), which resolves
         // to the existing Models/ directory on case-insensitive APFS.
-        let modelsBase = appSupport
-            .appendingPathComponent("FoodMapper", isDirectory: true)
-        try? FileManager.default.createDirectory(at: modelsBase, withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: modelsBase.path)
+        _ = FoodMapperStorage.privateDirectory(["models"])
+        let modelsBase = FoodMapperStorage.privateDirectory()
 
         self.modelsBase = modelsBase
         self.hubApi = HubApi(downloadBase: modelsBase)
@@ -173,9 +170,9 @@ actor ModelDownloader {
         logger.info("Downloading model: \(repoId)")
 
         let repo = Hub.Repo(id: repoId)
-        let stagingBase = modelsBase.appendingPathComponent(".qwen-download-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: stagingBase, withIntermediateDirectories: false)
-        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: stagingBase.path)
+        let stagingName = ".qwen-download-\(UUID().uuidString)"
+        let stagingBase = modelsBase.appendingPathComponent(stagingName, isDirectory: true)
+        try SecureFileAccess.createPrivateDirectory(stagingName, in: modelsBase)
         defer { try? FileManager.default.removeItem(at: stagingBase) }
 
         let stagingHub = HubApi(downloadBase: stagingBase)
@@ -230,8 +227,20 @@ actor ModelDownloader {
     private func replaceSnapshot(_ stagedURL: URL, at destination: URL) throws {
         let fileManager = FileManager.default
         let parent = destination.deletingLastPathComponent()
-        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: parent.path)
+        let basePath = modelsBase.standardizedFileURL.path
+        let parentPath = parent.standardizedFileURL.path
+        guard parentPath == basePath || parentPath.hasPrefix(basePath + "/") else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        let components = parentPath == basePath ? [] : String(parentPath.dropFirst(basePath.count + 1))
+            .split(separator: "/").map(String.init)
+        guard components.allSatisfy({ !$0.isEmpty && !$0.contains("/") && $0 != "." && $0 != ".." }) else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        let securedParent = FoodMapperStorage.privateDirectory(components)
+        guard securedParent.standardizedFileURL == parent.standardizedFileURL else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
         try SecureFileAccess.validateStorageDirectory(parent)
         let backup = parent.appendingPathComponent(".snapshot-backup-\(UUID().uuidString)", isDirectory: true)
         var movedExisting = false

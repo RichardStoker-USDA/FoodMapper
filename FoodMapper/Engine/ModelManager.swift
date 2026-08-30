@@ -160,9 +160,8 @@ final class ModelManager: ObservableObject {
         // Clean up old double-nested "Models/models/" directory from previous downloadBase bug.
         // Hub library appends "models/" to downloadBase; the old code set downloadBase to
         // FoodMapper/Models/, producing FoodMapper/Models/models/{org}/{repo}/.
-        let appSupport = FoodMapperStorage.applicationSupportURL
-        let oldNestedModels = appSupport
-            .appendingPathComponent("FoodMapper/Models/models", isDirectory: true)
+        let oldNestedModels = FoodMapperStorage.privateDirectory(["Models"])
+            .appendingPathComponent("models", isDirectory: true)
         if FileManager.default.fileExists(atPath: oldNestedModels.path) {
             try? FileManager.default.removeItem(at: oldNestedModels)
             logger.info("Cleaned up old nested Models/models/ directory")
@@ -288,11 +287,7 @@ final class ModelManager: ObservableObject {
     /// Loads custom user-registered models dynamically from a local JSON config
     private func loadCustomRegisteredModels() {
         let fileManager = FileManager.default
-        let appSupport = FoodMapperStorage.applicationSupportURL
-
-        // Ensure parent directories exist
-        let modelsDir = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
-        try? fileManager.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        let modelsDir = FoodMapperStorage.privateDirectory(["Models"])
 
         let customModelsURL = modelsDir.appendingPathComponent("custom_models.json")
 
