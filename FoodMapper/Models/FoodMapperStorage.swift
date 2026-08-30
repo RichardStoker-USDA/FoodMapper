@@ -87,8 +87,14 @@ private final class InMemoryCredentialStore: CredentialStore, @unchecked Sendabl
 }
 
 enum FoodMapperStorage {
+    private struct DirectoryIdentity: Equatable {
+        let device: dev_t
+        let inode: ino_t
+    }
+
     private struct Configuration {
         let applicationSupportURL: URL
+        let applicationSupportIdentity: DirectoryIdentity
         let temporaryURL: URL
         let defaults: UserDefaults
         let credentialStore: CredentialStore
@@ -130,15 +136,19 @@ enum FoodMapperStorage {
     }
 
     private static func makeConfiguration() -> Configuration {
-        guard !testIsolationIsRequired else {
+        guard testIsolationIsRequired else {
             let applicationSupportURL = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
             ).first!.resolvingSymlinksInPath().standardizedFileURL
+            guard let applicationSupportIdentity = directoryIdentity(at: applicationSupportURL) else {
+                preconditionFailure("Application Support is unavailable")
+            }
             let temporaryURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("FoodMapper", isDirectory: true)
             createDirectoryIfNeeded(temporaryURL)
             return Configuration(
                 applicationSupportURL: applicationSupportURL,
+                applicationSupportIdentity: applicationSupportIdentity,
                 temporaryURL: temporaryURL,
                 defaults: .standard,
                 credentialStore: KeychainCredentialStore(),
@@ -162,10 +172,14 @@ enum FoodMapperStorage {
         validateTestRoot(suppliedRoot, requireDirectPath: true)
         let root = suppliedRoot.resolvingSymlinksInPath().standardizedFileURL
         validateTestRoot(root, requireDirectPath: false)
+        guard let applicationSupportIdentity = directoryIdentity(at: root) else {
+            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT changed during validation")
+        }
         let temporaryURL = root.appendingPathComponent("Temporary", isDirectory: true)
         createDirectoryIfNeeded(temporaryURL)
         return Configuration(
             applicationSupportURL: root,
+            applicationSupportIdentity: applicationSupportIdentity,
             temporaryURL: temporaryURL,
             defaults: defaults,
             credentialStore: InMemoryCredentialStore(),
@@ -217,6 +231,13 @@ enum FoodMapperStorage {
         left == right || left.hasPrefix(right + "/") || right.hasPrefix(left + "/")
     }
 
+    private static func directoryIdentity(at url: URL) -> DirectoryIdentity? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR else { return nil }
+        return DirectoryIdentity(device: info.st_dev, inode: info.st_ino)
+    }
+
     private static func createDirectoryIfNeeded(_ url: URL) {
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -228,8 +249,15 @@ enum FoodMapperStorage {
 
     private static func createPrivateDirectory(_ components: [String]) throws -> URL {
         guard components.allSatisfy(isSafeLeaf) else { throw StorageError.invalidPath }
-        let applicationSupport = applicationSupportURL.resolvingSymlinksInPath().standardizedFileURL
+        let applicationSupport = configuration.applicationSupportURL
         let rootDescriptor = try openDirectory(applicationSupport)
+        var rootInfo = stat()
+        guard fstat(rootDescriptor, &rootInfo) == 0,
+              DirectoryIdentity(device: rootInfo.st_dev, inode: rootInfo.st_ino) ==
+                configuration.applicationSupportIdentity else {
+            close(rootDescriptor)
+            throw StorageError.invalidPath
+        }
         var currentDescriptor = rootDescriptor
         defer { close(currentDescriptor) }
         var currentURL = applicationSupport
