@@ -5,6 +5,12 @@ import XCTest
 @testable import FoodMapper
 
 final class GTELargeModelInstallTests: XCTestCase {
+
+    func testCurrentManifestUsesCorrectedMITArtifactRevision() {
+        XCTAssertEqual(GTELargeModelManifest.current.revision, "200d1bf79e6a152736fe1517703d0079a0bd16fa")
+        XCTAssertEqual(GTELargeModelManifest.current.upstreamLicense, "MIT")
+        XCTAssertEqual(GTELargeModelManifest.current.files.first(where: { $0.name == "gte-large.safetensors" })?.sha256, "f917f334b6e38e966519983a6b567a5a86d90065932c780f6b4ad72e6bf3a90b")
+    }
     private var root: URL!
 
     override func setUpWithError() throws {
@@ -480,6 +486,22 @@ final class GTELargeModelInstallTests: XCTestCase {
         try await installer.recoverAtStartup()
 
         XCTAssertTrue(stagingDirectories.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    func testRecoveryRejectsExcessCurrentPointerTemporaries() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        for _ in 0..<33 {
+            let temporary = root.appendingPathComponent(".gte-large-current-\(UUID().uuidString)")
+            try Data("partial".utf8).write(to: temporary)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+        }
+        do {
+            try await installer.recoverAtStartup()
+            XCTFail("Expected bounded temporary recovery to fail")
+        } catch {
+            XCTAssertTrue(error is GTELargeModelInstallError)
+        }
     }
 
     func testLegacyDirectoryWith0755ModeIsUnavailableUntilRecovery() throws {
