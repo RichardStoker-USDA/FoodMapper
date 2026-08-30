@@ -224,11 +224,22 @@ final class TestStorageGuard: XCTestCase {
                 expected
             ),
             (
-                "noncanonical /tmp alias",
+                "valid /tmp marker alias",
                 [
                     "XCTestBundlePath": "/tmp/foodmapper-derived-data-\(identifier)/Build/Products/FoodMapperTests.xctest",
                 ],
-                nil
+                expected
+            ),
+            (
+                "actual wrapper combination through /tmp alias",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestBundlePath": "/tmp/foodmapper-derived-data-\(identifier)/Symroot/Debug/FoodMapper.app/Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCInjectBundle": "/tmp/foodmapper-derived-data-\(identifier)/Symroot/Debug/FoodMapper.app/Contents/MacOS/FoodMapper",
+                    "XCTestConfigurationFilePath": "/tmp/foodmapper-derived-data-\(identifier)/Logs/Test/run.xctestconfiguration",
+                ],
+                expected
             ),
             (
                 "conflicting markers",
@@ -249,6 +260,27 @@ final class TestStorageGuard: XCTestCase {
                 "spoofed nested tmp path",
                 [
                     "XCTestBundlePath": "/private/tmp/untrusted/foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "spoofed nested /tmp path",
+                [
+                    "XCTestBundlePath": "/tmp/untrusted/foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "other temporary alias",
+                [
+                    "XCTestBundlePath": "/var/tmp/foodmapper-derived-data-\(identifier)/FoodMapperTests.xctest",
+                ],
+                nil
+            ),
+            (
+                "tmp storage marker rejected",
+                [
+                    "XCTestBundlePath": "/tmp/foodmapper-xctest-\(identifier)/FoodMapperTests.xctest",
                 ],
                 nil
             ),

@@ -264,6 +264,7 @@ enum FoodMapperStorage {
 
     private static let knownDirectoryNames = ["Models", "CustomDBs", "InputFiles", "Sessions"]
     private static let canonicalTemporaryPathPrefix = "/private/tmp/"
+    private static let systemTemporaryPathPrefix = "/tmp/"
     private static let derivedDataDirectoryPrefix = "foodmapper-derived-data-"
     private static let testStorageDirectoryPrefix = "foodmapper-xctest-"
 
@@ -312,16 +313,26 @@ enum FoodMapperStorage {
     }
 
     private static func markerIdentifier(in markerPath: String) -> String? {
-        guard markerPath.hasPrefix(canonicalTemporaryPathPrefix) else { return nil }
+        let rawPrefix: String
+        if markerPath.hasPrefix(canonicalTemporaryPathPrefix) {
+            rawPrefix = canonicalTemporaryPathPrefix
+        } else if markerPath.hasPrefix(systemTemporaryPathPrefix),
+                  hasSafeSystemTemporaryAlias {
+            rawPrefix = systemTemporaryPathPrefix
+        } else {
+            return nil
+        }
         let standardized = URL(fileURLWithPath: markerPath).standardizedFileURL
         guard standardized.path == markerPath else { return nil }
-        let rawComponents = String(markerPath.dropFirst(canonicalTemporaryPathPrefix.count))
+        let rawComponents = String(markerPath.dropFirst(rawPrefix.count))
             .split(separator: "/", omittingEmptySubsequences: true)
         guard rawComponents.count >= 2,
               let rawWrapper = derivedDataDirectory(String(rawComponents[0])) else { return nil }
 
         guard let canonicalPath = canonicalExistingPath(markerPath) else { return nil }
-        guard canonicalPath == markerPath else { return nil }
+        let expectedCanonicalPath = canonicalTemporaryPathPrefix +
+            rawComponents.map(String.init).joined(separator: "/")
+        guard canonicalPath == expectedCanonicalPath else { return nil }
         let canonicalComponents = String(canonicalPath.dropFirst(canonicalTemporaryPathPrefix.count))
             .split(separator: "/", omittingEmptySubsequences: true)
         guard canonicalComponents.count >= 2,
@@ -397,6 +408,15 @@ enum FoodMapperStorage {
             guard realpath(pointer, &buffer) != nil else { return nil }
             return String(cString: buffer)
         }
+    }
+
+    private static var hasSafeSystemTemporaryAlias: Bool {
+        var info = stat()
+        guard lstat("/tmp", &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFLNK,
+              info.st_uid == 0,
+              canonicalExistingPath("/tmp") == "/private/tmp" else { return false }
+        return true
     }
 
     private static func validateTestRoot(_ root: URL, requireDirectPath: Bool) {
