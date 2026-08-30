@@ -86,13 +86,41 @@ private final class InMemoryCredentialStore: CredentialStore, @unchecked Sendabl
     }
 }
 
+/// Caches only a completed bootstrap attempt. A failed attempt remains
+/// retryable after the user repairs the storage location.
+final class FoodMapperStorageBootstrap<Value> {
+    private let lock = NSLock()
+    private let makeValue: () throws -> Value
+    private var cachedValue: Value?
+
+    init(makeValue: @escaping () throws -> Value) {
+        self.makeValue = makeValue
+    }
+
+    func bootstrap() throws -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cachedValue { return cachedValue }
+
+        let value = try makeValue()
+        cachedValue = value
+        return value
+    }
+
+    var valueIfReady: Value? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cachedValue
+    }
+}
+
 enum FoodMapperStorage {
-    private struct DirectoryIdentity: Equatable {
+    struct DirectoryIdentity: Equatable {
         let device: dev_t
         let inode: ino_t
     }
 
-    private struct Configuration {
+    struct Configuration {
         let applicationSupportURL: URL
         let applicationSupportIdentity: DirectoryIdentity
         let temporaryURL: URL
@@ -102,15 +130,41 @@ enum FoodMapperStorage {
         let defaultsSuite: String?
     }
 
-    private static let configuration = makeConfiguration()
+    private struct BootstrapInput {
+        let applicationSupportURL: URL
+        let temporaryRootURL: URL
+        let temporaryComponents: [String]
+        let defaults: UserDefaults
+        let credentialStore: CredentialStore
+        let isIsolatedTestStorage: Bool
+        let defaultsSuite: String?
+        let beforePrepare: (() throws -> Void)?
+    }
+
+    private static let storageBootstrap = FoodMapperStorageBootstrap<Configuration> {
+        try makeConfiguration()
+    }
+
+    /// Establish storage before constructing state that reads defaults, opens
+    /// Keychain entries, initializes Sparkle, or loads model metadata.
+    static func bootstrap() throws {
+        _ = try storageBootstrap.bootstrap()
+    }
+
+    static var isBootstrapped: Bool {
+        storageBootstrap.valueIfReady != nil
+    }
+
+    private static var configuration: Configuration {
+        guard let configuration = storageBootstrap.valueIfReady else {
+            preconditionFailure("FoodMapper storage was used before bootstrap completed")
+        }
+        return configuration
+    }
 
     static var applicationSupportURL: URL { configuration.applicationSupportURL }
     static var temporaryURL: URL { configuration.temporaryURL }
-    static var processTemporaryRootURL: URL {
-        FileManager.default.temporaryDirectory
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-    }
+    static var processTemporaryRootURL: URL { configuration.temporaryURL }
     static var defaults: UserDefaults { configuration.defaults }
     static var credentialStore: CredentialStore { configuration.credentialStore }
     static var isIsolatedTestStorage: Bool { configuration.isIsolatedTestStorage }
@@ -161,73 +215,103 @@ enum FoodMapperStorage {
         )
     }
 
-    private static func makeConfiguration() -> Configuration {
+    private static func makeConfiguration() throws -> Configuration {
         guard testIsolationIsRequired else {
             let applicationSupportURL = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
             ).first!.resolvingSymlinksInPath().standardizedFileURL
-            guard let applicationSupportIdentity = directoryIdentity(at: applicationSupportURL) else {
-                preconditionFailure("Application Support is unavailable")
-            }
-            do {
-                try preparePrivateStorage(
-                    under: applicationSupportURL,
-                    expectedRootIdentity: applicationSupportIdentity
+            let temporaryRootURL = FileManager.default.temporaryDirectory
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            return try makeConfiguration(
+                BootstrapInput(
+                    applicationSupportURL: applicationSupportURL,
+                    temporaryRootURL: temporaryRootURL,
+                    temporaryComponents: ["FoodMapper"],
+                    defaults: .standard,
+                    credentialStore: KeychainCredentialStore(),
+                    isIsolatedTestStorage: false,
+                    defaultsSuite: nil,
+                    beforePrepare: nil
                 )
-            } catch {
-                preconditionFailure("Unable to prepare FoodMapper storage: \(error.localizedDescription)")
-            }
-            let temporaryURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("FoodMapper", isDirectory: true)
-            createDirectoryIfNeeded(temporaryURL)
-            return Configuration(
-                applicationSupportURL: applicationSupportURL,
-                applicationSupportIdentity: applicationSupportIdentity,
-                temporaryURL: temporaryURL,
-                defaults: .standard,
-                credentialStore: KeychainCredentialStore(),
-                isIsolatedTestStorage: false,
-                defaultsSuite: nil
             )
         }
 
         let environment = ProcessInfo.processInfo.environment
         guard let testConfiguration = testConfiguration(from: environment) else {
-            preconditionFailure("XCTest requires a valid isolated storage configuration before FoodMapper starts")
+            throw StorageError.invalidTestConfiguration
         }
         guard let defaults = UserDefaults(suiteName: testConfiguration.suite) else {
-            preconditionFailure("XCTest requires an isolated defaults suite before FoodMapper starts")
+            throw StorageError.defaultsUnavailable
         }
 
         let suppliedRoot = testConfiguration.root
-        validateTestRoot(suppliedRoot, requireDirectPath: true)
+        try validateTestRoot(suppliedRoot, requireDirectPath: true)
         guard let canonicalRootPath = canonicalExistingPath(suppliedRoot.path) else {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT changed during validation")
+            throw StorageError.invalidTestConfiguration
         }
         let root = URL(fileURLWithPath: canonicalRootPath, isDirectory: true)
-        validateTestRoot(root, requireDirectPath: false)
-        guard let applicationSupportIdentity = directoryIdentity(at: root) else {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT changed during validation")
-        }
-        let temporaryURL: URL
-        do {
-            try preparePrivateStorage(
-                under: root, expectedRootIdentity: applicationSupportIdentity
+        try validateTestRoot(root, requireDirectPath: false)
+        return try makeConfiguration(
+            BootstrapInput(
+                applicationSupportURL: root,
+                temporaryRootURL: root,
+                temporaryComponents: ["Temporary"],
+                defaults: defaults,
+                credentialStore: InMemoryCredentialStore(),
+                isIsolatedTestStorage: true,
+                defaultsSuite: testConfiguration.suite,
+                beforePrepare: nil
             )
-            temporaryURL = try createPrivateDirectory(
-                ["Temporary"], under: root, expectedRootIdentity: applicationSupportIdentity
+        )
+    }
+
+    static func bootstrapForTesting(
+        applicationSupportURL: URL,
+        temporaryRootURL: URL,
+        temporaryComponents: [String] = ["FoodMapper"],
+        defaults: UserDefaults,
+        beforePrepare: (() throws -> Void)? = nil
+    ) -> FoodMapperStorageBootstrap<Configuration> {
+        FoodMapperStorageBootstrap {
+            try makeConfiguration(
+                BootstrapInput(
+                    applicationSupportURL: applicationSupportURL,
+                    temporaryRootURL: temporaryRootURL,
+                    temporaryComponents: temporaryComponents,
+                    defaults: defaults,
+                    credentialStore: InMemoryCredentialStore(),
+                    isIsolatedTestStorage: true,
+                    defaultsSuite: nil,
+                    beforePrepare: beforePrepare
+                )
             )
-        } catch {
-            preconditionFailure("Unable to prepare FoodMapper test temporary storage: \(error.localizedDescription)")
         }
+    }
+
+    private static func makeConfiguration(_ input: BootstrapInput) throws -> Configuration {
+        guard let applicationSupportIdentity = directoryIdentity(at: input.applicationSupportURL),
+              let temporaryRootIdentity = directoryIdentity(at: input.temporaryRootURL) else {
+            throw StorageError.invalidPath
+        }
+        try input.beforePrepare?()
+        try preparePrivateStorage(
+            under: input.applicationSupportURL,
+            expectedRootIdentity: applicationSupportIdentity
+        )
+        let temporaryURL = try createPrivateDirectory(
+            input.temporaryComponents,
+            under: input.temporaryRootURL,
+            expectedRootIdentity: temporaryRootIdentity
+        )
         return Configuration(
-            applicationSupportURL: root,
+            applicationSupportURL: input.applicationSupportURL,
             applicationSupportIdentity: applicationSupportIdentity,
             temporaryURL: temporaryURL,
-            defaults: defaults,
-            credentialStore: InMemoryCredentialStore(),
-            isIsolatedTestStorage: true,
-            defaultsSuite: testConfiguration.suite
+            defaults: input.defaults,
+            credentialStore: input.credentialStore,
+            isIsolatedTestStorage: input.isIsolatedTestStorage,
+            defaultsSuite: input.defaultsSuite
         )
     }
 
@@ -436,28 +520,28 @@ enum FoodMapperStorage {
         return true
     }
 
-    private static func validateTestRoot(_ root: URL, requireDirectPath: Bool) {
+    private static func validateTestRoot(_ root: URL, requireDirectPath: Bool) throws {
         let path = root.path
         guard path.hasPrefix("/") else {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT must be absolute")
+            throw StorageError.invalidTestConfiguration
         }
         let live = liveApplicationSupportURL.path
         let liveParent = liveApplicationSupportURL.deletingLastPathComponent().path
         guard !pathsOverlap(path, live), !pathsOverlap(path, liveParent) else {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT must not overlap FoodMapper Application Support")
+            throw StorageError.invalidTestConfiguration
         }
 
         var info = stat()
         guard lstat(path, &info) == 0 else {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT must be a pre-created mode-0700 directory owned by this user")
+            throw StorageError.invalidTestConfiguration
         }
         if requireDirectPath, (info.st_mode & S_IFMT) == S_IFLNK {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT must not be a symbolic link")
+            throw StorageError.invalidTestConfiguration
         }
         guard (info.st_mode & S_IFMT) == S_IFDIR,
               info.st_uid == getuid(),
               (info.st_mode & 0o777) == 0o700 else {
-            preconditionFailure("FOODMAPPER_TEST_STORAGE_ROOT must be a pre-created mode-0700 directory owned by this user")
+            throw StorageError.invalidTestConfiguration
         }
     }
 
@@ -470,15 +554,6 @@ enum FoodMapperStorage {
         guard lstat(url.path, &info) == 0,
               (info.st_mode & S_IFMT) == S_IFDIR else { return nil }
         return DirectoryIdentity(device: info.st_dev, inode: info.st_ino)
-    }
-
-    private static func createDirectoryIfNeeded(_ url: URL) {
-        do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-        } catch {
-            preconditionFailure("Unable to prepare FoodMapper temporary storage: \(error.localizedDescription)")
-        }
     }
 
     private static func preparePrivateStorage(
@@ -596,9 +671,20 @@ enum FoodMapperStorage {
             !value.contains("/") && !value.contains("\\") && !value.contains("\0")
     }
 
-    private enum StorageError: LocalizedError {
+    enum StorageError: LocalizedError {
         case invalidPath
+        case invalidTestConfiguration
+        case defaultsUnavailable
 
-        var errorDescription: String? { "The storage path is not private and safe to use." }
+        var errorDescription: String? {
+            switch self {
+            case .invalidPath:
+                return "The FoodMapper storage location is not private and safe to use."
+            case .invalidTestConfiguration:
+                return "The isolated test storage configuration is not valid."
+            case .defaultsUnavailable:
+                return "FoodMapper could not open its settings store."
+            }
+        }
     }
 }

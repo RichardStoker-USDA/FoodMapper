@@ -120,7 +120,10 @@ final class HaikuBatchSubmissionTests: XCTestCase {
 }
 
 final class CustomDatabaseValidationTests: XCTestCase {
-    override func setUpWithError() throws { _ = CacheRecoveryState.consumeFailure() }
+    override func setUpWithError() throws {
+        try FoodMapperStorage.bootstrap()
+        _ = CacheRecoveryState.consumeFailure()
+    }
     private func writeDatabase(_ content: String, extension fileExtension: String = "csv") throws -> URL {
         let url = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-database-\(UUID().uuidString).\(fileExtension)")
@@ -544,7 +547,10 @@ final class ModelSnapshotTests: XCTestCase {
 
 @MainActor
 final class DatabaseOperationAdmissionTests: XCTestCase {
-    override func setUpWithError() throws { _ = CacheRecoveryState.consumeFailure() }
+    override func setUpWithError() throws {
+        try FoodMapperStorage.bootstrap()
+        _ = CacheRecoveryState.consumeFailure()
+    }
 
     func testMatchingAndDatabaseOperationsSerializeByGeneration() {
         let state = AppState()

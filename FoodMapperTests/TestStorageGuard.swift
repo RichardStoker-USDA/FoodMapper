@@ -3,6 +3,10 @@ import Darwin
 @testable import FoodMapper
 
 final class TestStorageGuard: XCTestCase {
+    override func setUpWithError() throws {
+        try FoodMapperStorage.bootstrap()
+    }
+
     private func configurationSignature(_ configuration: (root: URL, suite: String)?) -> String? {
         configuration.map { "\($0.root.path)|\($0.suite)" }
     }
@@ -29,6 +33,10 @@ final class TestStorageGuard: XCTestCase {
         XCTAssertEqual(
             FoodMapperStorage.temporaryURL.standardizedFileURL,
             canonicalRoot.appendingPathComponent("Temporary", isDirectory: true).standardizedFileURL
+        )
+        XCTAssertEqual(
+            FoodMapperStorage.processTemporaryRootURL.standardizedFileURL,
+            FoodMapperStorage.temporaryURL.standardizedFileURL
         )
         XCTAssertEqual(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"], expectedSuite)
         XCTAssertEqual(FoodMapperStorage.defaultsSuite, expectedSuite)

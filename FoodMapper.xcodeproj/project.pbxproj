@@ -33,6 +33,8 @@
 		B259B4F7194B9E2513F7560F /* MLXEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */; };
 		BBC18C9D20BA1A5DD87D3DA0 /* TargetDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* FoodMapperStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* FoodMapperStorage.swift */; };
+		STARTUP001BUILD /* FoodMapperStartupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = STARTUP002FILEREF /* FoodMapperStartupCoordinator.swift */; };
+		STARTUP003BUILD /* StorageStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = STARTUP004FILEREF /* StorageStartupTests.swift */; };
 		C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */; };
 		B1C2D3E4F5061728394A5B6C /* TestStorageGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6D /* TestStorageGuard.swift */; };
 		A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5EC71000000000000002 /* HelpSectionTests.swift */; };
@@ -156,6 +158,8 @@
 		250D88C3658300D3F23B0660 /* CSVExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVExporter.swift; sourceTree = "<group>"; };
 		2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetDatabase.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5D /* FoodMapperStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperStorage.swift; sourceTree = "<group>"; };
+		STARTUP002FILEREF /* FoodMapperStartupCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperStartupCoordinator.swift; sourceTree = "<group>"; };
+		STARTUP004FILEREF /* StorageStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageStartupTests.swift; sourceTree = "<group>"; };
 		472AA2860CE1405AB6CE4ABD /* DatabaseInfoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseInfoSheet.swift; sourceTree = "<group>"; };
 		4EC3C22CF05A6A8E91295F17 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		6218B4E020CB23A2334F2A68 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Models; path = FoodMapper/Resources/Models; sourceTree = SOURCE_ROOT; };
@@ -335,6 +339,7 @@
 				PREVHELP002FILEREF /* PreviewHelpers.swift */,
 				F0155D9D305C2959A9F91E53 /* FoodMapper.entitlements */,
 				F19B3EAF237E39DA12E71979 /* FoodMapperApp.swift */,
+				STARTUP002FILEREF /* FoodMapperStartupCoordinator.swift */,
 				SPARKLE006PLISTFREF0 /* Info.plist */,
 				A2D73DE654A177934AD557E1 /* Engine */,
 				679FAC9DBCC446638850164E /* Models */,
@@ -451,6 +456,7 @@
 				GTETEST001FILEREF /* GTELargeModelInstallTests.swift */,
 				9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */,
 				B1C2D3E4F5061728394A5B6D /* TestStorageGuard.swift */,
+				STARTUP004FILEREF /* StorageStartupTests.swift */,
 				A11E5EC71000000000000002 /* HelpSectionTests.swift */,
 			);
 			path = FoodMapperTests;
@@ -648,6 +654,7 @@
 				GTETEST001BUILD /* GTELargeModelInstallTests.swift in Sources */,
 				C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */,
 				B1C2D3E4F5061728394A5B6C /* TestStorageGuard.swift in Sources */,
+				STARTUP003BUILD /* StorageStartupTests.swift in Sources */,
 				A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -680,6 +687,7 @@
 				067D8766C83F0B585BB0848E /* EmptyStateView.swift in Sources */,
 				727AEC66FCB2ACA85A46CC39 /* FilePickerRow.swift in Sources */,
 				C5A2F572155A82FFBBC9201A /* FoodMapperApp.swift in Sources */,
+				STARTUP001BUILD /* FoodMapperStartupCoordinator.swift in Sources */,
 				6A6A07BF6BE16612624D49CE /* HistoryView.swift in Sources */,
 				885F1BF0C3C41B86870BD376 /* InputFile.swift in Sources */,
 				B259B4F7194B9E2513F7560F /* MLXEmbeddingModel.swift in Sources */,
