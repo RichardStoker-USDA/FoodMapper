@@ -2,6 +2,31 @@ import XCTest
 import Darwin
 @testable import FoodMapper
 
+final class IsolatedTestHostEnvironmentTests: XCTestCase {
+    func testWrapperBindsTheAppHostedTestProcess() throws {
+        let environment = ProcessInfo.processInfo.environment
+        let suppliedRoot = try XCTUnwrap(environment["FOODMAPPER_TEST_STORAGE_ROOT"])
+        let suppliedSuite = try XCTUnwrap(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"])
+        let suppliedTemporaryRoot = try XCTUnwrap(environment["TMPDIR"])
+        let suppliedPreferencesRoot = try XCTUnwrap(environment["CFFIXED_USER_HOME"])
+        let storagePrefix = "/private/tmp/foodmapper-xctest-"
+        let suitePrefix = "app.foodmapper.FoodMapper.tests."
+
+        XCTAssertTrue(suppliedRoot.hasPrefix(storagePrefix))
+        let identifier = String(suppliedRoot.dropFirst(storagePrefix.count))
+        XCTAssertEqual(suppliedSuite, suitePrefix + identifier)
+        XCTAssertEqual(
+            suppliedTemporaryRoot,
+            "/private/tmp/foodmapper-derived-data-\(identifier)/Temporary"
+        )
+        XCTAssertEqual(
+            suppliedPreferencesRoot,
+            "/private/tmp/foodmapper-preferences-\(identifier)"
+        )
+        XCTAssertNotNil(FoodMapperStorage.expectedTestConfiguration(environment: environment))
+    }
+}
+
 final class TestStorageGuard: XCTestCase {
     override func setUpWithError() throws {
         try FoodMapperStorage.bootstrap()
@@ -229,6 +254,15 @@ final class TestStorageGuard: XCTestCase {
                     "XCTestBundlePath": "PlugIns/OtherTests.xctest",
                 ],
                 nil
+            ),
+            (
+                "explicit pair with opaque absolute marker",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestConfigurationFilePath": "/private/var/folders/test/FoodMapperTests.xctestconfiguration",
+                ],
+                expected
             ),
             (
                 "absolute marker with relative marker requires explicit pair",

@@ -9,16 +9,18 @@ final class GTELargeModelInstallTests: XCTestCase {
 
     override func setUpWithError() throws {
         try FoodMapperStorage.bootstrap()
-        root = FoodMapperStorage.temporaryURL
+        let root = FoodMapperStorage.temporaryURL
             .appendingPathComponent("foodmapper-gte-install-\(UUID().uuidString)", isDirectory: true)
+        self.root = root
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
     }
 
     override func tearDownWithError() throws {
-        if FileManager.default.fileExists(atPath: root.path) {
+        if let root, FileManager.default.fileExists(atPath: root.path) {
             try FileManager.default.removeItem(at: root)
         }
+        root = nil
     }
 
     func testProductionManifestPinsRevisionSizesAndHashes() {

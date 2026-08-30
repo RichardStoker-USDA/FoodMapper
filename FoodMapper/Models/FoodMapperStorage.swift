@@ -354,6 +354,7 @@ enum FoodMapperStorage {
 
     private enum MarkerState {
         case absent
+        case opaqueAbsolute
         case invalid
         case valid(String)
     }
@@ -393,6 +394,8 @@ enum FoodMapperStorage {
             switch markerState {
             case .absent:
                 return (URL(fileURLWithPath: rootPath, isDirectory: true), suite)
+            case .opaqueAbsolute:
+                return (URL(fileURLWithPath: rootPath, isDirectory: true), suite)
             case .invalid:
                 return nil
             case .valid(let identifier):
@@ -410,6 +413,7 @@ enum FoodMapperStorage {
         allowNeutralXcodeMarkers: Bool
     ) -> MarkerState {
         var identifiers: [String] = []
+        var sawOpaqueAbsoluteMarker = false
         for key in testMarkerKeys {
             guard let markerPath = environment[key] else { continue }
             if markerPath.isEmpty {
@@ -421,10 +425,17 @@ enum FoodMapperStorage {
                 guard allowNeutralXcodeMarkers else { return .invalid }
                 continue
             }
-            guard let identifier = markerIdentifier(in: markerPath) else { return .invalid }
-            identifiers.append(identifier)
+            if let identifier = markerIdentifier(in: markerPath) {
+                identifiers.append(identifier)
+            } else if markerPath.hasPrefix("/"), allowNeutralXcodeMarkers {
+                sawOpaqueAbsoluteMarker = true
+            } else {
+                return .invalid
+            }
         }
-        guard let first = identifiers.first else { return .absent }
+        guard let first = identifiers.first else {
+            return sawOpaqueAbsoluteMarker ? .opaqueAbsolute : .absent
+        }
         guard identifiers.allSatisfy({ $0 == first }) else { return .invalid }
         return .valid(first)
     }
