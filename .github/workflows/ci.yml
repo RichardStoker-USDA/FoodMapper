@@ -11,10 +11,10 @@ permissions:
 
 jobs:
   validate:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 40
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -25,13 +25,23 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
-          test "$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)" = "Xcode 16.4"
+          case "$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)" in
+            "Xcode 26.6"*) ;;
+            *) exit 1 ;;
+          esac
 
       - name: Check CI scripts and public files
         run: |
           scripts/run-isolated-tests.sh --self-test
           scripts/verify-public-tree.sh --self-test
           scripts/verify-public-tree.sh
+
+      - name: Resolve Swift packages
+        run: |
+          arch -arm64 "$DEVELOPER_DIR/usr/bin/xcodebuild" -resolvePackageDependencies \
+            -project FoodMapper.xcodeproj \
+            -scheme FoodMapper \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/foodmapper-source-packages"
 
       - name: Run isolated Debug tests
         run: scripts/run-isolated-tests.sh

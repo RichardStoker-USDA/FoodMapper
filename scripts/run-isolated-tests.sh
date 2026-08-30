@@ -145,22 +145,31 @@ set_test_environment_value() {
     done
 }
 
-require_xcode_16_4() {
+is_xcode_26_6_version() {
+    case "$1" in
+        "Xcode 26.6"*) ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+require_xcode_26_6() {
     local version
-    : "${DEVELOPER_DIR:?Set DEVELOPER_DIR to the Xcode 16.4 developer directory.}"
-    [ "$DEVELOPER_DIR" = "/Applications/Xcode_16.4.app/Contents/Developer" ] || {
-        printf '%s\n' "The isolated test suite requires /Applications/Xcode_16.4.app." >&2
+    : "${DEVELOPER_DIR:?Set DEVELOPER_DIR to the Xcode 26.6 developer directory.}"
+    [ "$DEVELOPER_DIR" = "/Applications/Xcode_26.6.app/Contents/Developer" ] || {
+        printf '%s\n' "The isolated test suite requires /Applications/Xcode_26.6.app." >&2
         return 1
     }
     [ -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ] || {
-        printf '%s\n' "Xcode 16.4 is not available at DEVELOPER_DIR." >&2
+        printf '%s\n' "Xcode 26.6 is not available at DEVELOPER_DIR." >&2
         return 1
     }
     version="$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)"
-    [ "$version" = "Xcode 16.4" ] || {
-        printf '%s\n' "Expected Xcode 16.4, found ${version}." >&2
+    if ! is_xcode_26_6_version "$version"; then
+        printf '%s\n' "Expected Xcode 26.6, found ${version}." >&2
         return 1
-    }
+    fi
 }
 
 cleanup() {
@@ -207,6 +216,9 @@ run_self_test() (
     ! is_foodmapper_executable "/tmp/FoodMapperTools.app/Contents/MacOS/Tool" || status=1
     ! is_foodmapper_executable "/tmp/space path/FoodMapperHelper" || status=1
     ! is_foodmapper_executable "/usr/bin/echo" || status=1
+    is_xcode_26_6_version "Xcode 26.6" || status=1
+    ! is_xcode_26_6_version "Xcode 26.5" || status=1
+    ! is_xcode_26_6_version "Xcode 27 beta" || status=1
     printf '%s\n' '123 /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q '^123 ' || status=1
     printf '%s\n' '124 /tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable' | matching_foodmapper_processes | grep -q '^124 ' || status=1
     ! printf '%s\n' '125 /usr/bin/echo /tmp/FoodMapper Dev.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
@@ -243,7 +255,7 @@ case "${1:-}" in
 esac
 
 require_no_running_foodmapper
-require_xcode_16_4
+require_xcode_26_6
 
 mkdir -m 700 "$test_root" "$derived_data" "$preferences_root"
 mkdir -m 700 "$test_temporary_root" "$test_symroot" "$test_objroot"
