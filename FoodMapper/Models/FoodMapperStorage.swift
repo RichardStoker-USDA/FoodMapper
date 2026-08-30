@@ -158,17 +158,14 @@ enum FoodMapperStorage {
         }
 
         let environment = ProcessInfo.processInfo.environment
-        guard let rootPath = environment["FOODMAPPER_TEST_STORAGE_ROOT"],
-              rootPath.hasPrefix("/") else {
+        guard let testConfiguration = testConfiguration(from: environment) else {
             preconditionFailure("XCTest requires FOODMAPPER_TEST_STORAGE_ROOT before FoodMapper starts")
         }
-        guard let suite = environment["FOODMAPPER_TEST_DEFAULTS_SUITE"],
-              isUniqueTestSuite(suite),
-              let defaults = UserDefaults(suiteName: suite) else {
+        guard let defaults = UserDefaults(suiteName: testConfiguration.suite) else {
             preconditionFailure("XCTest requires a unique FOODMAPPER_TEST_DEFAULTS_SUITE before FoodMapper starts")
         }
 
-        let suppliedRoot = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+        let suppliedRoot = testConfiguration.root.standardizedFileURL
         validateTestRoot(suppliedRoot, requireDirectPath: true)
         let root = suppliedRoot.resolvingSymlinksInPath().standardizedFileURL
         validateTestRoot(root, requireDirectPath: false)
@@ -184,7 +181,7 @@ enum FoodMapperStorage {
             defaults: defaults,
             credentialStore: InMemoryCredentialStore(),
             isIsolatedTestStorage: true,
-            defaultsSuite: suite
+            defaultsSuite: testConfiguration.suite
         )
     }
 
@@ -200,6 +197,43 @@ enum FoodMapperStorage {
     private static func isUniqueTestSuite(_ suite: String) -> Bool {
         suite.hasPrefix("app.foodmapper.FoodMapper.tests.") &&
             UUID(uuidString: String(suite.dropFirst("app.foodmapper.FoodMapper.tests.".count))) != nil
+    }
+
+    static func expectedTestConfiguration(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> (root: URL, suite: String)? {
+        testConfiguration(from: environment)
+    }
+
+    private static func testConfiguration(
+        from environment: [String: String]
+    ) -> (root: URL, suite: String)? {
+        if let rootPath = environment["FOODMAPPER_TEST_STORAGE_ROOT"],
+           rootPath.hasPrefix("/"),
+           let suite = environment["FOODMAPPER_TEST_DEFAULTS_SUITE"],
+           isUniqueTestSuite(suite) {
+            return (URL(fileURLWithPath: rootPath, isDirectory: true), suite)
+        }
+
+        let markerKeys = ["XCTestBundlePath", "XCInjectBundle", "XCTestConfigurationFilePath"]
+        for key in markerKeys {
+            guard let markerPath = environment[key], markerPath.hasPrefix("/") else { continue }
+            let components = URL(fileURLWithPath: markerPath).standardizedFileURL.pathComponents
+            for component in components {
+                let prefixes = ["foodmapper-xctest-", "foodmapper-derived-data-"]
+                for prefix in prefixes where component.hasPrefix(prefix) {
+                    let identifier = String(component.dropFirst(prefix.count))
+                    guard UUID(uuidString: identifier) != nil else { continue }
+                    let root = URL(
+                        fileURLWithPath: "/private/tmp/foodmapper-xctest-\(identifier)",
+                        isDirectory: true
+                    )
+                    let suite = "app.foodmapper.FoodMapper.tests.\(identifier)"
+                    return (root, suite)
+                }
+            }
+        }
+        return nil
     }
 
     private static func validateTestRoot(_ root: URL, requireDirectPath: Bool) {

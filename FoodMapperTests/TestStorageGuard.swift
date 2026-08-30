@@ -5,9 +5,8 @@ import Darwin
 final class TestStorageGuard: XCTestCase {
     func testStorageConfigurationUsesOnlyTheIsolatedRoot() throws {
         let environment = ProcessInfo.processInfo.environment
-        let expectedRoot = try XCTUnwrap(environment["FOODMAPPER_TEST_STORAGE_ROOT"])
-        let expectedSuite = try XCTUnwrap(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"])
-        let canonicalRoot = URL(fileURLWithPath: expectedRoot, isDirectory: true)
+        let expected = try XCTUnwrap(FoodMapperStorage.expectedTestConfiguration(environment: environment))
+        let canonicalRoot = expected.root
             .resolvingSymlinksInPath()
             .standardizedFileURL
 
@@ -18,13 +17,13 @@ final class TestStorageGuard: XCTestCase {
             FoodMapperStorage.temporaryURL.standardizedFileURL,
             canonicalRoot.appendingPathComponent("Temporary", isDirectory: true).standardizedFileURL
         )
-        XCTAssertEqual(FoodMapperStorage.defaultsSuite, expectedSuite)
+        XCTAssertEqual(FoodMapperStorage.defaultsSuite, expected.suite)
         XCTAssertFalse(FoodMapperStorage.defaults === UserDefaults.standard)
         XCTAssertNotEqual(FoodMapperStorage.applicationSupportURL, FoodMapperStorage.liveApplicationSupportURL)
         XCTAssertTrue(FoodMapperStorage.temporaryURL.path.hasPrefix(canonicalRoot.path + "/"))
 
         var info = stat()
-        XCTAssertEqual(lstat(expectedRoot, &info), 0)
+        XCTAssertEqual(lstat(canonicalRoot.path, &info), 0)
         XCTAssertEqual(info.st_uid, getuid())
         XCTAssertEqual(info.st_mode & 0o777, 0o700)
     }
