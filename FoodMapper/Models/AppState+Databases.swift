@@ -3,6 +3,11 @@ import MLX
 import os
 import Darwin
 
+private struct DatabaseDeletionJournal: Codable {
+    let databaseID: String
+    let files: [String]
+}
+
 private let logger = Logger(subsystem: "com.foodmapper", category: "state")
 
 extension AppState {
@@ -163,6 +168,7 @@ extension AppState {
         } catch {
             logger.error("Failed to load custom databases: \(error)")
         }
+        recoverInterruptedDatabaseDeletions(registeredIDs: Set(customDatabases.map(\.id)))
 
         // Migrate legacy databases into app support before any runtime access.
         var needsSave = false
@@ -571,6 +577,12 @@ extension AppState {
         let files = database.allCacheFiles + database.allCacheMetadataFiles + [database.legacyCacheURL, database.storedCsvURL]
         let existingFiles = Array(Set(files)).filter { fileManager.fileExists(atPath: $0.path) }
         try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingDirectory.path)
+        let journal = DatabaseDeletionJournal(databaseID: database.id, files: existingFiles.map(\.lastPathComponent))
+        let journalURL = stagingDirectory.appendingPathComponent("journal.json")
+        try JSONEncoder().encode(journal).write(to: journalURL, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+        try syncDirectory(stagingDirectory)
         var moved: [(from: URL, to: URL)] = []
         do {
             for source in existingFiles {
@@ -583,6 +595,7 @@ extension AppState {
                 try fileManager.moveItem(at: item.to, to: item.from)
             }
             try fileManager.removeItem(at: stagingDirectory)
+            try syncDirectory(directory)
             throw error
         }
         do {
@@ -591,6 +604,7 @@ extension AppState {
             customDatabases = updatedDatabases
             do {
                 try fileManager.removeItem(at: stagingDirectory)
+                try syncDirectory(directory)
             } catch {
                 logger.error("Database removal completed but cleanup is pending at \(stagingDirectory.path): \(error)")
             }
@@ -599,7 +613,34 @@ extension AppState {
                 try fileManager.moveItem(at: item.to, to: item.from)
             }
             try fileManager.removeItem(at: stagingDirectory)
+            try syncDirectory(directory)
             throw error
+        }
+    }
+
+    private func recoverInterruptedDatabaseDeletions(registeredIDs: Set<String>) {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for stage in contents where stage.lastPathComponent.hasPrefix(".delete-") {
+            let journalURL = stage.appendingPathComponent("journal.json")
+            guard let data = try? Data(contentsOf: journalURL),
+                  let journal = try? JSONDecoder().decode(DatabaseDeletionJournal.self, from: data),
+                  CustomDatabase.isSafeStorageIdentifier(journal.databaseID),
+                  journal.files.allSatisfy({ !$0.contains("/") && !$0.contains("..") }) else {
+                try? FileManager.default.removeItem(at: stage)
+                continue
+            }
+            if registeredIDs.contains(journal.databaseID) {
+                for name in journal.files {
+                    let staged = stage.appendingPathComponent(name)
+                    let destination = directory.appendingPathComponent(name)
+                    if FileManager.default.fileExists(atPath: staged.path), !FileManager.default.fileExists(atPath: destination.path) {
+                        try? FileManager.default.moveItem(at: staged, to: destination)
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: stage)
         }
     }
 
