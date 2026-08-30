@@ -666,8 +666,6 @@ struct ReviewInspectorPanel: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: borderWidth)
             }
-            .overlay {
-            }
             .id(colorScheme)
     }
 

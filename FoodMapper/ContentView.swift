@@ -477,6 +477,7 @@ struct MainContent: View {
 /// Progress indicator in toolbar
 struct ProgressToolbarItem: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     private var progressText: String {
         let phase = appState.matchingPhase
@@ -494,7 +495,7 @@ struct ProgressToolbarItem: View {
             HStack(spacing: Spacing.xs) {
                 if #available(macOS 15.0, *) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .symbolEffect(.rotate, isActive: true)
+                        .symbolEffect(.rotate, isActive: !accessibilityReduceMotion)
                         .font(.title3)
                         .foregroundStyle(Color.accentColor)
                 } else {
