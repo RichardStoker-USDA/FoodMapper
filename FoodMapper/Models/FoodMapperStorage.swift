@@ -117,6 +117,14 @@ enum FoodMapperStorage {
     static var usesInMemoryCredentials: Bool { configuration.credentialStore is InMemoryCredentialStore }
     static var defaultsSuite: String? { configuration.defaultsSuite }
 
+    static func isOwnedDirectory(
+        mode: mode_t,
+        owner: uid_t,
+        currentUser: uid_t
+    ) -> Bool {
+        (mode & S_IFMT) == S_IFDIR && owner == currentUser
+    }
+
     static var liveApplicationSupportURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("FoodMapper", isDirectory: true)
@@ -505,16 +513,22 @@ enum FoodMapperStorage {
     private static func makePrivateDirectory(_ descriptor: Int32) throws {
         var info = stat()
         guard fstat(descriptor, &info) == 0,
-              (info.st_mode & S_IFMT) == S_IFDIR,
-              info.st_uid == getuid() else {
+              isOwnedDirectory(
+                  mode: info.st_mode,
+                  owner: info.st_uid,
+                  currentUser: getuid()
+              ) else {
             throw StorageError.invalidPath
         }
         guard fchmod(descriptor, 0o700) == 0 else {
             throw StorageError.invalidPath
         }
         guard fstat(descriptor, &info) == 0,
-              (info.st_mode & S_IFMT) == S_IFDIR,
-              info.st_uid == getuid(),
+              isOwnedDirectory(
+                  mode: info.st_mode,
+                  owner: info.st_uid,
+                  currentUser: getuid()
+              ),
               (info.st_mode & 0o777) == 0o700 else {
                 throw StorageError.invalidPath
         }

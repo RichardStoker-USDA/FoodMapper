@@ -9,19 +9,31 @@ final class TestStorageGuard: XCTestCase {
 
     func testStorageConfigurationUsesOnlyTheIsolatedRoot() throws {
         let environment = ProcessInfo.processInfo.environment
-        let expected = try XCTUnwrap(FoodMapperStorage.expectedTestConfiguration(environment: environment))
-        let canonicalRoot = expected.root
+        let suppliedRoot = try XCTUnwrap(environment["FOODMAPPER_TEST_STORAGE_ROOT"])
+        let rootName = URL(fileURLWithPath: suppliedRoot, isDirectory: true).lastPathComponent
+        let storagePrefix = "foodmapper-xctest-"
+        let identifier = try XCTUnwrap(
+            rootName.hasPrefix(storagePrefix) ? String(rootName.dropFirst(storagePrefix.count)) : nil
+        )
+        let expectedRoot = URL(
+            fileURLWithPath: "/private/tmp/foodmapper-xctest-\(identifier)",
+            isDirectory: true
+        )
+        let expectedSuite = "app.foodmapper.FoodMapper.tests.\(identifier)"
+        let canonicalRoot = expectedRoot
             .resolvingSymlinksInPath()
             .standardizedFileURL
 
         XCTAssertTrue(FoodMapperStorage.isIsolatedTestStorage)
         XCTAssertTrue(FoodMapperStorage.usesInMemoryCredentials)
+        XCTAssertEqual(suppliedRoot, expectedRoot.path)
         XCTAssertEqual(FoodMapperStorage.applicationSupportURL, canonicalRoot)
         XCTAssertEqual(
             FoodMapperStorage.temporaryURL.standardizedFileURL,
             canonicalRoot.appendingPathComponent("Temporary", isDirectory: true).standardizedFileURL
         )
-        XCTAssertEqual(FoodMapperStorage.defaultsSuite, expected.suite)
+        XCTAssertEqual(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"], expectedSuite)
+        XCTAssertEqual(FoodMapperStorage.defaultsSuite, expectedSuite)
         XCTAssertFalse(FoodMapperStorage.defaults === UserDefaults.standard)
         XCTAssertNotEqual(FoodMapperStorage.applicationSupportURL, FoodMapperStorage.liveApplicationSupportURL)
         XCTAssertTrue(FoodMapperStorage.temporaryURL.path.hasPrefix(canonicalRoot.path + "/"))
@@ -74,6 +86,8 @@ final class TestStorageGuard: XCTestCase {
             "\(root)/Symroot/Debug/FoodMapperTests.xctest",
             "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
             "\(derivedRoot)/Build/Products/FoodMapperTests.xctest",
+            "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/PlugIns/FoodMapperTests.xctest",
+            "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/MacOS/FoodMapper",
             "\(otherDerivedRoot)/Build/Products/FoodMapperTests.xctest",
         ]
         for markerPath in markerPaths {
@@ -171,6 +185,17 @@ final class TestStorageGuard: XCTestCase {
                 [
                     "FOODMAPPER_TEST_STORAGE_ROOT": root,
                     "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
+                ],
+                expected
+            ),
+            (
+                "actual wrapper marker combination",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": root,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                    "XCTestBundlePath": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/PlugIns/FoodMapperTests.xctest",
+                    "XCInjectBundle": "\(derivedRoot)/Symroot/Debug/FoodMapper.app/Contents/MacOS/FoodMapper",
                     "XCTestConfigurationFilePath": "\(derivedRoot)/Logs/Test/run.xctestconfiguration",
                 ],
                 expected
@@ -280,6 +305,35 @@ final class TestStorageGuard: XCTestCase {
         }
     }
 
+    func testDirectoryOwnershipValidatorRejectsNonOwnerAndSpecialType() {
+        let currentUser = getuid()
+        let otherUser: uid_t = currentUser == 0 ? 1 : 0
+        let privateDirectoryMode = mode_t(S_IFDIR) | mode_t(0o755)
+        let specialFileMode = mode_t(S_IFIFO) | mode_t(0o600)
+
+        XCTAssertTrue(
+            FoodMapperStorage.isOwnedDirectory(
+                mode: privateDirectoryMode,
+                owner: currentUser,
+                currentUser: currentUser
+            )
+        )
+        XCTAssertFalse(
+            FoodMapperStorage.isOwnedDirectory(
+                mode: privateDirectoryMode,
+                owner: otherUser,
+                currentUser: currentUser
+            )
+        )
+        XCTAssertFalse(
+            FoodMapperStorage.isOwnedDirectory(
+                mode: specialFileMode,
+                owner: currentUser,
+                currentUser: currentUser
+            )
+        )
+    }
+
     func testKnownDirectoriesNormalizePermissionsAndPreserveFiles() throws {
         let directory = try FoodMapperStorage.preparePrivateDirectory(["Sessions"])
         let file = directory.appendingPathComponent("legacy-preserved-\(UUID().uuidString).json")
@@ -301,6 +355,43 @@ final class TestStorageGuard: XCTestCase {
             FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
         )
         XCTAssertEqual(permissions.intValue, 0o644)
+    }
+
+    func testFixedDirectoryRefusesSpecialFileWithoutMutation() throws {
+        let fileManager = FileManager.default
+        let foodMapperDirectory = FoodMapperStorage.applicationSupportURL
+            .appendingPathComponent("FoodMapper", isDirectory: true)
+        let fixedDirectory = foodMapperDirectory
+            .appendingPathComponent("CustomDBs", isDirectory: true)
+        let savedDirectory = foodMapperDirectory
+            .appendingPathComponent("CustomDBs-staged-\(UUID().uuidString)", isDirectory: true)
+        XCTAssertFalse(fileManager.fileExists(atPath: savedDirectory.path))
+        try fileManager.moveItem(at: fixedDirectory, to: savedDirectory)
+        var specialCreated = false
+        defer {
+            if specialCreated {
+                _ = fixedDirectory.path.withCString { unlink($0) }
+            }
+            try? fileManager.moveItem(at: savedDirectory, to: fixedDirectory)
+        }
+
+        guard fixedDirectory.path.withCString({ mkfifo($0, mode_t(0o600)) }) == 0 else {
+            throw NSError(domain: "TestStorageGuard", code: Int(errno))
+        }
+        specialCreated = true
+        var before = stat()
+        XCTAssertEqual(lstat(fixedDirectory.path, &before), 0)
+        XCTAssertEqual(before.st_mode & S_IFMT, S_IFIFO)
+
+        XCTAssertThrowsError(try FoodMapperStorage.preparePrivateStorage())
+
+        var after = stat()
+        XCTAssertEqual(lstat(fixedDirectory.path, &after), 0)
+        XCTAssertEqual(after.st_dev, before.st_dev)
+        XCTAssertEqual(after.st_ino, before.st_ino)
+        XCTAssertEqual(after.st_mode, before.st_mode)
+        XCTAssertEqual(after.st_uid, before.st_uid)
+        XCTAssertEqual(after.st_size, before.st_size)
     }
 
     func testPrivateDirectoryRefusesSymlinkAndRegularFile() throws {
