@@ -235,7 +235,8 @@ final class CustomDatabaseValidationTests: XCTestCase {
         let values: [Float] = [1, 2]
         let cacheData = values.withUnsafeBufferPointer { Data(buffer: $0) }
         let metadata = CustomDatabaseCacheMetadata(
-            version: 1, databaseID: "database", sourceHash: "source", schemaHash: "schema", rowOrderHash: "rows",
+            version: 1, databaseID: "database", sourceHash: String(repeating: "b", count: 64),
+            schemaHash: String(repeating: "c", count: 64), rowOrderHash: String(repeating: "d", count: 64),
             textColumn: "description", idColumn: "id", modelKey: "model", modelArtifactFingerprint: String(repeating: "a", count: 64),
             entryCount: 1, embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(cacheData)
         )

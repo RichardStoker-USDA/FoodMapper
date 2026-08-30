@@ -572,15 +572,6 @@ actor MatchingEngine {
         }
     }
 
-    /// Save embeddings to binary file
-    private func saveBinaryEmbeddings(_ embeddings: [[Float]], to url: URL) throws {
-        var data = Data()
-        for embedding in embeddings {
-            data.append(contentsOf: embedding.withUnsafeBufferPointer { Data(buffer: $0) })
-        }
-        try data.write(to: url)
-    }
-
     private func customCacheMetadata(
         database: CustomDatabase,
         validated: ValidatedCustomDatabase,
@@ -877,9 +868,11 @@ actor MatchingEngine {
         CustomDatabase.isSafeStorageIdentifier(journal.metadata.databaseID) &&
         CustomDatabase.isSafeModelKey(journal.metadata.modelKey) &&
         journal.metadata.entryCount > 0 && journal.metadata.embeddingDimensions > 0 &&
-        !journal.metadata.sourceHash.isEmpty && !journal.metadata.schemaHash.isEmpty &&
-        !journal.metadata.rowOrderHash.isEmpty &&
-        journal.metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+        journal.metadata.sourceHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
+        journal.metadata.schemaHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
+        journal.metadata.rowOrderHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
+        journal.metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil &&
+        journal.metadata.embeddingDigest.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
     }
 
     nonisolated static func expectedEmbeddingByteCount(entries: Int, dimensions: Int) throws -> Int {
@@ -921,7 +914,7 @@ actor MatchingEngine {
         }
     }
 
-    /// Load binary embeddings file as [[Float]] (legacy fallback for saveBinaryEmbeddings compatibility)
+    /// Load binary embeddings file as [[Float]] for legacy resource compatibility.
     private func loadBinaryEmbeddings(from url: URL, count: Int) throws -> [[Float]] {
         let data = try Data(contentsOf: url)
         let embeddingDim = embeddingModel?.info.dimensions ?? 1024
@@ -1319,6 +1312,7 @@ actor MatchingEngine {
                         throw MatchingError.invalidEmbeddingsFile
                     }
                     for embedding in batchEmbeddings {
+                        try checkRun(runID)
                         let data = embedding.withUnsafeBufferPointer { Data(buffer: $0) }
                         try fileHandle.write(contentsOf: data)
                     }
@@ -1334,11 +1328,19 @@ actor MatchingEngine {
 
             try fileHandle.close()
             try synchronizeFile(stagingURL)
-            let expectedSize = totalCount * model.info.dimensions * MemoryLayout<Float>.size
+            let expectedSize = try Self.expectedEmbeddingByteCount(entries: totalCount, dimensions: model.info.dimensions)
             let stagedSize = try stagingURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
             guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
             try checkRun(runID)
-            let digest = CustomDatabaseValidator.digest(try Data(contentsOf: stagingURL))
+            let descriptor = try SecureFileAccess.openRegularFile(
+                stagingURL, under: stagingURL.deletingLastPathComponent(), maximumSize: Int64(expectedSize)
+            )
+            defer { close(descriptor) }
+            let stagedData = try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: expectedSize) {
+                Task.isCancelled
+            }
+            try checkRun(runID)
+            let digest = CustomDatabaseValidator.digest(stagedData)
             try commitStagedCustomCache(
                 stagingURL,
                 metadata: metadata.withEmbeddingDigest(digest),
