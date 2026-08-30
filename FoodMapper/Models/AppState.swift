@@ -112,6 +112,7 @@ final class AppState: ObservableObject {
 
     // Database embedding state (for pre-embedding custom databases)
     @Published var databaseEmbeddingStatus: DatabaseEmbeddingStatus = .idle
+    @Published var databaseRecoveryIssue: DatabaseRecoveryIssue?
     @Published private(set) var activeEngineOperation: EngineOperation?
 
     /// Bumped whenever embedding cache files change on disk, forcing SwiftUI views
@@ -1129,6 +1130,20 @@ final class AppState: ObservableObject {
         // Check model availability
         Task {
             await checkModelStatus()
+        }
+    }
+}
+
+enum DatabaseRecoveryIssue: Equatable {
+    case registryWrite
+    case deletion(String)
+
+    var message: String {
+        switch self {
+        case .registryWrite:
+            return "FoodMapper kept files from an interrupted database-list update. The previous list remains in use."
+        case let .deletion(name):
+            return "FoodMapper kept files from an interrupted removal of \(name). The database remains available."
         }
     }
 }

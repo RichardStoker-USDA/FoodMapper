@@ -313,6 +313,7 @@ extension AppState {
         do {
             try FileManager.default.moveItem(at: journal, to: quarantine)
             try SecureFileAccess.synchronize(directory, directory: true)
+            databaseRecoveryIssue = .registryWrite
         } catch {
             logger.error("Could not quarantine interrupted registry write: \(error.localizedDescription)")
         }
@@ -751,6 +752,7 @@ extension AppState {
         do {
             try FileManager.default.moveItem(at: stage, to: quarantine)
             try SecureFileAccess.synchronize(directory, directory: true)
+            databaseRecoveryIssue = .deletion("a custom database")
         } catch {
             logger.error("Could not quarantine interrupted database deletion: \(error.localizedDescription)")
         }

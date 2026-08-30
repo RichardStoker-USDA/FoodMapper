@@ -42,6 +42,19 @@ struct DatabaseManagementView: View {
             // Database list
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if let recoveryIssue = appState.databaseRecoveryIssue {
+                        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(Color.experimentalAmber)
+                            Text(recoveryIssue.message)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, Spacing.xxl)
+                        .padding(.vertical, Spacing.md)
+                    }
+
                     // Built-in section header
                     sectionHeader("Built-in")
 

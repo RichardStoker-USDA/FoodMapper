@@ -135,6 +135,11 @@ final class CustomDatabaseValidationTests: XCTestCase {
         return url
     }
 
+    func testExplicitStorageOverrideKeepsTestsOutOfUserSupport() {
+        XCTAssertTrue(FoodMapperStorage.applicationSupportURL.path.hasPrefix("/private/tmp/"))
+        XCTAssertFalse(FoodMapperStorage.applicationSupportURL.path.contains("/Library/Application Support/"))
+    }
+
     func testRejectsDuplicateAndBlankIDs() throws {
         let duplicate = try writeDatabase("id,description\n1,Milk\n1,Cheese\n")
         defer { try? FileManager.default.removeItem(at: duplicate) }
