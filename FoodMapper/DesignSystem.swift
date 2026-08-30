@@ -134,9 +134,9 @@ extension Color {
     static func appBadgeFill(_ tone: AppBadgeTone, for colorScheme: ColorScheme) -> Color {
         switch tone {
         case .accent:
-            return colorScheme == .dark ? Color.accentColor.opacity(0.18) : Color.accentColor.opacity(0.14)
+            return badgeBackground(for: colorScheme)
         case .accentStrong:
-            return colorScheme == .dark ? Color.accentColor.opacity(0.90) : Color.accentColor.opacity(0.98)
+            return badgeBackground(for: colorScheme)
         case .neutral:
             return colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06)
         case .success:
@@ -151,9 +151,9 @@ extension Color {
     static func appBadgeStroke(_ tone: AppBadgeTone, for colorScheme: ColorScheme) -> Color {
         switch tone {
         case .accent:
-            return colorScheme == .dark ? Color.accentColor.opacity(0.42) : Color.accentColor.opacity(0.30)
+            return colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.12)
         case .accentStrong:
-            return colorScheme == .dark ? Color.white.opacity(0.28) : Color.accentColor.opacity(0.45)
+            return colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.12)
         case .neutral:
             return colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.12)
         case .success:
@@ -168,9 +168,9 @@ extension Color {
     static func appBadgeForeground(_ tone: AppBadgeTone, for colorScheme: ColorScheme) -> Color {
         switch tone {
         case .accent:
-            return Color.accentColor
+            return colorScheme == .dark ? Color.white.opacity(0.88) : Color.primary.opacity(0.74)
         case .accentStrong:
-            return colorScheme == .dark ? Color.white.opacity(0.96) : Color.white
+            return colorScheme == .dark ? Color.white.opacity(0.88) : Color.primary.opacity(0.74)
         case .neutral:
             return colorScheme == .dark ? Color.white.opacity(0.88) : Color.primary.opacity(0.74)
         case .success:
@@ -206,7 +206,7 @@ struct FlexiblePickerSizing: ViewModifier {
 // MARK: - View Modifiers
 
 extension View {
-    /// SF Symbol hierarchical rendering (gradient depth)
+    /// SF Symbol hierarchical rendering.
     func symbolGradient() -> some View {
         self.symbolRenderingMode(.hierarchical)
     }
@@ -247,9 +247,7 @@ extension View {
         modifier(PanelMaterialModifier(cornerRadius: cornerRadius))
     }
 
-    /// Frosted action buttons card for toolbar-adjacent panels.
-    /// Pass colorScheme explicitly so SwiftUI tracks the dependency correctly
-    /// (avoids lag when switching light/dark mode).
+    /// Neutral action group background.
     func actionButtonsCard(colorScheme: ColorScheme) -> some View {
         modifier(ActionButtonsCardModifier(colorScheme: colorScheme))
     }
@@ -267,8 +265,7 @@ extension View {
         modifier(AppBadgeModifier(tone: tone, cornerRadius: cornerRadius))
     }
 
-    /// Liquid Glass button style for macOS 26 Tahoe.
-    /// Resembles the primary toolbar actions with material layering and depth.
+    /// Shared secondary action background.
     func liquidGlassButtonStyle(
         color: Color,
         cornerRadius: CGFloat = 8,
@@ -279,61 +276,20 @@ extension View {
 
 }
 
-// MARK: - Liquid Glass Button Modifier
+// MARK: - Button Background Modifier
 
 struct LiquidGlassButtonModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
     let color: Color
     let cornerRadius: CGFloat
     let isActive: Bool
 
-    // Matched exactly to the primary MatchButton for perfect contrast
-    private var accentOpacity: Double { colorScheme == .dark ? 0.65 : 0.85 }
-    private var specularPeak: Double { colorScheme == .dark ? 0.4 : 0.12 }
-    private var edgeGlowTop: Double { colorScheme == .dark ? 0.55 : 0.3 }
-    private var edgeGlowBottom: Double { colorScheme == .dark ? 0.12 : 0.05 }
-
     func body(content: Content) -> some View {
         content
-            .background {
-                ZStack {
-                    if #available(macOS 26, *) {
-                        let buttonColor = (color == .secondary && colorScheme == .light) ? Color(white: 0.35) : color
-                        
-                        // Layer 0: Colored backlight for saturation
-                        Capsule().fill(buttonColor.opacity(0.35))
-                        // Layer 1: Material base
-                        Capsule().fill(.ultraThinMaterial)
-                        // Layer 2: Color tint
-                        Capsule().fill(buttonColor.opacity(accentOpacity))
-                        // Layer 3: Specular highlight (top curve)
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.white.opacity(specularPeak), .white.opacity(0.06), .clear],
-                                    startPoint: .top, endPoint: .bottom
-                                )
-                            )
-                            .padding(.horizontal, 2).padding(.top, 1)
-                        // Layer 4: Inner refraction edge
-                        Capsule()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [.white.opacity(edgeGlowTop), .white.opacity(edgeGlowBottom)],
-                                    startPoint: .top, endPoint: .bottom
-                                ),
-                                lineWidth: 0.7
-                            )
-                    } else {
-                        // Sequoia/Sonoma fallback: rich solid capsule with shadow
-                        let buttonColor = (color == .secondary && colorScheme == .light) ? Color(white: 0.4) : color
-                        Capsule()
-                            .fill(buttonColor.opacity(colorScheme == .dark ? 0.9 : 1.0))
-                            .shadow(color: buttonColor.opacity(colorScheme == .dark ? 0.5 : 0.3), radius: 6, y: 3)
-                    }
-                }
+            .background(color.opacity(isActive ? 0.14 : 0.08), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(color.opacity(isActive ? 0.35 : 0.18), lineWidth: 0.66)
             }
-            .contentShape(Capsule())
     }
 }
 
@@ -359,71 +315,28 @@ struct PanelMaterialModifier: ViewModifier {
                     }
                 }
             )
-            .background(colorScheme == .dark ? Color.black.opacity(0.15) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 0.66)
-            )
-            .shadow(
-                color: colorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.15),
-                radius: colorScheme == .dark ? 12 : 10,
-                y: colorScheme == .dark ? 8 : 6
             )
     }
 }
 
 // MARK: - Action Buttons Card Modifier
 
-/// Liquid Glass on Tahoe, subtle card on Sequoia/Sonoma.
-/// colorScheme passed explicitly to fix lag when switching light/dark.
+/// Neutral action group container.
 struct ActionButtonsCardModifier: ViewModifier {
     let colorScheme: ColorScheme
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content
-                .padding(Spacing.sm)
-                .background {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.cardBackground(for: colorScheme))
-                            .glassEffect(.regular)
-                    }
-                    .shadow(color: Color.cardShadow(for: colorScheme), radius: 8, y: 4)
-                }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1.0)
-                )
-                .overlay {
-                    if colorScheme == .light {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
-                            .padding(0.5)
-                    }
-                }
-        } else {
-            // macOS 15/14: subtle frosted card
-            content
-                .padding(Spacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.cardBackground(for: colorScheme))
-                        .shadow(color: Color.cardShadow(for: colorScheme), radius: 8, y: 4)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1.0)
-                )
-                .overlay {
-                    if colorScheme == .light {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
-                            .padding(0.5)
-                    }
-                }
-        }
+        content
+            .padding(Spacing.sm)
+            .background(Color.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 0.66)
+            )
     }
 }
 
@@ -445,13 +358,6 @@ struct SettingsCardModifier: ViewModifier {
                             : Color.white.opacity(0.52),
                         lineWidth: 0.66
                     )
-            )
-            .shadow(
-                color: colorScheme == .dark
-                    ? Color.black.opacity(0.18)
-                    : Color.black.opacity(0.05),
-                radius: 1.5,
-                y: 1
             )
     }
 }
@@ -491,15 +397,14 @@ struct SymbolAppearTransition: ViewModifier {
 
 // MARK: - Interactive Text Button Style
 
-/// Subtle scale + opacity on hover/press for text-style buttons.
+/// Opacity-only feedback for text-style buttons.
 struct InteractiveTextButtonStyle: ButtonStyle {
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.7 : (isHovering ? 0.85 : 1.0))
-            .scaleEffect(configuration.isPressed ? 0.96 : (isHovering ? 1.01 : 1.0))
-            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.15), value: isHovering)
             .onHover { hovering in
                 isHovering = hovering
@@ -523,7 +428,6 @@ struct HeaderIconButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(configuration.isPressed ? Color.primary.opacity(0.1) : Color.clear)
             )
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
@@ -545,103 +449,6 @@ struct CardStyleModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1)
             )
-            .shadow(
-                color: Color.cardShadow(for: colorScheme),
-                radius: colorScheme == .dark ? 12 : 6,
-                y: colorScheme == .dark ? 6 : 2
-            )
-    }
-}
-
-// MARK: - Rotating Border Modifier
-
-/// Rotating border shine for primary CTAs (Match button, Research card).
-/// TimelineView(.animation) instead of withAnimation(.repeatForever) because
-/// the latter leaks its animation into parent toolbar layout on macOS 14-15.
-struct RotatingBorderShineModifier: ViewModifier {
-    let cornerRadius: CGFloat
-    let lineWidth: CGFloat
-    let duration: Double
-    let isActive: Bool
-    let customColor: Color?
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-
-    init(cornerRadius: CGFloat = 12, lineWidth: CGFloat = 2.0, duration: Double = 3.5, isActive: Bool = true, color: Color? = nil) {
-        self.cornerRadius = cornerRadius
-        self.lineWidth = lineWidth
-        self.duration = duration
-        self.isActive = isActive
-        self.customColor = color
-    }
-
-    private var shineColor: Color {
-        if let customColor { return customColor }
-        return colorScheme == .dark ? .white : .accentColor
-    }
-
-    /// Whether to use Capsule shape (perfect semicircle ends) vs RoundedRectangle
-    private var useCapsule: Bool { cornerRadius >= 100 }
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                if isActive && !reduceMotion {
-                    TimelineView(.animation) { timeline in
-                        let elapsed = timeline.date.timeIntervalSinceReferenceDate
-                        let rotation = (elapsed / duration).truncatingRemainder(dividingBy: 1.0) * 360
-                        let gradient = AngularGradient(
-                            gradient: Gradient(colors: [
-                                shineColor.opacity(0),
-                                shineColor.opacity(0.2),
-                                shineColor.opacity(0.9),
-                                shineColor.opacity(0.2),
-                                shineColor.opacity(0)
-                            ]),
-                            center: .center,
-                            startAngle: .degrees(rotation),
-                            endAngle: .degrees(rotation + 80)
-                        )
-
-                        if useCapsule {
-                            Capsule(style: .continuous)
-                                .strokeBorder(gradient, lineWidth: lineWidth)
-                                .mask(Capsule(style: .continuous))
-                        } else {
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .strokeBorder(gradient, lineWidth: lineWidth)
-                                .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        }
-                    }
-                    .allowsHitTesting(false)
-                }
-            }
-    }
-}
-
-extension View {
-    /// Adds a rotating border shine animation.
-    func rotatingBorderShine(cornerRadius: CGFloat = 12, lineWidth: CGFloat = 2.0, isActive: Bool = true, color: Color? = nil) -> some View {
-        modifier(RotatingBorderShineModifier(cornerRadius: cornerRadius, lineWidth: lineWidth, duration: 3.5, isActive: isActive, color: color))
-    }
-}
-
-// MARK: - New Feature Glow Modifier (Deprecated)
-
-struct NewFeatureGlowModifier: ViewModifier {
-    let isActive: Bool
-    let cornerRadius: CGFloat
-    let duration: Double?
-
-    func body(content: Content) -> some View {
-        // Compatibility wrapper for rotatingBorderShine.
-        content.rotatingBorderShine(cornerRadius: cornerRadius, isActive: isActive)
-    }
-}
-
-extension View {
-    func newFeatureGlow(isActive: Bool, cornerRadius: CGFloat = 12, duration: Double? = nil) -> some View {
-        modifier(NewFeatureGlowModifier(isActive: isActive, cornerRadius: cornerRadius, duration: duration))
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.06), radius: 1, y: 1)
     }
 }

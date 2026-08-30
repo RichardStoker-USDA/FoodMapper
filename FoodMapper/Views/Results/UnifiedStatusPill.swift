@@ -1,14 +1,9 @@
 import SwiftUI
 
-/// Single unified status pill for the results table.
-/// Displays 3 outcome labels: Match, Needs Review, No Match.
-/// ConfirmedMatch displays as "Match", confirmedNoMatch as "No Match" (display-layer only).
-/// Optional who-decided badge shows when a human has acted on the row.
+/// Compact status label for the results table.
 struct UnifiedStatusPill: View {
     let category: MatchCategory
     var reviewStatus: ReviewStatus?
-    @Environment(\.colorScheme) private var colorScheme
-
     // Display mapping: collapse 5 categories into 3 outcomes
     private var displayText: String {
         switch category {
@@ -26,41 +21,32 @@ struct UnifiedStatusPill: View {
         }
     }
 
-    private var pillBackground: Color {
+    private var statusColor: Color {
         switch category {
         case .match, .confirmedMatch:
-            return colorScheme == .dark ? Color.green.opacity(0.85) : Color.green
+            return .green
         case .needsReview:
-            return colorScheme == .dark ? Color.accentColor.opacity(0.85) : Color.accentColor
+            return .accentColor
         case .noMatch, .confirmedNoMatch:
-            return colorScheme == .dark ? Color.gray.opacity(0.65) : Color.gray.opacity(0.75)
+            return .secondary
         }
     }
 
     var body: some View {
         HStack(spacing: Spacing.xxs) {
-            // Who-decided badge (left of pill)
             if let badge = badgeIcon {
                 Image(systemName: badge)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
 
-            // Status pill
-            HStack(spacing: Spacing.xxs) {
-                Image(systemName: displayIcon)
-                    .font(.system(size: 11, weight: .semibold))
+            Image(systemName: displayIcon)
+                .font(.system(size: 11, weight: .semibold))
 
-                Text(displayText)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xxxs)
-            .background(pillBackground)
-            .clipShape(Capsule())
+            Text(displayText)
+                .font(.caption.weight(.semibold))
         }
+        .foregroundStyle(statusColor)
         .accessibilityLabel("Status: \(displayText)")
     }
 

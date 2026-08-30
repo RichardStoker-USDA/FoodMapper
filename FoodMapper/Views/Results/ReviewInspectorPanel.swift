@@ -17,8 +17,6 @@ struct ReviewInspectorPanel: View {
     @State private var reasoningExpanded = true
     @State private var bulkNoteText = ""
     @State private var showGuidedReviewInfo = false
-    @State private var isMatchHovered = false
-    @State private var isNoMatchHovered = false
     @FocusState private var isOverrideFieldFocused: Bool
     @FocusState private var isNoteFieldFocused: Bool
     @FocusState private var isBulkNoteFieldFocused: Bool
@@ -303,7 +301,7 @@ struct ReviewInspectorPanel: View {
                             Text("Match All (\(count))")
                         }
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.green)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(color: .green)
@@ -318,7 +316,7 @@ struct ReviewInspectorPanel: View {
                             Text("No Match All (\(count))")
                         }
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(color: .secondary)
@@ -647,27 +645,11 @@ struct ReviewInspectorPanel: View {
         colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15)
     }
 
-    private var cardShadowColor: Color {
-        colorScheme == .dark ? Color.black.opacity(0.6) : Color.black.opacity(0.15)
-    }
-
     private var cardBorderWidth: CGFloat { 1.0 }
-
-    private var cardShadowPrimary: (color: Color, radius: CGFloat, y: CGFloat) {
-        colorScheme == .dark
-            ? (Color.black.opacity(0.50), 14, 7)
-            : (Color.black.opacity(0.15), 10, 5)
-    }
-
-    private var cardShadowSecondary: (color: Color, radius: CGFloat) {
-        colorScheme == .dark
-            ? (Color.black.opacity(0.25), 3)
-            : (Color.black.opacity(0.08), 3)
-    }
 
     // MARK: - Inspector Card
 
-    /// Container for grouped inspector content that matches the Behind the Research theme.
+    /// Container for grouped inspector content.
     @ViewBuilder
     private func inspectorCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         let cornerRadius: CGFloat = 10
@@ -677,33 +659,16 @@ struct ReviewInspectorPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Spacing.sm)
             .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.cardBackground(for: colorScheme))
-                }
-                .shadow(
-                    color: Color.cardShadow(for: colorScheme),
-                    radius: colorScheme == .dark ? 12 : 9,
-                    y: colorScheme == .dark ? 6 : 4
-                )
-                .shadow(
-                    color: colorScheme == .dark ? Color.black.opacity(0.20) : Color.black.opacity(0.06),
-                    radius: 2,
-                    y: 1
-                )
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.cardBackground(for: colorScheme))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: borderWidth)
             }
             .overlay {
-                if colorScheme == .light {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
-                        .padding(0.5)
-                }
             }
-            .id(colorScheme) // Fixes lag when switching light/dark mode
+            .id(colorScheme)
     }
 
     // MARK: - Candidate Row
@@ -776,7 +741,6 @@ struct ReviewInspectorPanel: View {
                             ? Color.green.opacity(0.12)
                             : (isHovered ? Color.primary.opacity(0.08) : Color.clear)
                     )
-                    .animation(Animate.quick, value: hoveredCandidateId)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -834,7 +798,7 @@ struct ReviewInspectorPanel: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 2)
                 .help("Reset to original auto-triage state (R, press twice)")
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: appState.resetPendingConfirmation)
+                .animation(.easeInOut(duration: 0.15), value: appState.resetPendingConfirmation)
                 .reportTutorialFrame("inspectorResetButton", to: appState)
             }
 
@@ -851,22 +815,19 @@ struct ReviewInspectorPanel: View {
                             Text("Match")
                                 .font(.subheadline.weight(.semibold))
                         }
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(.green)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(
                             color: Color.green,
                             cornerRadius: 8,
-                            isActive: isMatchHovered && !matchDisabled
+                            isActive: !matchDisabled
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .disabled(matchDisabled)
                     .opacity(matchDisabled ? 0.5 : 1.0)
-                    .scaleEffect(isMatchHovered && !matchDisabled ? 1.02 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isMatchHovered)
-                    .onHover { isMatchHovered = $0 }
                     .help("Return")
 
                     KeyCapView(key: "Return")
@@ -888,22 +849,19 @@ struct ReviewInspectorPanel: View {
                             Text("No Match")
                                 .font(.subheadline.weight(.semibold))
                         }
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(
                             color: Color.secondary,
                             cornerRadius: 8,
-                            isActive: isNoMatchHovered && !noMatchDisabled
+                            isActive: !noMatchDisabled
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .disabled(noMatchDisabled)
                     .opacity(noMatchDisabled ? 0.5 : 1.0)
-                    .scaleEffect(isNoMatchHovered && !noMatchDisabled ? 1.02 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isNoMatchHovered)
-                    .onHover { isNoMatchHovered = $0 }
                     .help("Delete")
 
                     KeyCapView(key: "Delete")
@@ -1175,16 +1133,6 @@ struct ReviewInspectorPanel: View {
                     .strokeBorder(Color.white.opacity(0.42), lineWidth: 0.66)
             }
         }
-        .shadow(
-            color: cardShadowPrimary.color,
-            radius: cardShadowPrimary.radius,
-            y: cardShadowPrimary.y
-        )
-        .shadow(
-            color: cardShadowSecondary.color,
-            radius: cardShadowSecondary.radius,
-            y: 1
-        )
     }
 
     // MARK: - Helpers
