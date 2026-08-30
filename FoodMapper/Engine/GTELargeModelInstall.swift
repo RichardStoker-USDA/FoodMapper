@@ -981,20 +981,37 @@ struct GTELargeModelInstaller: Sendable {
         try Task.checkCancellation()
         guard fileSystem.itemExists(at: rootDirectory) else { return }
         _ = try fileSystem.directoryIdentity(at: rootDirectory, requiredPermissions: 0o700)
-        let names = try fileSystem.contentsOfDirectory(at: rootDirectory).map(\.lastPathComponent)
-        let legacyNames = Set(manifest.files.map(\.name) + ["install.json"])
-        for name in names where name == manifest.installationDirectoryName ||
-            isOwnedVersionDirectoryName(name) ||
-            name == "current.json" ||
-            name == ".gte-large-promotion.json" ||
-            isOwnedStagingName(name) ||
-            isOwnedBackupName(name) ||
-            isOwnedCurrentTemporaryName(name) ||
-            isOwnedJournalTemporaryName(name) ||
-            legacyNames.contains(name) {
-            let candidate = rootDirectory.appendingPathComponent(name)
-            try fileSystem.removeItem(at: candidate)
-            try Task.checkCancellation()
+        // A matching name is not proof of ownership. Delete only a verified
+        // current install, verified flat legacy files, or objects named and
+        // identified by the durable promotion journal. Unreferenced lookalikes
+        // remain for manual inspection.
+        if verifyVersionedInstall(at: installedDirectory) {
+            try fileSystem.removeItem(at: installedDirectory)
+        }
+        if let pointerData = try? readSmallFile(at: currentPointerURL),
+           let pointer = try? JSONDecoder().decode(GTELargeInstallPointer.self, from: pointerData),
+           pointer.schema == 1,
+           pointer.directoryName == manifest.installationDirectoryName,
+           pointer.record.matches(manifest) {
+            try fileSystem.removeItem(at: currentPointerURL)
+        }
+        if isSafeLegacyDirectory(rootDirectory), verifyFiles(in: rootDirectory) {
+            for file in manifest.files {
+                try fileSystem.removeItem(at: rootDirectory.appendingPathComponent(file.name))
+            }
+            let legacyRecord = rootDirectory.appendingPathComponent("install.json")
+            if fileSystem.itemExists(at: legacyRecord) {
+                try fileSystem.removeItem(at: legacyRecord)
+            }
+        }
+        if let journal = verifiedPromotionJournal() {
+            for artifact in journal {
+                if fileSystem.itemExists(at: artifact.url),
+                   (try? fileSystem.directoryIdentity(at: artifact.url, requiredPermissions: 0o700)) == artifact.identity {
+                    try fileSystem.removeItem(at: artifact.url)
+                }
+            }
+            try fileSystem.removeItem(at: promotionJournalURL)
         }
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
@@ -1261,6 +1278,29 @@ struct GTELargeModelInstaller: Sendable {
         try fileSystem.removeItem(at: promotionJournalURL)
         try fileSystem.syncDirectory(at: rootDirectory)
         GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
+    }
+
+    private func verifiedPromotionJournal() -> [(url: URL, identity: GTELargeFileIdentity)]? {
+        guard let data = try? readSmallFile(at: promotionJournalURL),
+              let journal = try? JSONDecoder().decode(GTELargePromotionJournal.self, from: data),
+              journal.schema == 1,
+              journal.revision == manifest.revision,
+              isOwnedStagingName(journal.stagingDirectoryName),
+              let stagingIdentity = journal.stagingIdentity,
+              let staging = safeChild(named: journal.stagingDirectoryName),
+              (journal.backupDirectoryName == nil) == (journal.backupIdentity == nil) else {
+            return nil
+        }
+        var artifacts: [(url: URL, identity: GTELargeFileIdentity)] = [(staging, stagingIdentity)]
+        if let backupName = journal.backupDirectoryName,
+           let backupIdentity = journal.backupIdentity,
+           isOwnedBackupName(backupName),
+           let backup = safeChild(named: backupName) {
+            artifacts.append((backup, backupIdentity))
+        } else if journal.backupDirectoryName != nil {
+            return nil
+        }
+        return artifacts
     }
 
     private func isPrivateDirectory(_ url: URL) -> Bool {

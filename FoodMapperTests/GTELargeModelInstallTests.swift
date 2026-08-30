@@ -226,7 +226,7 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertNil(installer.availableDirectory())
     }
 
-    func testDeleteRemovesOwnedRecoveryArtifacts() async throws {
+    func testDeleteLeavesUnrecordedRecoveryLookalikes() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
         let staging = root.appendingPathComponent(".gte-large-staging-\(UUID().uuidString)", isDirectory: true)
@@ -242,8 +242,8 @@ final class GTELargeModelInstallTests: XCTestCase {
         try await installer.deleteInstallArtifacts()
 
         XCTAssertNil(installer.availableDirectory())
-        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staging.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: forged.path))
     }
@@ -286,14 +286,14 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
     }
 
-    func testDeleteRemovesOwnedOldRevisionDirectories() async throws {
+    func testDeleteLeavesOldRevisionLookalikes() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
         let old = root.appendingPathComponent("gte-large-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", isDirectory: true)
         try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: old.path)
         try await installer.deleteInstallArtifacts()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: old.path))
     }
 
     func testInstallUsesPrivatePermissions() async throws {
