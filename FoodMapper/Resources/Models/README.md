@@ -1,5 +1,5 @@
 ---
-license: apache-2.0
+license: mit
 language:
 - en
 library_name: mlx
@@ -17,7 +17,7 @@ pipeline_tag: sentence-similarity
 
 # FoodMapper GTE-Large (MLX Format)
 
-This is [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) converted to MLX-Swift safetensors format for use with the FoodMapper macOS application.
+This is [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) at revision [`4bef63f39fcc5e2d6b0aae83089f307af4970164`](https://huggingface.co/thenlper/gte-large/tree/4bef63f39fcc5e2d6b0aae83089f307af4970164), converted to MLX-Swift float16 BERT safetensors for use with the FoodMapper macOS application.
 
 ## Model Description
 
@@ -83,8 +83,8 @@ func meanPooling(_ hiddenState: MLXArray, attentionMask: MLXArray) -> MLXArray {
 
 ## Original Model
 
-Based on [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) by Alibaba DAMO Academy.
+Based on [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) by Alibaba DAMO Academy, revision `4bef63f39fcc5e2d6b0aae83089f307af4970164`.
 
 ## License
 
-Apache 2.0 (same as original GTE-Large)
+The source model card for this revision declares the MIT License. Keep the source citation and MIT notice with any redistributed conversion.

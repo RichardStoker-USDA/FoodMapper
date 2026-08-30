@@ -149,6 +149,7 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
 
     /// Load model and tokenizer from bundle
     func load() async throws {
+        await Self.awaitStartupRecovery()
         guard let modelDir = Self.modelDirectory else {
             throw EmbeddingError.modelNotFound
         }

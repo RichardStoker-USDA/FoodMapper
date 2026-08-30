@@ -23,6 +23,10 @@ final class GTELargeModelInstallTests: XCTestCase {
     func testProductionManifestPinsRevisionSizesAndHashes() {
         let manifest = GTELargeModelManifest.current
         XCTAssertEqual(manifest.revision, "0b7a78872ae6fd502fe2db3273b1b3e065a3d9db")
+        XCTAssertEqual(manifest.upstreamRepositoryID, "thenlper/gte-large")
+        XCTAssertEqual(manifest.upstreamRevision, "4bef63f39fcc5e2d6b0aae83089f307af4970164")
+        XCTAssertEqual(manifest.upstreamLicense, "MIT")
+        XCTAssertEqual(manifest.conversion, "MLX-Swift float16 BERT safetensors conversion")
         XCTAssertEqual(manifest.downloadSize, 671_270_295)
         XCTAssertEqual(manifest.files.count, 6)
         XCTAssertTrue(manifest.files.allSatisfy { manifest.sourceURL(for: $0).path.contains(manifest.revision) })
@@ -508,6 +512,45 @@ final class GTELargeModelInstallTests: XCTestCase {
         }
     }
 
+    func testJournalRenameFailureCleansPrivateTemporaryAndStaging() async throws {
+        let installer = makeInstaller(
+            transport: FixtureTransport(files: fixtureFiles),
+            fileSystem: FailingPromotionWriteFileSystem(failure: .journal)
+        )
+
+        do {
+            _ = try await installer.install()
+            XCTFail("Expected journal write failure")
+        } catch {
+            let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            XCTAssertFalse(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-journal-") })
+            XCTAssertFalse(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-staging-") })
+            XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
+        }
+    }
+
+    func testCurrentPointerRenameFailureRecoversVerifiedInstall() async throws {
+        let installer = makeInstaller(
+            transport: FixtureTransport(files: fixtureFiles),
+            fileSystem: FailingPromotionWriteFileSystem(failure: .current)
+        )
+
+        do {
+            _ = try await installer.install()
+            XCTFail("Expected current-pointer write failure")
+        } catch {
+            let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            XCTAssertFalse(entries.contains { $0.lastPathComponent.hasPrefix(".gte-large-current-") })
+            XCTAssertTrue(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".gte-large-promotion.json").path))
+        }
+
+        let recovery = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        try await recovery.recoverAtStartup()
+        XCTAssertEqual(recovery.availableDirectory(), recovery.installedDirectory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".gte-large-promotion.json").path))
+    }
+
     func testAvailabilityDoesNotMutateInterruptedInstall() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
@@ -569,7 +612,9 @@ final class GTELargeModelInstallTests: XCTestCase {
     }
 
     func testURLSessionTemporaryPathCopiesThroughRegularDescriptor() throws {
-        let source = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        // URLSession stores delegate downloads below the per-user `/var/folders`
+        // temporary root on macOS. That path traverses system-managed aliases.
+        let source = FileManager.default.temporaryDirectory
             .appendingPathComponent("foodmapper-urlsession-\(UUID().uuidString)")
         let destination = root.appendingPathComponent("payload")
         let data = Data("download payload".utf8)
@@ -581,6 +626,33 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destination), data)
         let mode = try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
+    }
+
+    func testLiveProductionManifestDownloadsAndVerifiesAnonymously() async throws {
+        #if !FOODMAPPER_RUN_LIVE_GTE_TEST
+        try XCTSkipUnless(
+            false,
+            "Build with -DFOODMAPPER_RUN_LIVE_GTE_TEST to run the live 640 MiB download."
+        )
+        #endif
+        let liveRoot = root.appendingPathComponent("live-production", isDirectory: true)
+        let installer = GTELargeModelInstaller(
+            rootDirectory: liveRoot,
+            transport: URLSessionGTELargeDownloadTransport()
+        )
+
+        let directory = try await installer.install()
+        XCTAssertEqual(directory, installer.installedDirectory)
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+        for file in GTELargeModelManifest.current.files {
+            let path = directory.appendingPathComponent(file.name)
+            let identity = try GTELargeSecurePath.fileIdentity(at: path)
+            XCTAssertEqual(identity.size, file.size)
+            XCTAssertEqual(try GTELargeSecurePath.hashPrivateFile(at: path).0, file.sha256)
+        }
+
+        try await installer.deleteInstallArtifacts()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedDirectory.path))
     }
 
     func testInjectedRootWithTraversalIsRejectedBeforeDelete() async throws {
@@ -650,6 +722,10 @@ final class GTELargeModelInstallTests: XCTestCase {
             formatVersion: 1,
             repositoryID: "example/fixture",
             revision: "0123456789abcdef0123456789abcdef01234567",
+            upstreamRepositoryID: "example/upstream",
+            upstreamRevision: "0123456789abcdef0123456789abcdef01234567",
+            upstreamLicense: "MIT",
+            conversion: "fixture",
             files: [
                 .init(name: "config.json", size: 6, sha256: "b79606fb3afea5bd1609ed40b622142f1c98125abcfe89a76a661b0e8e343910"),
                 .init(name: "weights.safetensors", size: 7, sha256: "9a129038d9a00aed0cf6a7ea059ca50a813449061ab87848cf1a13eafdf33b2c"),
@@ -787,12 +863,81 @@ private final class SwappingHashing: GTELargeHashing, @unchecked Sendable {
     }
 }
 
+private final class FailingPromotionWriteFileSystem: GTELargeFileSystem, @unchecked Sendable {
+    enum Failure {
+        case journal
+        case current
+    }
+
+    private let local = LocalGTELargeFileSystem()
+    private let failure: Failure
+    private let lock = NSLock()
+    private var didFail = false
+
+    init(failure: Failure) {
+        self.failure = failure
+    }
+
+    func itemExists(at url: URL) -> Bool { local.itemExists(at: url) }
+    func createDirectory(at url: URL, permissions: Int) throws { try local.createDirectory(at: url, permissions: permissions) }
+    func removeItem(at url: URL) throws { try local.removeItem(at: url) }
+    func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
+        try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
+    }
+    func contentsOfDirectory(at url: URL) throws -> [URL] { try local.contentsOfDirectory(at: url) }
+    func copyItem(at source: URL, to destination: URL) throws { try local.copyItem(at: source, to: destination) }
+    func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
+    func read(from url: URL) throws -> Data { try local.read(from: url) }
+    func fileIdentity(at url: URL) throws -> GTELargeFileIdentity { try local.fileIdentity(at: url) }
+    func directoryIdentity(at url: URL, requiredPermissions: Int?) throws -> GTELargeFileIdentity {
+        try local.directoryIdentity(at: url, requiredPermissions: requiredPermissions)
+    }
+    func setPermissions(_ permissions: Int, at url: URL) throws { try local.setPermissions(permissions, at: url) }
+    func syncFile(at url: URL) throws { try local.syncFile(at: url) }
+    func syncDirectory(at url: URL) throws { try local.syncDirectory(at: url) }
+
+    func moveItem(at source: URL, to destination: URL) throws {
+        try failIfNeeded(source: source, destination: destination)
+        try local.moveItem(at: source, to: destination)
+    }
+
+    func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws {
+        try failIfNeeded(source: source, destination: destination)
+        try local.moveItem(
+            at: source,
+            to: destination,
+            expectedSourceDirectoryIdentity: expectedSourceDirectoryIdentity
+        )
+    }
+
+    private func failIfNeeded(source: URL, destination: URL) throws {
+        let shouldFail: Bool
+        switch failure {
+        case .journal:
+            shouldFail = source.lastPathComponent.hasPrefix(".gte-large-journal-") &&
+                destination.lastPathComponent == ".gte-large-promotion.json"
+        case .current:
+            shouldFail = source.lastPathComponent.hasPrefix(".gte-large-current-") &&
+                destination.lastPathComponent == "current.json"
+        }
+        guard shouldFail else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didFail else { return }
+        didFail = true
+        throw CocoaError(.fileWriteUnknown)
+    }
+}
+
 private struct FailingCommitFileSystem: GTELargeFileSystem {
     private let local = LocalGTELargeFileSystem()
 
     func itemExists(at url: URL) -> Bool { local.itemExists(at: url) }
     func createDirectory(at url: URL, permissions: Int) throws { try local.createDirectory(at: url, permissions: permissions) }
     func removeItem(at url: URL) throws { try local.removeItem(at: url) }
+    func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
+        try local.removeItem(at: url, expectedDirectoryIdentity: expectedDirectoryIdentity)
+    }
     func contentsOfDirectory(at url: URL) throws -> [URL] { try local.contentsOfDirectory(at: url) }
     func copyItem(at source: URL, to destination: URL) throws { try local.copyItem(at: source, to: destination) }
     func write(_ data: Data, to url: URL, permissions: Int) throws { try local.write(data, to: url, permissions: permissions) }
@@ -810,5 +955,16 @@ private struct FailingCommitFileSystem: GTELargeFileSystem {
             throw CocoaError(.fileWriteUnknown)
         }
         try local.moveItem(at: source, to: destination)
+    }
+
+    func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws {
+        if source.lastPathComponent.hasPrefix(".gte-large-staging-") && destination.lastPathComponent.hasPrefix("gte-large-") {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try local.moveItem(
+            at: source,
+            to: destination,
+            expectedSourceDirectoryIdentity: expectedSourceDirectoryIdentity
+        )
     }
 }

@@ -15,12 +15,22 @@ struct GTELargeModelManifest: Codable, Equatable, Sendable {
     let formatVersion: Int
     let repositoryID: String
     let revision: String
+    /// Upstream source used to produce the fixed MLX artifact. These fields
+    /// are source provenance, not alternate download locations.
+    let upstreamRepositoryID: String
+    let upstreamRevision: String
+    let upstreamLicense: String
+    let conversion: String
     let files: [File]
 
     static let current = GTELargeModelManifest(
         formatVersion: 1,
         repositoryID: "richtext/foodmapper-gte-large",
         revision: "0b7a78872ae6fd502fe2db3273b1b3e065a3d9db",
+        upstreamRepositoryID: "thenlper/gte-large",
+        upstreamRevision: "4bef63f39fcc5e2d6b0aae83089f307af4970164",
+        upstreamLicense: "MIT",
+        conversion: "MLX-Swift float16 BERT safetensors conversion",
         files: [
             File(name: "config.json", size: 619, sha256: "42a037b389d02db73d1d5bd0d049d3269e3617e368f86992474a32c42ffbd859"),
             File(name: "gte-large.safetensors", size: 670_326_040, sha256: "f917f334b6e38e966519983a6b567a5a86d90065932c780f6b4ad72e6bf3a90b"),
@@ -520,24 +530,6 @@ protocol GTELargeFileSystem: Sendable {
     func setPermissions(_ permissions: Int, at url: URL) throws
     func syncFile(at url: URL) throws
     func syncDirectory(at url: URL) throws
-}
-
-extension GTELargeFileSystem {
-    func removeItem(at url: URL, expectedDirectoryIdentity: GTELargeFileIdentity) throws {
-        let actual = try directoryIdentity(at: url, requiredPermissions: 0o700)
-        guard GTELargeSecurePath.sameDirectoryIdentity(actual, expectedDirectoryIdentity) else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        try removeItem(at: url)
-    }
-
-    func moveItem(at source: URL, to destination: URL, expectedSourceDirectoryIdentity: GTELargeFileIdentity) throws {
-        let actual = try directoryIdentity(at: source, requiredPermissions: 0o700)
-        guard GTELargeSecurePath.sameDirectoryIdentity(actual, expectedSourceDirectoryIdentity) else {
-            throw GTELargeModelInstallError.unsafePath
-        }
-        try moveItem(at: source, to: destination)
-    }
 }
 
 struct LocalGTELargeFileSystem: GTELargeFileSystem {
@@ -1729,7 +1721,12 @@ struct GTELargeModelInstaller: Sendable {
 
     private func manifestIsValid() -> Bool {
         guard manifest.formatVersion == 1,
+              manifest.repositoryID.range(of: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", options: .regularExpression) != nil,
               manifest.revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
+              manifest.upstreamRepositoryID.range(of: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", options: .regularExpression) != nil,
+              manifest.upstreamRevision.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
+              manifest.upstreamLicense == "MIT",
+              !manifest.conversion.isEmpty,
               isSafePathComponent(manifest.installationDirectoryName),
               manifest.files.count == Set(manifest.files.map(\.name)).count else { return false }
         return manifest.files.allSatisfy {
