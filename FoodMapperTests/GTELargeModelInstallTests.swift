@@ -794,6 +794,17 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
     }
 
+    func testURLSessionTemporaryPathAcceptsProductionVarSpelling() throws {
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("foodmapper-urlsession-root-\(UUID().uuidString)")
+        try Data("payload".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let validated = try GTELargeSecurePath.validatedURLSessionTemporaryFile(source)
+        XCTAssertTrue(validated.path.hasPrefix("/private/var/") || !source.path.hasPrefix("/var/"))
+        XCTAssertEqual(try Data(contentsOf: validated), Data("payload".utf8))
+    }
+
     func testURLSessionTemporaryPathRejectsOversizedPayload() throws {
         let source = FoodMapperStorage.processTemporaryRootURL
             .appendingPathComponent("foodmapper-oversized-\(UUID().uuidString)")
@@ -856,6 +867,22 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(localhost))
     }
 
+    func testURLSessionTemporaryPathRejectsRepeatedDecodedTraversalAndSeparators() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+        let encodedComponents = [
+            "%2E%2E", "%252E%252E", ".%2E", "%2E.",
+            "%2F", "%252F", "%5C", "%255C"
+        ]
+
+        for component in encodedComponents {
+            let url = URL(string: "file://\(temporaryRoot.path)/\(component)/payload")!
+            XCTAssertThrowsError(
+                try GTELargeSecurePath.validatedURLSessionTemporaryFile(url),
+                "Expected \(component) to be rejected before descriptor traversal"
+            )
+        }
+    }
+
     func testURLSessionTemporaryPathRejectsInRootLeafSymlink() throws {
         #if DEBUG
         let temporaryRoot = root.appendingPathComponent("urlsession-symlink", isDirectory: true)
@@ -905,6 +932,28 @@ final class GTELargeModelInstallTests: XCTestCase {
 
         try Data("longer".utf8).write(to: payload)
         XCTAssertThrowsError(try GTELargeSecurePath.removePrivateTree(at: artifact, tree: tree, maximumDepth: 1))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertEqual(try Data(contentsOf: payload), Data("longer".utf8))
+    }
+
+    func testPrivateTreeRemovalRejectsEqualAccountingDescendantReplacement() throws {
+        let artifact = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: artifact.path)
+        let payload = artifact.appendingPathComponent("payload")
+        let displaced = artifact.appendingPathComponent("displaced")
+        try Data("one".utf8).write(to: payload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payload.path)
+        let tree = try GTELargeSecurePath.privateTree(at: artifact, maximumEntries: 2, maximumDepth: 1, maximumBytes: 3)
+
+        try FileManager.default.moveItem(at: payload, to: displaced)
+        try Data("two".utf8).write(to: payload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payload.path)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.removePrivateTree(at: artifact, tree: tree, maximumDepth: 1))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertEqual(try Data(contentsOf: payload), Data("two".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: displaced.path))
     }
 
     func testPrivateTreeRejectsFIFO() throws {
@@ -918,6 +967,48 @@ final class GTELargeModelInstallTests: XCTestCase {
             maximumDepth: 0,
             maximumBytes: 0
         ))
+    }
+
+    func testPrivateTreeRejectsCharacterDevice() throws {
+        XCTAssertThrowsError(try GTELargeSecurePath.privateTree(
+            at: URL(fileURLWithPath: "/dev/null"),
+            maximumEntries: 1,
+            maximumDepth: 0,
+            maximumBytes: 0
+        ))
+    }
+
+    func testPrivateTreeRejectsBlockDeviceWhenTheHostAllowsCreation() throws {
+        let device = root.appendingPathComponent("block-device")
+        guard mknod(device.path, S_IFBLK | 0o600, 0) == 0 else {
+            guard errno == EPERM || errno == EACCES else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            throw XCTSkip("Creating a block device requires privileges on this host")
+        }
+        defer { try? FileManager.default.removeItem(at: device) }
+
+        XCTAssertThrowsError(try GTELargeSecurePath.privateTree(
+            at: device,
+            maximumEntries: 1,
+            maximumDepth: 0,
+            maximumBytes: 0
+        ))
+    }
+
+    func testFileRemovalRejectsReplacementObservedBeforeFinalUnlink() throws {
+        let file = root.appendingPathComponent(".gte-large-removing-\(UUID().uuidString)")
+        let displaced = root.appendingPathComponent("displaced-file")
+        try Data("one".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        let identity = try GTELargeSecurePath.fileIdentity(at: file)
+        try FileManager.default.moveItem(at: file, to: displaced)
+        try Data("two".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.removePrivateItem(at: file, expectedFileIdentity: identity))
+        XCTAssertEqual(try Data(contentsOf: file), Data("two".utf8))
+        XCTAssertEqual(try Data(contentsOf: displaced), Data("one".utf8))
     }
 
     func testDirectoryRemovalRejectsReplacementObservedBeforeUnlink() throws {
