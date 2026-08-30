@@ -74,6 +74,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
         guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
             throw EmbeddingError.modelNotFound
         }
+        try snapshot.revalidate()
         let configuration = MLXEmbedders.ModelConfiguration(directory: snapshot.directory)
         modelContainer = try await loadModelContainer(
             hub: HubApi(), configuration: configuration, allowedArtifactPaths: snapshot.artifactPaths

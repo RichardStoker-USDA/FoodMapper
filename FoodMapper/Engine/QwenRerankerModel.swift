@@ -69,6 +69,7 @@ actor QwenRerankerModel {
         guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
             throw RerankerError.modelNotLoaded
         }
+        try snapshot.revalidate()
         container = try await MLXLMCommon.loadModelContainer(
             hub: HubApi(), configuration: .init(directory: snapshot.directory)
         )

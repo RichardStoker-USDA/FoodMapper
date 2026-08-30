@@ -162,6 +162,14 @@ final class CustomDatabaseValidationTests: XCTestCase {
         )
     }
 
+    func testIdenticalRowsUseContentIdentityAndDuplicateOrdinalMetadata() throws {
+        let url = try writeDatabase("description,note\nMilk,whole\nMilk,whole\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let validated = try CustomDatabaseValidator.load(url: url, textColumn: "description", idColumn: nil)
+        XCTAssertEqual(validated.entries.map(\.id), [validated.entries[0].id, validated.entries[0].id])
+        XCTAssertEqual(validated.entries.map { $0.additionalFields["FoodMapper duplicate ordinal"] }, ["1", "2"])
+    }
+
     func testRejectsSymbolicAndHardLinkedSources() throws {
         let source = try writeDatabase("id,description\n1,Milk\n")
         let symbolic = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-symbolic-\(UUID().uuidString).csv")
@@ -218,10 +226,12 @@ final class CustomDatabaseValidationTests: XCTestCase {
     func testCacheRecoveryRestoresLastGoodPairAfterInterruptedCommit() async throws {
         let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let cacheName = "database_embeddings_model.bin"
         let metadataName = "database_embeddings_model.json"
         let transaction = directory.appendingPathComponent(".cache-transaction-test", isDirectory: true)
         try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
         let values: [Float] = [1, 2]
         let cacheData = values.withUnsafeBufferPointer { Data(buffer: $0) }
         let metadata = CustomDatabaseCacheMetadata(
@@ -230,9 +240,16 @@ final class CustomDatabaseValidationTests: XCTestCase {
             entryCount: 1, embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(cacheData)
         )
         try cacheData.write(to: transaction.appendingPathComponent("cache.backup"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: transaction.appendingPathComponent("cache.backup").path)
         try JSONEncoder().encode(metadata).write(to: transaction.appendingPathComponent("metadata.backup"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: transaction.appendingPathComponent("metadata.backup").path)
         try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName, metadata: metadata))
             .write(to: transaction.appendingPathComponent("journal.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: transaction.appendingPathComponent("journal.json").path)
+        XCTAssertTrue(MatchingEngine.isValidCachePair(
+            transaction.appendingPathComponent("cache.backup"),
+            transaction.appendingPathComponent("metadata.backup"), expected: metadata
+        ))
         try Data([0]).write(to: directory.appendingPathComponent(cacheName))
 
         _ = try await MatchingEngine()

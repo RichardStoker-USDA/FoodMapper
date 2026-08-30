@@ -176,7 +176,12 @@ extension AppState {
             return
         }
         do {
-            let data = try Data(contentsOf: customDatabasesURL)
+            let root = customDatabasesURL.deletingLastPathComponent()
+            let descriptor = try SecureFileAccess.openRegularFile(
+                customDatabasesURL, under: root, maximumSize: 8 * 1_024 * 1_024
+            )
+            defer { close(descriptor) }
+            let data = try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 8 * 1_024 * 1_024)
             customDatabases = try JSONDecoder().decode([CustomDatabase].self, from: data)
         } catch {
             logger.error("Failed to load custom databases: \(error)")
@@ -256,7 +261,6 @@ extension AppState {
         try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: journal.path)
         try SecureFileAccess.synchronize(journal)
         try SecureFileAccess.synchronize(directory, directory: true)
-        defer { try? FileManager.default.removeItem(at: journal) }
         FileManager.default.createFile(atPath: stage.path, contents: nil)
         let handle = try FileHandle(forWritingTo: stage)
         do {
@@ -270,9 +274,12 @@ extension AppState {
                 try FileManager.default.moveItem(at: stage, to: customDatabasesURL)
             }
             try syncDirectory(directory)
+            try FileManager.default.removeItem(at: journal)
+            try SecureFileAccess.synchronize(directory, directory: true)
         } catch {
             try? handle.close()
-            try? FileManager.default.removeItem(at: stage)
+            // Preserve the journal and staged record after a rename or sync error.
+            // Startup recovery can then decide without discarding the last registry.
             throw error
         }
     }
@@ -281,13 +288,16 @@ extension AppState {
         let directory = customDatabasesURL.deletingLastPathComponent()
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
         guard FileManager.default.fileExists(atPath: journal.path) else { return }
-        guard let name = try? String(contentsOf: journal, encoding: .utf8),
+        guard let descriptor = try? SecureFileAccess.openRegularFile(journal, under: directory, maximumSize: 1_024),
+              let data = try? SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 1_024),
+              let name = String(data: data, encoding: .utf8),
               name.hasPrefix(".\(customDatabasesURL.lastPathComponent)."),
               name.hasSuffix(".stage"),
               !name.contains("/"), !name.contains("..") else {
             quarantineRegistryJournal(journal, in: directory)
             return
         }
+        close(descriptor)
         do {
             let stage = directory.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: stage.path) { try FileManager.default.removeItem(at: stage) }
@@ -684,7 +694,8 @@ extension AppState {
         guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         for stage in contents where stage.lastPathComponent.hasPrefix(".delete-") {
             let journalURL = stage.appendingPathComponent("journal.json")
-            guard let data = try? Data(contentsOf: journalURL),
+            guard let descriptor = try? SecureFileAccess.openRegularFile(journalURL, under: stage, maximumSize: 1_048_576),
+                  let data = try? SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 1_048_576),
                   let journal = try? JSONDecoder().decode(DatabaseDeletionJournal.self, from: data),
                   journal.version == DatabaseDeletionJournal.currentVersion,
                   CustomDatabase.isSafeStorageIdentifier(journal.databaseID),
@@ -692,6 +703,7 @@ extension AppState {
                 quarantineDeletionStage(stage, in: directory)
                 continue
             }
+            close(descriptor)
             guard let registeredIDs else {
                 quarantineDeletionStage(stage, in: directory)
                 continue
@@ -702,7 +714,12 @@ extension AppState {
                     for name in journal.files {
                         let staged = stage.appendingPathComponent(name)
                         let destination = directory.appendingPathComponent(name)
-                        guard FileManager.default.fileExists(atPath: staged.path) else { continue }
+                        guard FileManager.default.fileExists(atPath: staged.path) else {
+                            // Do not delete a journal whose promised rollback member
+                            // vanished. It remains recoverable evidence for repair.
+                            conflict = true
+                            continue
+                        }
                         if FileManager.default.fileExists(atPath: destination.path) {
                             conflict = true
                             continue

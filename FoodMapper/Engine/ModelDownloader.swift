@@ -17,22 +17,59 @@ struct LocalModelSnapshotManifest: Codable {
 /// A local model location issued only after the pinned artifact manifest has
 /// been validated. Model loaders accept this value instead of an arbitrary URL.
 struct VerifiedLocalModelSnapshot: @unchecked Sendable {
+    struct ArtifactIdentity: Sendable, Equatable {
+        let device: UInt64
+        let inode: UInt64
+        let byteSize: Int64
+        let sha256: String
+    }
     let directory: URL
     let repository: String
     let revision: String
     let artifactPaths: Set<String>
+    private let artifactIdentities: [String: ArtifactIdentity]
     private let issuer: UUID
     private static let authority = UUID()
 
-    fileprivate init(directory: URL, repository: String, revision: String, artifactPaths: Set<String>) {
+    fileprivate init(
+        directory: URL, repository: String, revision: String,
+        artifactPaths: Set<String>, artifactIdentities: [String: ArtifactIdentity]
+    ) {
         self.directory = directory
         self.repository = repository
         self.revision = revision
         self.artifactPaths = artifactPaths
+        self.artifactIdentities = artifactIdentities
         self.issuer = Self.authority
     }
 
     var isIssuedByDownloader: Bool { issuer == Self.authority }
+
+    /// Check the capability immediately before a loader consumes its directory.
+    /// This catches replacement after installation without allowing a loader to
+    /// resolve an arbitrary Hub location.
+    func revalidate() throws {
+        guard isIssuedByDownloader,
+              ModelDownloader.isCompleteSnapshot(at: directory, repository: repository, revision: revision) else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        for (path, expected) in artifactIdentities {
+            guard let url = ModelDownloader.safeArtifactURL(directory: directory, path: path) else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+            let descriptor = try ModelDownloader.verifiedDescriptor(url, under: directory)
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0,
+                  UInt64(info.st_dev) == expected.device,
+                  UInt64(info.st_ino) == expected.inode,
+                  Int64(info.st_size) == expected.byteSize else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+            let digest = try ModelDownloader.digestFile(url, under: directory)
+            guard digest == expected.sha256 else { throw ModelDownloaderError.invalidSnapshot }
+        }
+    }
 }
 
 struct TrustedQwenSnapshotManifest: Decodable {
@@ -112,6 +149,7 @@ actor ModelDownloader {
         for (path, expectedHash) in manifest.artifacts {
             guard let artifact = expectedArtifacts[path],
                   let artifactURL = safeArtifactURL(directory: directory, path: path),
+                  (try? fileSize(artifactURL, under: directory)) == artifact.byteSize,
                   (try? digestFile(artifactURL, under: directory)) == expectedHash else { return false }
             if path.hasSuffix("config.json") { hasConfig = isReadableJSON(at: artifactURL, under: directory) }
             if path.hasSuffix("tokenizer.json") { hasTokenizer = isReadableJSON(at: artifactURL, under: directory) }
@@ -144,6 +182,7 @@ actor ModelDownloader {
         let stagedURL = try await stagingHub.snapshot(from: repo, revision: revision) { progress in
             onProgress(progress.fractionCompleted)
         }
+        try Self.hardenSnapshotTree(stagedURL)
         try writeManifest(repository: repoId, revision: revision, directory: stagedURL)
         try replaceSnapshot(stagedURL, at: localPath(for: repoId))
         let localURL = localPath(for: repoId)
@@ -168,8 +207,23 @@ actor ModelDownloader {
         let manifestURL = path.appendingPathComponent("foodmapper_snapshot_manifest.json")
         let data = try Self.readVerifiedFile(manifestURL, under: path, maximumSize: 1_048_576)
         let manifest = try JSONDecoder().decode(LocalModelSnapshotManifest.self, from: data)
+        var identities: [String: VerifiedLocalModelSnapshot.ArtifactIdentity] = [:]
+        for (relativePath, digest) in manifest.artifacts {
+            guard let artifactURL = Self.safeArtifactURL(directory: path, path: relativePath) else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+            let descriptor = try Self.verifiedDescriptor(artifactURL, under: path)
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0 else { throw ModelDownloaderError.invalidSnapshot }
+            identities[relativePath] = .init(
+                device: UInt64(info.st_dev), inode: UInt64(info.st_ino),
+                byteSize: Int64(info.st_size), sha256: digest
+            )
+        }
         return VerifiedLocalModelSnapshot(
-            directory: path, repository: repoId, revision: revision, artifactPaths: Set(manifest.artifacts.keys)
+            directory: path, repository: repoId, revision: revision,
+            artifactPaths: Set(manifest.artifacts.keys), artifactIdentities: identities
         )
     }
 
@@ -234,6 +288,30 @@ actor ModelDownloader {
         }
     }
 
+    nonisolated private static func hardenSnapshotTree(_ directory: URL) throws {
+        var root = stat()
+        guard lstat(directory.path, &root) == 0, (root.st_mode & S_IFMT) == S_IFDIR,
+              root.st_uid == getuid() else { throw ModelDownloaderError.invalidSnapshot }
+        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: directory.path)
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        for case let url as URL in enumerator {
+            var info = stat()
+            guard lstat(url.path, &info) == 0, info.st_uid == getuid(), info.st_nlink == 1 else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+            switch info.st_mode & S_IFMT {
+            case S_IFDIR:
+                try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: url.path)
+            case S_IFREG:
+                try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: url.path)
+            default:
+                throw ModelDownloaderError.invalidSnapshot
+            }
+        }
+    }
+
     nonisolated private static func trustedModel(repository: String, revision: String) -> TrustedQwenSnapshotManifest.Model? {
         guard let url = ResourceBundle.bundle.url(forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"),
               let data = try? Data(contentsOf: url),
@@ -248,7 +326,7 @@ actor ModelDownloader {
         }
     }
 
-    nonisolated private static func safeArtifactURL(directory: URL, path: String) -> URL? {
+    nonisolated fileprivate static func safeArtifactURL(directory: URL, path: String) -> URL? {
         guard isSafeRelativePath(path) else { return nil }
         let candidate = directory.appendingPathComponent(path)
         let rootPath = directory.standardizedFileURL.path + "/"
@@ -259,13 +337,24 @@ actor ModelDownloader {
     nonisolated private static func containsOnlyDeclaredArtifacts(in directory: URL, declared: Set<String>) -> Bool {
         guard let paths = try? FileManager.default.subpathsOfDirectory(atPath: directory.path) else { return false }
         let permitted = declared.union(["foodmapper_snapshot_manifest.json"])
+        let permittedDirectories = Set(declared.flatMap { path -> [String] in
+            let components = path.split(separator: "/")
+            guard components.count > 1 else { return [] }
+            return (1..<components.count).map { components.prefix($0).joined(separator: "/") }
+        })
         for path in paths {
             let url = directory.appendingPathComponent(path)
             var info = stat()
             guard lstat(url.path, &info) == 0 else { return false }
-            if (info.st_mode & S_IFMT) == S_IFREG, !permitted.contains(path) {
+            let type = info.st_mode & S_IFMT
+            if type == S_IFLNK { return false }
+            if type == S_IFREG, !permitted.contains(path) {
                 return false
             }
+            if type == S_IFDIR, !permittedDirectories.contains(path) {
+                return false
+            }
+            if type != S_IFREG && type != S_IFDIR { return false }
         }
         return true
     }
@@ -350,7 +439,7 @@ actor ModelDownloader {
         return data
     }
 
-    nonisolated private static func digestFile(_ url: URL, under directory: URL) throws -> String {
+    nonisolated fileprivate static func digestFile(_ url: URL, under directory: URL) throws -> String {
         let descriptor = try verifiedDescriptor(url, under: directory)
         defer { close(descriptor) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
@@ -369,7 +458,7 @@ actor ModelDownloader {
         return Int64(info.st_size)
     }
 
-    nonisolated private static func verifiedDescriptor(_ url: URL, under directory: URL) throws -> Int32 {
+    nonisolated fileprivate static func verifiedDescriptor(_ url: URL, under directory: URL) throws -> Int32 {
         guard url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path + "/") else {
             throw ModelDownloaderError.invalidSnapshot
         }
@@ -377,7 +466,7 @@ actor ModelDownloader {
         guard lstat(directory.path, &root) == 0,
               (root.st_mode & S_IFMT) == S_IFDIR,
               root.st_uid == getuid(),
-              (root.st_mode & S_IWOTH) == 0 else {
+              (root.st_mode & 0o077) == 0 else {
             throw ModelDownloaderError.invalidSnapshot
         }
         var path = directory.standardizedFileURL.path
@@ -388,7 +477,7 @@ actor ModelDownloader {
             guard lstat(path, &ancestor) == 0,
                   (ancestor.st_mode & S_IFMT) == S_IFDIR,
                   ancestor.st_uid == getuid(),
-                  (ancestor.st_mode & S_IWOTH) == 0 else {
+                  (ancestor.st_mode & 0o077) == 0 else {
                 throw ModelDownloaderError.invalidSnapshot
             }
         }
@@ -397,7 +486,7 @@ actor ModelDownloader {
               (before.st_mode & S_IFMT) == S_IFREG,
               before.st_nlink == 1,
               before.st_uid == getuid(),
-              (before.st_mode & S_IWOTH) == 0 else {
+              (before.st_mode & 0o077) == 0 else {
             throw ModelDownloaderError.invalidSnapshot
         }
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
@@ -406,7 +495,7 @@ actor ModelDownloader {
         guard fstat(descriptor, &after) == 0,
               after.st_dev == before.st_dev, after.st_ino == before.st_ino,
               (after.st_mode & S_IFMT) == S_IFREG, after.st_nlink == 1,
-              after.st_uid == getuid(), (after.st_mode & S_IWOTH) == 0 else {
+              after.st_uid == getuid(), (after.st_mode & 0o077) == 0 else {
             close(descriptor)
             throw ModelDownloaderError.invalidSnapshot
         }
