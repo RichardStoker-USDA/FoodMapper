@@ -194,9 +194,17 @@ final class ModelSnapshotTests: XCTestCase {
         }
         let manifest = LocalModelSnapshotManifest(version: 1, repository: "test/model", revision: "main", artifacts: artifacts)
         try JSONEncoder().encode(manifest).write(to: directory.appendingPathComponent("foodmapper_snapshot_manifest.json"))
-        XCTAssertTrue(ModelDownloader.isCompleteSnapshot(at: directory, repository: "test/model"))
+        XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory, repository: "test/model"))
         XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory, repository: "test/model", revision: "pinned-commit"))
         try Data("not json".utf8).write(to: directory.appendingPathComponent("config.json"))
         XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory))
+    }
+
+    func testStorageIdentifiersRejectTraversalAndAbsolutePaths() {
+        XCTAssertTrue(CustomDatabase.isSafeStorageIdentifier("A1_b-c"))
+        XCTAssertFalse(CustomDatabase.isSafeStorageIdentifier("../../outside"))
+        XCTAssertFalse(CustomDatabase.isSafeStorageIdentifier("/tmp/outside"))
+        XCTAssertFalse(CustomDatabase.isSafeModelKey("../../outside"))
+        XCTAssertFalse(CustomDatabase.isSafeModelKey("model/key"))
     }
 }

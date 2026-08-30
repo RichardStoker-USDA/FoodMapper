@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import Hub
 import os
+import Darwin
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "model-downloader")
 
@@ -65,33 +66,37 @@ actor ModelDownloader {
     /// A config file is written before Hub has finished a snapshot. Treating that
     /// directory as installed causes offline loads to fail after a partial download.
     nonisolated static func isCompleteSnapshot(at directory: URL, repository: String? = nil, revision: String? = nil) -> Bool {
-        let fileManager = FileManager.default
         let manifestURL = directory.appendingPathComponent("foodmapper_snapshot_manifest.json")
-        guard let data = try? Data(contentsOf: manifestURL),
+        guard let data = try? readVerifiedFile(manifestURL, under: directory, maximumSize: 1_048_576),
               let manifest = try? JSONDecoder().decode(LocalModelSnapshotManifest.self, from: data),
               manifest.version == LocalModelSnapshotManifest.currentVersion,
               repository.map({ $0 == manifest.repository }) ?? true,
               revision.map({ $0 == manifest.revision }) ?? true,
+              let expected = trustedModel(repository: manifest.repository, revision: manifest.revision),
               !manifest.artifacts.isEmpty else {
+            return false
+        }
+        let expectedArtifacts = Dictionary(uniqueKeysWithValues: expected.artifacts.map { ($0.path, $0) })
+        guard Set(manifest.artifacts.keys) == Set(expectedArtifacts.keys),
+              manifest.artifacts.allSatisfy({ expectedArtifacts[$0.key]?.sha256 == $0.value }) else {
             return false
         }
         var hasConfig = false
         var hasTokenizer = false
         var hasWeights = false
         for (path, expectedHash) in manifest.artifacts {
-            let url = directory.appendingPathComponent(path)
-            guard fileManager.fileExists(atPath: url.path),
-                  let artifactData = try? Data(contentsOf: url),
-                  digest(artifactData) == expectedHash else { return false }
-            if path.hasSuffix("config.json") { hasConfig = isReadableJSON(at: url) }
-            if path.hasSuffix("tokenizer.json") { hasTokenizer = isReadableJSON(at: url) }
-            if path.hasSuffix(".safetensors") { hasWeights = artifactData.count > 1024 }
+            guard let artifact = expectedArtifacts[path],
+                  let artifactURL = safeArtifactURL(directory: directory, path: path),
+                  (try? digestFile(artifactURL, under: directory)) == expectedHash else { return false }
+            if path.hasSuffix("config.json") { hasConfig = isReadableJSON(at: artifactURL, under: directory) }
+            if path.hasSuffix("tokenizer.json") { hasTokenizer = isReadableJSON(at: artifactURL, under: directory) }
+            if path.hasSuffix(".safetensors") { hasWeights = artifact.byteSize > 1024 }
         }
         return hasConfig && hasTokenizer && hasWeights
     }
 
-    nonisolated private static func isReadableJSON(at url: URL) -> Bool {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return false }
+    nonisolated private static func isReadableJSON(at url: URL, under directory: URL) -> Bool {
+        guard let data = try? readVerifiedFile(url, under: directory, maximumSize: 32 * 1_048_576), !data.isEmpty else { return false }
         return (try? JSONSerialization.jsonObject(with: data)) != nil
     }
 
@@ -130,23 +135,20 @@ actor ModelDownloader {
     }
 
     private func writeManifest(repository: String, revision: String, directory: URL) throws {
-        let fileManager = FileManager.default
         guard let expected = Self.trustedModel(repository: repository, revision: revision) else {
             throw ModelDownloaderError.untrustedRevision
         }
         let allowedPaths = Set(expected.artifacts.map(\.path))
-        guard allowedPaths.allSatisfy({ Self.isSafeRelativePath($0) }) else {
+        guard allowedPaths.count == expected.artifacts.count,
+              allowedPaths.allSatisfy({ Self.isSafeRelativePath($0) }) else {
             throw ModelDownloaderError.invalidSnapshot
         }
         let artifacts = try Dictionary(uniqueKeysWithValues: expected.artifacts.map { artifact -> (String, String) in
-            let url = directory.appendingPathComponent(artifact.path)
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey])
-            guard values.isRegularFile == true, values.isSymbolicLink != true,
-                  Int64(values.fileSize ?? -1) == artifact.byteSize else {
+            guard let url = Self.safeArtifactURL(directory: directory, path: artifact.path),
+                  try Self.fileSize(url, under: directory) == artifact.byteSize,
+                  try Self.digestFile(url, under: directory) == artifact.sha256 else {
                 throw ModelDownloaderError.invalidSnapshot
             }
-            let data = try Data(contentsOf: url)
-            guard Self.digest(data) == artifact.sha256 else { throw ModelDownloaderError.invalidSnapshot }
             return (artifact.path, artifact.sha256)
         })
         let manifest = LocalModelSnapshotManifest(
@@ -163,10 +165,6 @@ actor ModelDownloader {
         }
     }
 
-    nonisolated private static func digest(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-
     nonisolated private static func trustedModel(repository: String, revision: String) -> TrustedQwenSnapshotManifest.Model? {
         guard let url = ResourceBundle.bundle.url(forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"),
               let data = try? Data(contentsOf: url),
@@ -176,7 +174,77 @@ actor ModelDownloader {
     }
 
     nonisolated private static func isSafeRelativePath(_ path: String) -> Bool {
-        !path.isEmpty && !path.hasPrefix("/") && !path.contains("..") && !path.contains("//")
+        !path.isEmpty && !path.hasPrefix("/") && URL(fileURLWithPath: path).pathComponents.allSatisfy {
+            $0 != "." && $0 != ".." && $0 != "/"
+        }
+    }
+
+    nonisolated private static func safeArtifactURL(directory: URL, path: String) -> URL? {
+        guard isSafeRelativePath(path) else { return nil }
+        let candidate = directory.appendingPathComponent(path)
+        let rootPath = directory.standardizedFileURL.path + "/"
+        guard candidate.standardizedFileURL.path.hasPrefix(rootPath) else { return nil }
+        return candidate
+    }
+
+    nonisolated private static func readVerifiedFile(_ url: URL, under directory: URL, maximumSize: Int) throws -> Data {
+        let descriptor = try verifiedDescriptor(url, under: directory)
+        defer { close(descriptor) }
+        var data = Data()
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        while let chunk = try handle.read(upToCount: min(1_048_576, maximumSize - data.count)), !chunk.isEmpty {
+            data.append(chunk)
+            if data.count > maximumSize { throw ModelDownloaderError.invalidSnapshot }
+        }
+        return data
+    }
+
+    nonisolated private static func digestFile(_ url: URL, under directory: URL) throws -> String {
+        let descriptor = try verifiedDescriptor(url, under: directory)
+        defer { close(descriptor) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated private static func fileSize(_ url: URL, under directory: URL) throws -> Int64 {
+        let descriptor = try verifiedDescriptor(url, under: directory)
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { throw ModelDownloaderError.invalidSnapshot }
+        return Int64(info.st_size)
+    }
+
+    nonisolated private static func verifiedDescriptor(_ url: URL, under directory: URL) throws -> Int32 {
+        guard url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path + "/") else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        var path = directory.standardizedFileURL.path
+        let relative = String(url.standardizedFileURL.path.dropFirst(path.count + 1))
+        for component in relative.split(separator: "/").dropLast() {
+            path += "/\(component)"
+            var ancestor = stat()
+            guard lstat(path, &ancestor) == 0, (ancestor.st_mode & S_IFMT) == S_IFDIR else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+        }
+        var before = stat()
+        guard lstat(url.path, &before) == 0, (before.st_mode & S_IFMT) == S_IFREG, before.st_nlink == 1 else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw ModelDownloaderError.invalidSnapshot }
+        var after = stat()
+        guard fstat(descriptor, &after) == 0,
+              after.st_dev == before.st_dev, after.st_ino == before.st_ino,
+              (after.st_mode & S_IFMT) == S_IFREG, after.st_nlink == 1 else {
+            close(descriptor)
+            throw ModelDownloaderError.invalidSnapshot
+        }
+        return descriptor
     }
 
     /// Calculate the disk space used by a cached model (approximate)

@@ -3,6 +3,7 @@ import CryptoKit
 import Hub
 import MLX
 import os
+import Darwin
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
@@ -423,7 +424,7 @@ actor MatchingEngine {
         let entries = validated.entries
         let modelKey = currentModelKey ?? "gte-large"
         let embeddingDim = embeddingModel?.info.dimensions ?? 1024
-        let metadata = await customCacheMetadata(
+        let metadata = try await customCacheMetadata(
             database: database,
             validated: validated,
             modelKey: modelKey,
@@ -512,8 +513,8 @@ actor MatchingEngine {
         validated: ValidatedCustomDatabase,
         modelKey: String,
         embeddingDimensions: Int
-    ) async -> CustomDatabaseCacheMetadata {
-        let modelFingerprint = await modelArtifactFingerprint(
+    ) async throws -> CustomDatabaseCacheMetadata {
+        let modelFingerprint = try await modelArtifactFingerprint(
             modelKey: modelKey, embeddingDimensions: embeddingDimensions
         )
         return CustomDatabaseCacheMetadata(
@@ -532,7 +533,7 @@ actor MatchingEngine {
         )
     }
 
-    private func modelArtifactFingerprint(modelKey: String, embeddingDimensions: Int) async -> String {
+    private func modelArtifactFingerprint(modelKey: String, embeddingDimensions: Int) async throws -> String {
         let directory: URL?
         if let model = embeddingModel as? QwenEmbeddingModel {
             let repoID = model.repoId
@@ -542,14 +543,12 @@ actor MatchingEngine {
         } else {
             directory = MLXEmbeddingModel.modelDirectory
         }
-        guard let directory,
-              let paths = try? FileManager.default.subpathsOfDirectory(atPath: directory.path) else {
-            return CustomDatabaseValidator.digest("missing|\(modelKey)|\(embeddingDimensions)")
-        }
-        let artifacts = paths.sorted().compactMap { path -> (String, URL, String)? in
+        guard let directory else { throw MatchingError.modelNotLoaded }
+        let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
+        let artifacts = try paths.sorted().compactMap { path -> (String, URL, String)? in
             let url = directory.appendingPathComponent(path)
-            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
-                  values.isRegularFile == true else { return nil }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
+            guard values.isRegularFile == true else { return nil }
             let signature = "\(path)|\(values.fileSize ?? 0)|\(values.contentModificationDate?.timeIntervalSince1970 ?? 0)"
             return (path, url, signature)
         }
@@ -558,8 +557,8 @@ actor MatchingEngine {
         if let cached = artifactFingerprintCache[cacheKey], cached.signature == signature {
             return cached.fingerprint
         }
-        let descriptor = artifacts.map { path, url, signature in
-            let digest = Self.digestFile(url) ?? "unreadable"
+        let descriptor = try artifacts.map { path, url, signature in
+            let digest = try Self.digestFile(url)
             return "\(signature)|\(digest)"
         }.joined(separator: "\n")
         let fingerprint = CustomDatabaseValidator.digest("custom-cache-v2|\(modelKey)|\(embeddingDimensions)|\(descriptor)")
@@ -567,11 +566,11 @@ actor MatchingEngine {
         return fingerprint
     }
 
-    private nonisolated static func digestFile(_ url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    private nonisolated static func digestFile(_ url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let chunk = try? handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
@@ -593,7 +592,7 @@ actor MatchingEngine {
     ) throws {
         let dimensions = metadata.embeddingDimensions
         guard embeddings.count == metadata.entryCount,
-              embeddings.allSatisfy({ $0.count == dimensions }) else {
+              embeddings.allSatisfy({ $0.count == dimensions && $0.allSatisfy(\.isFinite) }) else {
             throw MatchingError.invalidEmbeddingsFile
         }
         var data = Data()
@@ -617,6 +616,7 @@ actor MatchingEngine {
     ) throws {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cacheURL.deletingLastPathComponent().path)
         let stagingCacheURL = cacheURL.deletingLastPathComponent()
             .appendingPathComponent(".\(cacheURL.lastPathComponent).\(UUID().uuidString).stage")
         let stagingMetadataURL = metadataURL.deletingLastPathComponent()
@@ -626,10 +626,14 @@ actor MatchingEngine {
             try? fileManager.removeItem(at: stagingMetadataURL)
         }
         try data.write(to: stagingCacheURL, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingCacheURL.path)
+        try synchronizeFile(stagingCacheURL)
         let expectedSize = metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size
         let stagedSize = try stagingCacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
         guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
         try JSONEncoder().encode(metadata).write(to: stagingMetadataURL, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingMetadataURL.path)
+        try synchronizeFile(stagingMetadataURL)
         _ = try decodeCacheMetadata(at: stagingMetadataURL)
 
         let originalCache = fileManager.fileExists(atPath: cacheURL.path) ? try Data(contentsOf: cacheURL) : nil
@@ -637,6 +641,7 @@ actor MatchingEngine {
         do {
             try replaceAtomically(stagingCacheURL, at: cacheURL)
             try replaceAtomically(stagingMetadataURL, at: metadataURL)
+            try synchronizeDirectory(cacheURL.deletingLastPathComponent())
         } catch {
             if let originalCache { try? originalCache.write(to: cacheURL, options: [.atomic]) }
             else { try? fileManager.removeItem(at: cacheURL) }
@@ -653,6 +658,20 @@ actor MatchingEngine {
         } else {
             try fileManager.moveItem(at: stagedURL, to: destinationURL)
         }
+    }
+
+    private func synchronizeFile(_ url: URL) throws {
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw MatchingError.invalidEmbeddingsFile }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw MatchingError.invalidEmbeddingsFile }
+    }
+
+    private func synchronizeDirectory(_ url: URL) throws {
+        let descriptor = open(url.path, O_RDONLY)
+        guard descriptor >= 0 else { throw MatchingError.invalidEmbeddingsFile }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw MatchingError.invalidEmbeddingsFile }
     }
 
     /// Load binary embeddings file as [[Float]] (legacy fallback for saveBinaryEmbeddings compatibility)
@@ -1011,7 +1030,7 @@ actor MatchingEngine {
         let modelKey = currentModelKey ?? "gte-large"
         let embeddingsURL = database.cacheURL(for: modelKey)
         let metadataURL = database.cacheMetadataURL(for: modelKey)
-        let metadata = await customCacheMetadata(
+        let metadata = try await customCacheMetadata(
             database: database,
             validated: validated,
             modelKey: modelKey,
@@ -1020,7 +1039,9 @@ actor MatchingEngine {
         let stagingURL = embeddingsURL.deletingLastPathComponent()
             .appendingPathComponent(".\(embeddingsURL.lastPathComponent).\(UUID().uuidString).stage")
         try FileManager.default.createDirectory(at: stagingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingURL.deletingLastPathComponent().path)
         FileManager.default.createFile(atPath: stagingURL.path, contents: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingURL.path)
         let fileHandle = try FileHandle(forWritingTo: stagingURL)
 
         do {
@@ -1046,6 +1067,9 @@ actor MatchingEngine {
                     let batchEmbeddings = try await model.embedBatchDirect(batch, isQuery: false)
 
                     // Stream directly to disk
+                    guard batchEmbeddings.allSatisfy({ $0.count == model.info.dimensions && $0.allSatisfy(\.isFinite) }) else {
+                        throw MatchingError.invalidEmbeddingsFile
+                    }
                     for embedding in batchEmbeddings {
                         let data = embedding.withUnsafeBufferPointer { Data(buffer: $0) }
                         try fileHandle.write(contentsOf: data)
@@ -1061,6 +1085,7 @@ actor MatchingEngine {
             }
 
             try fileHandle.close()
+            try synchronizeFile(stagingURL)
             let expectedSize = totalCount * model.info.dimensions * MemoryLayout<Float>.size
             let stagedSize = try stagingURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
             guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
@@ -1093,6 +1118,8 @@ actor MatchingEngine {
             try? FileManager.default.removeItem(at: stagingURL)
         }
         try JSONEncoder().encode(metadata).write(to: metadataStage, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metadataStage.path)
+        try synchronizeFile(metadataStage)
         _ = try decodeCacheMetadata(at: metadataStage)
 
         let fileManager = FileManager.default
@@ -1101,6 +1128,7 @@ actor MatchingEngine {
         do {
             try replaceAtomically(stagingURL, at: cacheURL)
             try replaceAtomically(metadataStage, at: metadataURL)
+            try synchronizeDirectory(cacheURL.deletingLastPathComponent())
         } catch {
             if let originalCache { try? originalCache.write(to: cacheURL, options: [.atomic]) }
             else { try? fileManager.removeItem(at: cacheURL) }

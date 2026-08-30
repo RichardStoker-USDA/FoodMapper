@@ -155,6 +155,7 @@ extension AppState {
     }
 
     func loadCustomDatabases() {
+        recoverInterruptedDatabasePersistence()
         guard FileManager.default.fileExists(atPath: customDatabasesURL.path) else { return }
         do {
             let data = try Data(contentsOf: customDatabasesURL)
@@ -225,13 +226,68 @@ extension AppState {
 
     private func persistCustomDatabases(_ databases: [CustomDatabase]) throws {
         let data = try JSONEncoder().encode(databases)
-        try data.write(to: customDatabasesURL, options: [.atomic])
+        let directory = customDatabasesURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let stage = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).\(UUID().uuidString).stage")
+        let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
+        try stage.lastPathComponent.data(using: .utf8)?.write(to: journal, options: [.atomic])
+        defer { try? FileManager.default.removeItem(at: journal) }
+        FileManager.default.createFile(atPath: stage.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: stage)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            try handle.close()
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.path)
+            if FileManager.default.fileExists(atPath: customDatabasesURL.path) {
+                _ = try FileManager.default.replaceItemAt(customDatabasesURL, withItemAt: stage)
+            } else {
+                try FileManager.default.moveItem(at: stage, to: customDatabasesURL)
+            }
+            try syncDirectory(directory)
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: stage)
+            throw error
+        }
+    }
+
+    private func recoverInterruptedDatabasePersistence() {
+        let directory = customDatabasesURL.deletingLastPathComponent()
+        let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
+        guard let name = try? String(contentsOf: journal, encoding: .utf8),
+              !name.contains("/"), !name.contains("..") else { return }
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        try? FileManager.default.removeItem(at: journal)
+    }
+
+    private func syncDirectory(_ directory: URL) throws {
+        let descriptor = open(directory.path, O_RDONLY)
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw MatchingError.databaseNotFound }
+    }
+
+    private func validateSourcePath(_ url: URL) throws {
+        let components = url.standardizedFileURL.pathComponents
+        guard components.first == "/" else { throw MatchingError.databaseNotFound }
+        var path = ""
+        for component in components.dropFirst() {
+            path += "/\(component)"
+            var info = stat()
+            guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) != S_IFLNK else {
+                throw MatchingError.databaseNotFound
+            }
+        }
     }
 
     private func stageDatabaseSource(_ database: CustomDatabase) throws -> URL {
+        guard database.hasSafeStorageIdentifier else { throw MatchingError.databaseNotFound }
         let sourceURL = URL(fileURLWithPath: database.csvPath)
         let destinationURL = database.storedCsvURL
         let fileManager = FileManager.default
+        try validateSourcePath(sourceURL)
         let descriptor = open(sourceURL.path, O_RDONLY | O_NOFOLLOW)
         guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
         defer { close(descriptor) }
@@ -245,8 +301,13 @@ extension AppState {
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         guard let data = try handle.readToEnd() else { throw MatchingError.databaseNotFound }
-        try data.write(to: stagedURL, options: [.atomic])
+        FileManager.default.createFile(atPath: stagedURL.path, contents: nil)
+        let stagedHandle = try FileHandle(forWritingTo: stagedURL)
+        try stagedHandle.write(contentsOf: data)
+        try stagedHandle.synchronize()
+        try stagedHandle.close()
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagedURL.path)
+        try syncDirectory(destinationURL.deletingLastPathComponent())
         return stagedURL
     }
 
@@ -258,6 +319,7 @@ extension AppState {
         } else {
             try fileManager.moveItem(at: stagedURL, to: destinationURL)
         }
+        try syncDirectory(destinationURL.deletingLastPathComponent())
     }
 
     /// Register a custom database first. Pre-embedding is optional and only starts
@@ -268,6 +330,7 @@ extension AppState {
             return
         }
         do {
+            guard database.hasSafeStorageIdentifier else { throw MatchingError.databaseNotFound }
             let stagedSourceURL = try stageDatabaseSource(database)
             defer { try? FileManager.default.removeItem(at: stagedSourceURL) }
             let validated = try CustomDatabaseValidator.load(
@@ -397,11 +460,12 @@ extension AppState {
 
     /// Clean up partial embedding files after cancel or error
     func cleanupPartialEmbeddings(for database: CustomDatabase) {
-        for file in database.allCacheFiles {
+        guard database.hasSafeStorageIdentifier,
+              let files = try? FileManager.default.contentsOfDirectory(at: database.cacheDirectory, includingPropertiesForKeys: nil) else { return }
+        let prefix = ".\(database.id)_embeddings_"
+        for file in files where file.lastPathComponent.hasPrefix(prefix) && file.lastPathComponent.hasSuffix(".stage") {
             try? FileManager.default.removeItem(at: file)
         }
-        // Also clean legacy unversioned path
-        try? FileManager.default.removeItem(at: database.legacyCacheURL)
     }
 
     /// Generate preview metadata (sampleValues + columnNames) from a CSV file path.
@@ -500,6 +564,7 @@ extension AppState {
     }
 
     private func removeDatabaseStorageTransactionally(_ database: CustomDatabase) throws {
+        guard database.hasSafeStorageIdentifier else { throw MatchingError.databaseNotFound }
         let fileManager = FileManager.default
         let directory = database.cacheDirectory
         let stagingDirectory = directory.appendingPathComponent(".delete-\(database.id)-\(UUID().uuidString)")

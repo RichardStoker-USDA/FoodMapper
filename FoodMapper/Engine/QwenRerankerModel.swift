@@ -54,40 +54,15 @@ actor QwenRerankerModel {
     // MARK: - Loading
 
     func load() async throws {
-        try await load(hub: HubApi())
+        throw RerankerError.modelNotLoaded
     }
 
-    func load(hub: HubApi) async throws {
-        let configuration = MLXLMCommon.ModelConfiguration(id: repoId)
-
-        logger.info("Loading Qwen3-Reranker from \(self.repoId)...")
-
-        container = try await MLXLMCommon.loadModelContainer(
-            hub: hub,
-            configuration: configuration
-        ) { progress in
-            logger.debug("Download progress: \(Int(progress.fractionCompleted * 100))%")
-        }
-
-        // Look up yes/no token IDs for scoring
-        try await resolveTokenIds()
-
-        logger.info("Qwen3-Reranker loaded (yes=\(self.yesTokenId), no=\(self.noTokenId))")
+    func load(hub _: HubApi) async throws {
+        throw RerankerError.modelNotLoaded
     }
 
-    func load(hub: HubApi, onProgress: @Sendable @escaping (Double) -> Void) async throws {
-        let configuration = MLXLMCommon.ModelConfiguration(id: repoId)
-
-        container = try await MLXLMCommon.loadModelContainer(
-            hub: hub,
-            configuration: configuration
-        ) { progress in
-            onProgress(progress.fractionCompleted)
-        }
-
-        try await resolveTokenIds()
-
-        logger.info("Qwen3-Reranker loaded (yes=\(self.yesTokenId), no=\(self.noTokenId))")
+    func load(hub _: HubApi, onProgress _: @Sendable @escaping (Double) -> Void) async throws {
+        throw RerankerError.modelNotLoaded
     }
 
     func load(localDirectory: URL) async throws {

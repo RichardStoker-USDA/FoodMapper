@@ -159,10 +159,24 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     var sampleValues: [String]?   // First 10 text column values for instant preview
     var columnNames: [String]?    // All column names from CSV header
 
+    var hasSafeStorageIdentifier: Bool {
+        Self.isSafeStorageIdentifier(id)
+    }
+
+    static func isSafeStorageIdentifier(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil
+    }
+
+    static func isSafeModelKey(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil
+    }
+
     /// URL for the self-contained CSV copy stored in app support
     var storedCsvURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FoodMapper/CustomDBs/\(id)_data.csv")
+        let directory = appSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        guard hasSafeStorageIdentifier else { return directory.appendingPathComponent("invalid_data.csv") }
+        return directory.appendingPathComponent("\(id)_data.csv")
     }
 
     var csvURL: URL? {
@@ -183,11 +197,13 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Cache file URL for a specific model key (model-versioned path)
     func cacheURL(for modelKey: String) -> URL {
-        cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).bin")
+        guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey) else { return cacheDirectory.appendingPathComponent("invalid.bin") }
+        return cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).bin")
     }
 
     func cacheMetadataURL(for modelKey: String) -> URL {
-        cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).json")
+        guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey) else { return cacheDirectory.appendingPathComponent("invalid.json") }
+        return cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).json")
     }
 
     /// Legacy unversioned cache URL (for migration/cleanup)
@@ -240,6 +256,11 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Whether embeddings exist for a specific model key
     func hasEmbeddings(for modelKey: String) -> Bool {
+        guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey),
+              let sourceURL = csvURL,
+              let validated = try? CustomDatabaseValidator.load(
+                url: sourceURL, textColumn: textColumn, idColumn: idColumn
+              ) else { return false }
         let cacheURL = cacheURL(for: modelKey)
         let metadataURL = cacheMetadataURL(for: modelKey)
         guard let metadataData = try? Data(contentsOf: metadataURL),
@@ -247,6 +268,12 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
               metadata.version == CustomDatabaseCacheMetadata.currentVersion,
               metadata.databaseID == id,
               metadata.modelKey == modelKey,
+              metadata.sourceHash == validated.sourceHash,
+              metadata.schemaHash == validated.schemaHash,
+              metadata.rowOrderHash == validated.rowOrderHash,
+              metadata.textColumn == textColumn.trimmingCharacters(in: .whitespacesAndNewlines),
+              metadata.idColumn == idColumn?.trimmingCharacters(in: .whitespacesAndNewlines),
+              metadata.entryCount == validated.entries.count,
               let data = try? Data(contentsOf: cacheURL),
               data.count == metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size,
               SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == metadata.embeddingDigest else {
@@ -304,6 +331,9 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
+        guard Self.isSafeStorageIdentifier(id) else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "Invalid database identifier")
+        }
         displayName = try container.decode(String.self, forKey: .displayName)
         csvPath = try container.decode(String.self, forKey: .csvPath)
         textColumn = try container.decode(String.self, forKey: .textColumn)

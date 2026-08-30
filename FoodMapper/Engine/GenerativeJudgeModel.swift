@@ -126,24 +126,11 @@ actor GenerativeJudgeModel {
     // MARK: - Loading
 
     func load() async throws {
-        try await load(hub: HubApi())
+        throw GenerativeJudgeError.modelNotLoaded
     }
 
-    func load(hub: HubApi) async throws {
-        let configuration = MLXLMCommon.ModelConfiguration(id: repoId)
-
-        logger.info("Loading generative judge from \(self.repoId)...")
-
-        container = try await MLXLMCommon.loadModelContainer(
-            hub: hub,
-            configuration: configuration
-        ) { progress in
-            logger.debug("Download progress: \(Int(progress.fractionCompleted * 100))%")
-        }
-
-        try await resolveTokenIds()
-
-        logger.info("Generative judge loaded (\(self.labelTokenIds.count) label tokens resolved)")
+    func load(hub _: HubApi) async throws {
+        throw GenerativeJudgeError.modelNotLoaded
     }
 
     func load(localDirectory: URL) async throws {
