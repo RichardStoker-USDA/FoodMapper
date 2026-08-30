@@ -69,7 +69,7 @@ enum ResourceBundle {
             return testingApplicationSupportModelDir
         }
         #endif
-        FoodMapperStorage.privateDirectory(["Models"])
+        return FoodMapperStorage.privateDirectory(["Models"])
     }
 
     /// Verified GTE-Large model directory. A downloaded model must pass the

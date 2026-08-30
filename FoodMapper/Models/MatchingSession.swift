@@ -31,7 +31,7 @@ struct MatchingSession: Identifiable, Codable {
 
     static func isSafePersistedFilename(_ value: String) -> Bool {
         SecureFileAccess.safeLeaf(value) &&
-            value.pathExtension.lowercased() == "json" &&
+            URL(fileURLWithPath: value).pathExtension.lowercased() == "json" &&
             URL(fileURLWithPath: value).lastPathComponent == value
     }
 
