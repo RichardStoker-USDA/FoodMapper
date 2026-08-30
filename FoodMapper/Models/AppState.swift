@@ -731,6 +731,8 @@ final class AppState: ObservableObject {
     var tourEngine: MatchingEngine?
     var matchingTask: Task<Void, Never>?
     var embeddingTask: Task<Void, Never>?
+    var sessionRestoreTask: Task<Void, Never>?
+    var tourEmbeddingTask: Task<Void, Never>?
     var tourHybridTask: Task<Void, Never>?
     var tourHybridApiClient: AnthropicAPIClient?
     var settingsObserver: NSObjectProtocol?
@@ -742,10 +744,13 @@ final class AppState: ObservableObject {
         case matching(UUID)
         case databaseEmbedding(UUID, String)
         case databaseRemoval(UUID, String)
+        case researchTour(UUID)
+        case sessionRestore(UUID)
 
         var id: UUID {
             switch self {
-            case let .matching(id), let .databaseEmbedding(id, _), let .databaseRemoval(id, _): return id
+            case let .matching(id), let .databaseEmbedding(id, _), let .databaseRemoval(id, _),
+                 let .researchTour(id), let .sessionRestore(id): return id
             }
         }
     }
@@ -775,7 +780,7 @@ final class AppState: ObservableObject {
 
     // Session storage
     var sessionsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let dir = appSupport.appendingPathComponent("FoodMapper/Sessions", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

@@ -14,6 +14,27 @@ struct LocalModelSnapshotManifest: Codable {
     let artifacts: [String: String]
 }
 
+/// A local model location issued only after the pinned artifact manifest has
+/// been validated. Model loaders accept this value instead of an arbitrary URL.
+struct VerifiedLocalModelSnapshot: @unchecked Sendable {
+    let directory: URL
+    let repository: String
+    let revision: String
+    let artifactPaths: Set<String>
+    private let issuer: UUID
+    private static let authority = UUID()
+
+    fileprivate init(directory: URL, repository: String, revision: String, artifactPaths: Set<String>) {
+        self.directory = directory
+        self.repository = repository
+        self.revision = revision
+        self.artifactPaths = artifactPaths
+        self.issuer = Self.authority
+    }
+
+    var isIssuedByDownloader: Bool { issuer == Self.authority }
+}
+
 struct TrustedQwenSnapshotManifest: Decodable {
     struct Model: Decodable {
         struct Artifact: Decodable {
@@ -40,18 +61,19 @@ actor ModelDownloader {
     /// HubApi pointed at ~/Library/Application Support/FoodMapper/
     /// instead of Hub's default ~/Documents/huggingface/.
     nonisolated let hubApi: HubApi
+    nonisolated let modelsBase: URL
 
     init() {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         // Set downloadBase to FoodMapper/ (not FoodMapper/Models/).
         // Hub library appends "models/" internally (repo.type.rawValue), which resolves
         // to the existing Models/ directory on case-insensitive APFS.
         let modelsBase = appSupport
             .appendingPathComponent("FoodMapper", isDirectory: true)
         try? FileManager.default.createDirectory(at: modelsBase, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: modelsBase.path)
 
+        self.modelsBase = modelsBase
         self.hubApi = HubApi(downloadBase: modelsBase)
         logger.info("Model download base: \(modelsBase.path)")
     }
@@ -79,6 +101,9 @@ actor ModelDownloader {
         let expectedArtifacts = Dictionary(uniqueKeysWithValues: expected.artifacts.map { ($0.path, $0) })
         guard Set(manifest.artifacts.keys) == Set(expectedArtifacts.keys),
               manifest.artifacts.allSatisfy({ expectedArtifacts[$0.key]?.sha256 == $0.value }) else {
+            return false
+        }
+        guard containsOnlyDeclaredArtifacts(in: directory, declared: Set(manifest.artifacts.keys)) else {
             return false
         }
         var hasConfig = false
@@ -110,12 +135,21 @@ actor ModelDownloader {
         logger.info("Downloading model: \(repoId)")
 
         let repo = Hub.Repo(id: repoId)
+        let stagingBase = modelsBase.appendingPathComponent(".qwen-download-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingBase, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: stagingBase.path)
+        defer { try? FileManager.default.removeItem(at: stagingBase) }
 
-        let localURL = try await hubApi.snapshot(from: repo, revision: revision) { progress in
+        let stagingHub = HubApi(downloadBase: stagingBase)
+        let stagedURL = try await stagingHub.snapshot(from: repo, revision: revision) { progress in
             onProgress(progress.fractionCompleted)
         }
-
-        try writeManifest(repository: repoId, revision: revision, directory: localURL)
+        try writeManifest(repository: repoId, revision: revision, directory: stagedURL)
+        try replaceSnapshot(stagedURL, at: localPath(for: repoId))
+        let localURL = localPath(for: repoId)
+        guard Self.isCompleteSnapshot(at: localURL, repository: repoId, revision: revision) else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
         logger.info("Model downloaded to: \(localURL.path)")
         return localURL
     }
@@ -126,12 +160,47 @@ actor ModelDownloader {
         return hubApi.localRepoLocation(repo)
     }
 
-    func validatedLocalPath(for repoId: String, revision: String) throws -> URL {
+    func validatedLocalSnapshot(for repoId: String, revision: String) throws -> VerifiedLocalModelSnapshot {
         let path = localPath(for: repoId)
         guard Self.isCompleteSnapshot(at: path, repository: repoId, revision: revision) else {
             throw ModelDownloaderError.invalidSnapshot
         }
-        return path
+        let manifestURL = path.appendingPathComponent("foodmapper_snapshot_manifest.json")
+        let data = try Self.readVerifiedFile(manifestURL, under: path, maximumSize: 1_048_576)
+        let manifest = try JSONDecoder().decode(LocalModelSnapshotManifest.self, from: data)
+        return VerifiedLocalModelSnapshot(
+            directory: path, repository: repoId, revision: revision, artifactPaths: Set(manifest.artifacts.keys)
+        )
+    }
+
+    private func replaceSnapshot(_ stagedURL: URL, at destination: URL) throws {
+        let fileManager = FileManager.default
+        let parent = destination.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: parent.path)
+        try SecureFileAccess.validateStorageDirectory(parent)
+        let backup = parent.appendingPathComponent(".snapshot-backup-\(UUID().uuidString)", isDirectory: true)
+        var movedExisting = false
+        do {
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.moveItem(at: destination, to: backup)
+                movedExisting = true
+                try SecureFileAccess.synchronize(parent, directory: true)
+            }
+            try fileManager.moveItem(at: stagedURL, to: destination)
+            try SecureFileAccess.synchronize(parent, directory: true)
+            if movedExisting {
+                try fileManager.removeItem(at: backup)
+                try SecureFileAccess.synchronize(parent, directory: true)
+            }
+        } catch {
+            if fileManager.fileExists(atPath: destination.path) { try? fileManager.removeItem(at: destination) }
+            if movedExisting, fileManager.fileExists(atPath: backup.path) {
+                try? fileManager.moveItem(at: backup, to: destination)
+            }
+            try? SecureFileAccess.synchronize(parent, directory: true)
+            throw error
+        }
     }
 
     private func writeManifest(repository: String, revision: String, directory: URL) throws {
@@ -187,6 +256,20 @@ actor ModelDownloader {
         return candidate
     }
 
+    nonisolated private static func containsOnlyDeclaredArtifacts(in directory: URL, declared: Set<String>) -> Bool {
+        guard let paths = try? FileManager.default.subpathsOfDirectory(atPath: directory.path) else { return false }
+        let permitted = declared.union(["foodmapper_snapshot_manifest.json"])
+        for path in paths {
+            let url = directory.appendingPathComponent(path)
+            var info = stat()
+            guard lstat(url.path, &info) == 0 else { return false }
+            if (info.st_mode & S_IFMT) == S_IFREG, !permitted.contains(path) {
+                return false
+            }
+        }
+        return true
+    }
+
     nonisolated private static func readVerifiedFile(_ url: URL, under directory: URL, maximumSize: Int) throws -> Data {
         let descriptor = try verifiedDescriptor(url, under: directory)
         defer { close(descriptor) }
@@ -222,12 +305,22 @@ actor ModelDownloader {
         guard url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path + "/") else {
             throw ModelDownloaderError.invalidSnapshot
         }
+        var root = stat()
+        guard lstat(directory.path, &root) == 0,
+              (root.st_mode & S_IFMT) == S_IFDIR,
+              root.st_uid == getuid(),
+              (root.st_mode & S_IWOTH) == 0 else {
+            throw ModelDownloaderError.invalidSnapshot
+        }
         var path = directory.standardizedFileURL.path
         let relative = String(url.standardizedFileURL.path.dropFirst(path.count + 1))
         for component in relative.split(separator: "/").dropLast() {
             path += "/\(component)"
             var ancestor = stat()
-            guard lstat(path, &ancestor) == 0, (ancestor.st_mode & S_IFMT) == S_IFDIR else {
+            guard lstat(path, &ancestor) == 0,
+                  (ancestor.st_mode & S_IFMT) == S_IFDIR,
+                  ancestor.st_uid == getuid(),
+                  (ancestor.st_mode & S_IWOTH) == 0 else {
                 throw ModelDownloaderError.invalidSnapshot
             }
         }

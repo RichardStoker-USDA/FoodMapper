@@ -4,8 +4,17 @@ import os
 import Darwin
 
 private struct DatabaseDeletionJournal: Codable {
+    static let currentVersion = 2
+
+    let version: Int
     let databaseID: String
     let files: [String]
+
+    init(databaseID: String, files: [String]) {
+        self.version = Self.currentVersion
+        self.databaseID = databaseID
+        self.files = files
+    }
 }
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "state")
@@ -161,12 +170,17 @@ extension AppState {
 
     func loadCustomDatabases() {
         recoverInterruptedDatabasePersistence()
-        guard FileManager.default.fileExists(atPath: customDatabasesURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: customDatabasesURL.path) else {
+            recoverInterruptedDatabaseDeletions(registeredIDs: nil)
+            return
+        }
         do {
             let data = try Data(contentsOf: customDatabasesURL)
             customDatabases = try JSONDecoder().decode([CustomDatabase].self, from: data)
         } catch {
             logger.error("Failed to load custom databases: \(error)")
+            recoverInterruptedDatabaseDeletions(registeredIDs: nil)
+            return
         }
         recoverInterruptedDatabaseDeletions(registeredIDs: Set(customDatabases.map(\.id)))
 
@@ -275,27 +289,14 @@ extension AppState {
         guard fsync(descriptor) == 0 else { throw MatchingError.databaseNotFound }
     }
 
-    private func validateSourcePath(_ url: URL) throws {
-        let components = url.standardizedFileURL.pathComponents
-        guard components.first == "/" else { throw MatchingError.databaseNotFound }
-        var path = ""
-        for component in components.dropFirst() {
-            path += "/\(component)"
-            var info = stat()
-            guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) != S_IFLNK else {
-                throw MatchingError.databaseNotFound
-            }
-        }
-    }
-
     private func stageDatabaseSource(_ database: CustomDatabase) throws -> URL {
         guard database.hasSafeStorageIdentifier else { throw MatchingError.databaseNotFound }
         let sourceURL = URL(fileURLWithPath: database.csvPath)
         let destinationURL = database.storedCsvURL
         let fileManager = FileManager.default
-        try validateSourcePath(sourceURL)
-        let descriptor = open(sourceURL.path, O_RDONLY | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        let descriptor = try SecureFileAccess.openRegularFile(
+            sourceURL, maximumSize: Int64(CustomDatabaseValidator.maximumImportBytes)
+        )
         defer { close(descriptor) }
         var info = stat()
         guard fstat(descriptor, &info) == 0,
@@ -306,18 +307,29 @@ extension AppState {
                 actual: Int64(info.st_size), limit: CustomDatabaseValidator.maximumImportBytes
             )
         }
-        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: destinationURL.deletingLastPathComponent().path)
+        let directory = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: directory.path)
+        try SecureFileAccess.validateStorageDirectory(directory)
         let stagedURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
-        FileManager.default.createFile(atPath: stagedURL.path, contents: nil)
-        let stagedHandle = try FileHandle(forWritingTo: stagedURL)
+        let stagedDescriptor = open(stagedURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, SecureFileAccess.privateFilePermissions)
+        guard stagedDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        let stagedHandle = FileHandle(fileDescriptor: stagedDescriptor, closeOnDealloc: true)
         let sourceHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        var copied = 0
         do {
             while let chunk = try sourceHandle.read(upToCount: 1_048_576), !chunk.isEmpty {
                 if Task.isCancelled { throw CustomDatabaseValidationError.cancelled }
+                guard copied <= CustomDatabaseValidator.maximumImportBytes - chunk.count else {
+                    throw CustomDatabaseValidationError.importTooLarge(
+                        actual: Int64(copied) + Int64(chunk.count), limit: CustomDatabaseValidator.maximumImportBytes
+                    )
+                }
                 try stagedHandle.write(contentsOf: chunk)
+                copied += chunk.count
             }
+            guard copied == Int(info.st_size) else { throw MatchingError.databaseNotFound }
             try stagedHandle.synchronize()
             try stagedHandle.close()
         } catch {
@@ -325,20 +337,23 @@ extension AppState {
             try? fileManager.removeItem(at: stagedURL)
             throw error
         }
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagedURL.path)
-        try syncDirectory(destinationURL.deletingLastPathComponent())
+        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: stagedURL.path)
+        try SecureFileAccess.synchronize(directory, directory: true)
         return stagedURL
     }
 
     private func commitStagedDatabaseSource(_ stagedURL: URL, for database: CustomDatabase) throws {
         let destinationURL = database.storedCsvURL
         let fileManager = FileManager.default
+        try SecureFileAccess.validateStorageDirectory(destinationURL.deletingLastPathComponent())
+        let stagedDescriptor = try SecureFileAccess.openRegularFile(stagedURL, under: destinationURL.deletingLastPathComponent(), maximumSize: Int64(CustomDatabaseValidator.maximumImportBytes))
+        defer { close(stagedDescriptor) }
         if fileManager.fileExists(atPath: destinationURL.path) {
             _ = try fileManager.replaceItemAt(destinationURL, withItemAt: stagedURL)
         } else {
             try fileManager.moveItem(at: stagedURL, to: destinationURL)
         }
-        try syncDirectory(destinationURL.deletingLastPathComponent())
+        try SecureFileAccess.synchronize(destinationURL.deletingLastPathComponent(), directory: true)
     }
 
     /// Register a custom database first. Pre-embedding is optional and only starts
@@ -355,15 +370,11 @@ extension AppState {
             let validated = try CustomDatabaseValidator.load(
                 url: stagedSourceURL, textColumn: database.textColumn, idColumn: database.idColumn
             )
-            let sourceContent = try String(contentsOf: stagedSourceURL, encoding: .utf8)
             var finalDatabase = database
-            finalDatabase.fileFormat = DataFileFormat.detect(from: CSVParser.stripBOM(sourceContent))
+            finalDatabase.fileFormat = validated.fileFormat
             finalDatabase.itemCount = validated.entries.count
             finalDatabase.sampleValues = Array(validated.entries.prefix(10).map(\.text))
-            finalDatabase.columnNames = try CSVParser.parseRecords(
-                content: CSVParser.stripBOM(sourceContent),
-                delimiter: finalDatabase.fileFormat.delimiter
-            ).first?.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            finalDatabase.columnNames = validated.columnNames
             try commitStagedDatabaseSource(stagedSourceURL, for: finalDatabase)
             do {
                 let updatedDatabases = customDatabases + [finalDatabase]
@@ -601,21 +612,24 @@ extension AppState {
         let journal = DatabaseDeletionJournal(databaseID: database.id, files: existingFiles.map(\.lastPathComponent))
         let journalURL = stagingDirectory.appendingPathComponent("journal.json")
         try JSONEncoder().encode(journal).write(to: journalURL, options: [.atomic])
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
-        try syncDirectory(stagingDirectory)
+        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: journalURL.path)
+        try SecureFileAccess.synchronize(journalURL)
+        try SecureFileAccess.synchronize(stagingDirectory, directory: true)
         var moved: [(from: URL, to: URL)] = []
         do {
             for source in existingFiles {
                 let staged = stagingDirectory.appendingPathComponent(source.lastPathComponent)
                 try fileManager.moveItem(at: source, to: staged)
                 moved.append((source, staged))
+                try SecureFileAccess.synchronize(directory, directory: true)
+                try SecureFileAccess.synchronize(stagingDirectory, directory: true)
             }
         } catch {
             for item in moved.reversed() where fileManager.fileExists(atPath: item.to.path) {
                 try fileManager.moveItem(at: item.to, to: item.from)
             }
             try fileManager.removeItem(at: stagingDirectory)
-            try syncDirectory(directory)
+            try SecureFileAccess.synchronize(directory, directory: true)
             throw error
         }
         do {
@@ -624,7 +638,7 @@ extension AppState {
             customDatabases = updatedDatabases
             do {
                 try fileManager.removeItem(at: stagingDirectory)
-                try syncDirectory(directory)
+                try SecureFileAccess.synchronize(directory, directory: true)
             } catch {
                 logger.error("Database removal completed but cleanup is pending at \(stagingDirectory.path): \(error)")
             }
@@ -633,12 +647,12 @@ extension AppState {
                 try fileManager.moveItem(at: item.to, to: item.from)
             }
             try fileManager.removeItem(at: stagingDirectory)
-            try syncDirectory(directory)
+            try SecureFileAccess.synchronize(directory, directory: true)
             throw error
         }
     }
 
-    private func recoverInterruptedDatabaseDeletions(registeredIDs: Set<String>) {
+    private func recoverInterruptedDatabaseDeletions(registeredIDs: Set<String>?) {
         let directory = FoodMapperStorage.applicationSupportURL
             .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
@@ -646,21 +660,56 @@ extension AppState {
             let journalURL = stage.appendingPathComponent("journal.json")
             guard let data = try? Data(contentsOf: journalURL),
                   let journal = try? JSONDecoder().decode(DatabaseDeletionJournal.self, from: data),
+                  journal.version == DatabaseDeletionJournal.currentVersion,
                   CustomDatabase.isSafeStorageIdentifier(journal.databaseID),
-                  journal.files.allSatisfy({ !$0.contains("/") && !$0.contains("..") }) else {
-                try? FileManager.default.removeItem(at: stage)
+                  journal.files.allSatisfy({ Self.isValidDeletionLeaf($0, databaseID: journal.databaseID) }) else {
+                quarantineDeletionStage(stage, in: directory)
                 continue
             }
-            if registeredIDs.contains(journal.databaseID) {
-                for name in journal.files {
-                    let staged = stage.appendingPathComponent(name)
-                    let destination = directory.appendingPathComponent(name)
-                    if FileManager.default.fileExists(atPath: staged.path), !FileManager.default.fileExists(atPath: destination.path) {
-                        try? FileManager.default.moveItem(at: staged, to: destination)
+            guard let registeredIDs else {
+                quarantineDeletionStage(stage, in: directory)
+                continue
+            }
+            do {
+                if registeredIDs.contains(journal.databaseID) {
+                    var conflict = false
+                    for name in journal.files {
+                        let staged = stage.appendingPathComponent(name)
+                        let destination = directory.appendingPathComponent(name)
+                        guard FileManager.default.fileExists(atPath: staged.path) else { continue }
+                        if FileManager.default.fileExists(atPath: destination.path) {
+                            conflict = true
+                            continue
+                        }
+                        try FileManager.default.moveItem(at: staged, to: destination)
+                        try SecureFileAccess.synchronize(directory, directory: true)
+                    }
+                    if conflict {
+                        quarantineDeletionStage(stage, in: directory)
+                        continue
                     }
                 }
+                try FileManager.default.removeItem(at: stage)
+                try SecureFileAccess.synchronize(directory, directory: true)
+            } catch {
+                quarantineDeletionStage(stage, in: directory)
             }
-            try? FileManager.default.removeItem(at: stage)
+        }
+    }
+
+    private static func isValidDeletionLeaf(_ name: String, databaseID: String) -> Bool {
+        name == "\(databaseID)_data.csv" ||
+        name == "\(databaseID)_embeddings.bin" ||
+        name.range(of: "^\(NSRegularExpression.escapedPattern(for: databaseID))_embeddings_[A-Za-z0-9_-]{1,128}\\.(bin|json)$", options: .regularExpression) != nil
+    }
+
+    private func quarantineDeletionStage(_ stage: URL, in directory: URL) {
+        let quarantine = directory.appendingPathComponent(".delete-quarantine-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.moveItem(at: stage, to: quarantine)
+            try SecureFileAccess.synchronize(directory, directory: true)
+        } catch {
+            logger.error("Could not quarantine interrupted database deletion: \(error.localizedDescription)")
         }
     }
 

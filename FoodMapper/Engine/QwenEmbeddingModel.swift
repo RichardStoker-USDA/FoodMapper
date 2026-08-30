@@ -70,9 +70,14 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
 
     /// Loads a manifest-validated local snapshot. This path does not ask Hub to
     /// resolve or download files.
-    func load(localDirectory: URL) async throws {
-        let configuration = MLXEmbedders.ModelConfiguration(directory: localDirectory)
-        modelContainer = try await loadModelContainer(hub: HubApi(), configuration: configuration)
+    func load(snapshot: VerifiedLocalModelSnapshot) async throws {
+        guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
+            throw EmbeddingError.modelNotFound
+        }
+        let configuration = MLXEmbedders.ModelConfiguration(directory: snapshot.directory)
+        modelContainer = try await loadModelContainer(
+            hub: HubApi(), configuration: configuration, allowedArtifactPaths: snapshot.artifactPaths
+        )
         logger.info("\(self.modelDisplayName) loaded from local snapshot")
     }
 
@@ -85,6 +90,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     private nonisolated func loadModelContainer(
         hub: HubApi,
         configuration: MLXEmbedders.ModelConfiguration,
+        allowedArtifactPaths: Set<String>,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> MLXEmbedders.ModelContainer {
         _ = hub
@@ -128,14 +134,11 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
 
         // Load weights from safetensors
         var weights = [String: MLXArray]()
-        let tensorPaths = try FileManager.default.subpathsOfDirectory(atPath: modelDirectory.path)
-        for relativePath in tensorPaths {
+        for relativePath in allowedArtifactPaths.sorted() where (relativePath as NSString).pathExtension == "safetensors" {
             let url = modelDirectory.appendingPathComponent(relativePath)
-            if url.pathExtension == "safetensors" {
-                let w = try loadArrays(url: url)
-                for (key, value) in w {
-                    weights[key] = value
-                }
+            let w = try loadArrays(url: url)
+            for (key, value) in w {
+                weights[key] = value
             }
         }
 

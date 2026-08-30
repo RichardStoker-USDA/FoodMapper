@@ -56,11 +56,22 @@ extension AppState {
 
     /// Run the showcase embedding match (full 1,304 NHANES vs DFG2 using GTE-Large).
     func runTourEmbeddingMatch() {
+        let operationID = UUID()
+        guard beginEngineOperation(.researchTour(operationID)) else {
+            tourEmbeddingError = "Wait for the current operation to finish."
+            return
+        }
         tourEmbeddingResults = nil
         tourEmbeddingProgress = 0
         tourEmbeddingError = nil
 
-        Task { [self] in
+        tourEmbeddingTask = Task { [self] in
+            defer {
+                if self.isCurrentEngineOperation(operationID) {
+                    self.tourEmbeddingTask = nil
+                    self.finishEngineOperation(operationID)
+                }
+            }
             do {
                 // Check model availability before attempting to load
                 let modelState = self.modelManager.state(for: "gte-large")
@@ -91,6 +102,7 @@ extension AppState {
                     rerankerInstruction: nil,
                     onProgress: { [weak self] completed in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.tourEmbeddingProgress = Double(completed) / Double(totalCount)
                         }
                     },
@@ -121,12 +133,23 @@ extension AppState {
 
     /// Run the showcase hybrid match (full NHANES vs DFG2 using GTE-Large + Claude verification).
     func runTourHybridMatch(modelVersion: ClaudeModelVersion = .haiku3) {
+        let operationID = UUID()
+        guard beginEngineOperation(.researchTour(operationID)) else {
+            tourHybridError = "Wait for the current operation to finish."
+            return
+        }
         tourHybridResults = nil
         tourHybridProgress = 0
         tourHybridPhase = .idle
         tourHybridError = nil
 
         tourHybridTask = Task { [self] in
+            defer {
+                if self.isCurrentEngineOperation(operationID) {
+                    self.tourHybridTask = nil
+                    self.finishEngineOperation(operationID)
+                }
+            }
             do {
                 // Load tour items
                 let tourItems = try await TourDataLoader.shared.loadFullBenchmarkItems()
@@ -170,11 +193,13 @@ extension AppState {
                     rerankerInstruction: nil,
                     onProgress: { [weak self] completed in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.tourHybridProgress = Double(completed) / Double(totalCount)
                         }
                     },
                     onPhaseChange: { [weak self] phase in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.tourHybridPhase = phase
                         }
                     }

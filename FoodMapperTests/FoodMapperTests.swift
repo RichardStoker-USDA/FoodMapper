@@ -150,6 +150,41 @@ final class CustomDatabaseValidationTests: XCTestCase {
         XCTAssertEqual(validated.entries.map(\.text), ["Milk", "Cheese"])
     }
 
+    func testContentDerivedIDsSurviveUnrelatedRowReordering() throws {
+        let first = try writeDatabase("description,note\nMilk,fresh\nCheese,aged\nMilk,whole\n")
+        let second = try writeDatabase("description,note\nMilk,whole\nMilk,fresh\nCheese,aged\n")
+        defer { try? FileManager.default.removeItem(at: first); try? FileManager.default.removeItem(at: second) }
+        let left = try CustomDatabaseValidator.load(url: first, textColumn: "description", idColumn: nil)
+        let right = try CustomDatabaseValidator.load(url: second, textColumn: "description", idColumn: nil)
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: left.entries.map { ($0.additionalFields["note"]!, $0.id) }),
+            Dictionary(uniqueKeysWithValues: right.entries.map { ($0.additionalFields["note"]!, $0.id) })
+        )
+    }
+
+    func testRejectsSymbolicAndHardLinkedSources() throws {
+        let source = try writeDatabase("id,description\n1,Milk\n")
+        let symbolic = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-symbolic-\(UUID().uuidString).csv")
+        let hard = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-hard-\(UUID().uuidString).csv")
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: symbolic)
+            try? FileManager.default.removeItem(at: hard)
+        }
+        try FileManager.default.createSymbolicLink(at: symbolic, withDestinationURL: source)
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: symbolic, textColumn: "description", idColumn: "id"))
+        XCTAssertEqual(link(source.path, hard.path), 0)
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: hard, textColumn: "description", idColumn: "id"))
+    }
+
+    func testBoundedDescriptorReadRejectsGrowthBeyondLimit() throws {
+        let url = try writeDatabase("12345")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let descriptor = try SecureFileAccess.openRegularFile(url, maximumSize: 5)
+        defer { close(descriptor) }
+        XCTAssertThrowsError(try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 4))
+    }
+
     func testRejectsMalformedAndBlankTextRows() throws {
         let malformed = try writeDatabase("id,description\n1\n")
         defer { try? FileManager.default.removeItem(at: malformed) }
@@ -191,12 +226,12 @@ final class CustomDatabaseValidationTests: XCTestCase {
         let cacheData = values.withUnsafeBufferPointer { Data(buffer: $0) }
         let metadata = CustomDatabaseCacheMetadata(
             version: 1, databaseID: "database", sourceHash: "source", schemaHash: "schema", rowOrderHash: "rows",
-            textColumn: "description", idColumn: "id", modelKey: "model", modelArtifactFingerprint: "artifact",
+            textColumn: "description", idColumn: "id", modelKey: "model", modelArtifactFingerprint: String(repeating: "a", count: 64),
             entryCount: 1, embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(cacheData)
         )
         try cacheData.write(to: transaction.appendingPathComponent("cache.backup"))
         try JSONEncoder().encode(metadata).write(to: transaction.appendingPathComponent("metadata.backup"))
-        try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName))
+        try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName, metadata: metadata))
             .write(to: transaction.appendingPathComponent("journal.json"))
         try Data([0]).write(to: directory.appendingPathComponent(cacheName))
 
@@ -205,6 +240,33 @@ final class CustomDatabaseValidationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(cacheName)), cacheData)
         XCTAssertEqual(try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: Data(contentsOf: directory.appendingPathComponent(metadataName))), metadata)
         XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+    }
+
+    func testCacheValidationRejectsNonFiniteValues() throws {
+        let database = CustomDatabase(
+            id: "database", displayName: "Database", csvPath: "", textColumn: "description",
+            itemCount: 1
+        )
+        let directory = database.cacheDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try "id,description\n1,Milk\n".write(to: database.storedCsvURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: database.storedCsvURL.path)
+        let floats = Array(repeating: Float.nan, count: 1024)
+        let data = floats.withUnsafeBufferPointer { Data(buffer: $0) }
+        try data.write(to: database.cacheURL(for: "gte-large"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: database.cacheURL(for: "gte-large").path)
+        let validated = try CustomDatabaseValidator.load(url: database.storedCsvURL, textColumn: "description", idColumn: nil)
+        let metadata = CustomDatabaseCacheMetadata(
+            version: CustomDatabaseCacheMetadata.currentVersion, databaseID: database.id,
+            sourceHash: validated.sourceHash, schemaHash: validated.schemaHash, rowOrderHash: validated.rowOrderHash,
+            textColumn: "description", idColumn: nil, modelKey: "gte-large",
+            modelArtifactFingerprint: String(repeating: "a", count: 64), entryCount: 1,
+            embeddingDimensions: 1024, embeddingDigest: CustomDatabaseValidator.digest(data)
+        )
+        try JSONEncoder().encode(metadata).write(to: database.cacheMetadataURL(for: "gte-large"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: database.cacheMetadataURL(for: "gte-large").path)
+        XCTAssertFalse(database.hasEmbeddings(for: "gte-large"))
     }
 }
 
@@ -282,5 +344,18 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
         XCTAssertFalse(state.canModifyDatabases)
         state.finishEngineOperation(embedding)
         XCTAssertTrue(state.canModifyDatabases)
+    }
+
+    func testResearchAndSessionOperationsUseTheSameAdmissionGate() {
+        let state = AppState()
+        let tour = UUID()
+        let restore = UUID()
+        let removal = UUID()
+        XCTAssertTrue(state.beginEngineOperation(.researchTour(tour)))
+        XCTAssertFalse(state.beginEngineOperation(.sessionRestore(restore)))
+        XCTAssertFalse(state.beginEngineOperation(.databaseRemoval(removal, "database")))
+        state.finishEngineOperation(tour)
+        XCTAssertTrue(state.beginEngineOperation(.sessionRestore(restore)))
+        state.finishEngineOperation(restore)
     }
 }

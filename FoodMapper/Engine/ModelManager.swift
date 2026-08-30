@@ -154,7 +154,7 @@ final class ModelManager: ObservableObject {
         // Clean up old double-nested "Models/models/" directory from previous downloadBase bug.
         // Hub library appends "models/" to downloadBase; the old code set downloadBase to
         // FoodMapper/Models/, producing FoodMapper/Models/models/{org}/{repo}/.
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let oldNestedModels = appSupport
             .appendingPathComponent("FoodMapper/Models/models", isDirectory: true)
         if FileManager.default.fileExists(atPath: oldNestedModels.path) {
@@ -282,7 +282,7 @@ final class ModelManager: ObservableObject {
     /// Loads custom user-registered models dynamically from a local JSON config
     private func loadCustomRegisteredModels() {
         let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let appSupport = FoodMapperStorage.applicationSupportURL
 
         // Ensure parent directories exist
         let modelsDir = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
@@ -650,14 +650,14 @@ final class ModelManager: ObservableObject {
                     modelKey: "qwen3-emb-0.6b-4bit",
                     modelDisplayName: "Qwen3-Embedding 0.6B"
                 )
-                let directory = try await downloader.validatedLocalPath(for: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a")
-                try await qwenModel.load(localDirectory: directory)
+                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a")
+                try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
 
             case "qwen3-emb-4b-4bit":
                 let qwenModel = QwenEmbeddingModel()
-                let directory = try await downloader.validatedLocalPath(for: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ", revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72")
-                try await qwenModel.load(localDirectory: directory)
+                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ", revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72")
+                try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
 
             case "qwen3-emb-8b-4bit":
@@ -667,8 +667,8 @@ final class ModelManager: ObservableObject {
                     modelKey: "qwen3-emb-8b-4bit",
                     modelDisplayName: "Qwen3-Embedding 8B"
                 )
-                let directory = try await downloader.validatedLocalPath(for: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ", revision: "885642d6b98742ea03b77a1673579c92ca961efd")
-                try await qwenModel.load(localDirectory: directory)
+                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ", revision: "885642d6b98742ea03b77a1673579c92ca961efd")
+                try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
 
             default:
@@ -717,7 +717,7 @@ final class ModelManager: ObservableObject {
             switch key {
             case "qwen3-reranker-0.6b":
                 model = QwenRerankerModel()
-                try await model.load(localDirectory: try await downloader.validatedLocalPath(
+                try await model.load(snapshot: try await downloader.validatedLocalSnapshot(
                     for: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
                     revision: "e8a94247380953b292660c992e41d94ac04df5f8"
                 ))
@@ -727,7 +727,7 @@ final class ModelManager: ObservableObject {
                     key: "qwen3-reranker-4b",
                     displayName: "Qwen3-Reranker 4B"
                 )
-                try await model.load(localDirectory: try await downloader.validatedLocalPath(
+                try await model.load(snapshot: try await downloader.validatedLocalSnapshot(
                     for: "richtext/Qwen3-Reranker-4B-mlx-4bit",
                     revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1"
                 ))
@@ -784,8 +784,8 @@ final class ModelManager: ObservableObject {
             )
 
             guard let revision = registration.revision else { throw ModelManagerError.unknownModel(key) }
-            let directory = try await downloader.validatedLocalPath(for: repoId, revision: revision)
-            try await model.load(localDirectory: directory)
+            let snapshot = try await downloader.validatedLocalSnapshot(for: repoId, revision: revision)
+            try await model.load(snapshot: snapshot)
 
             loadedGenerativeModel = model
             modelStates[key] = .loaded

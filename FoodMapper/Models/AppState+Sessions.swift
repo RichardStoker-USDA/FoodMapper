@@ -339,6 +339,11 @@ extension AppState {
     }
 
     func loadSession(_ session: MatchingSession) {
+        let operationID = UUID()
+        guard beginEngineOperation(.sessionRestore(operationID)) else {
+            error = AppError.fileLoadFailed("Wait for the current operation to finish before loading a session.")
+            return
+        }
         let resultsURL = sessionsDirectory.appendingPathComponent(session.resultsFilename)
         let sessionsDir = sessionsDirectory
 
@@ -351,7 +356,7 @@ extension AppState {
         }
 
         // Load data, decode, and sort off the main thread
-        Task {
+        sessionRestoreTask = Task { [self] in
             do {
                 let (loadedResults, loadedDecisions, filtered) = try await Task.detached(priority: .userInitiated) {
                     let data = try Data(contentsOf: resultsURL)
@@ -371,6 +376,7 @@ extension AppState {
                 }.value
 
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.suppressFilterUpdates = true
 
                     self.results = loadedResults
@@ -418,10 +424,15 @@ extension AppState {
                     self.hasUnviewedResults = false
                     self.isProgrammaticNavigation = false
                     self.recordNavigationSnapshot()
+                    self.sessionRestoreTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             } catch {
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.error = AppError.fileLoadFailed("Failed to load session: \(error.localizedDescription)")
+                    self.sessionRestoreTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             }
         }
@@ -478,6 +489,10 @@ extension AppState {
     }
 
     func startNewMatch() {
+        guard activeEngineOperation == nil else {
+            error = AppError.fileLoadFailed("Wait for the current operation to finish before starting a new match.")
+            return
+        }
         if selectedPipelineMode == nil {
             selectedPipelineMode = .standard
             selectedPipelineType = autoSelectPipeline(for: .standard)

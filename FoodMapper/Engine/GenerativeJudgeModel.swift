@@ -133,9 +133,12 @@ actor GenerativeJudgeModel {
         throw GenerativeJudgeError.modelNotLoaded
     }
 
-    func load(localDirectory: URL) async throws {
+    func load(snapshot: VerifiedLocalModelSnapshot) async throws {
+        guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
+            throw GenerativeJudgeError.modelNotLoaded
+        }
         container = try await MLXLMCommon.loadModelContainer(
-            hub: HubApi(), configuration: .init(directory: localDirectory)
+            hub: HubApi(), configuration: .init(directory: snapshot.directory)
         )
         try await resolveTokenIds()
     }

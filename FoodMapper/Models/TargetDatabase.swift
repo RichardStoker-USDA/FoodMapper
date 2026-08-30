@@ -1,8 +1,172 @@
 import Foundation
 import CryptoKit
+import Darwin
+
+enum SecureFileAccess {
+    static let storageDirectoryPermissions: mode_t = 0o700
+    static let privateFilePermissions: mode_t = 0o600
+
+    /// Opens a regular file after checking every path component with lstat. The
+    /// returned descriptor remains the authority for the subsequent read.
+    static func openRegularFile(
+        _ url: URL,
+        under root: URL? = nil,
+        maximumSize: Int64? = nil,
+        requireOwner: Bool = true
+    ) throws -> Int32 {
+        let path = try canonicalFilePath(url)
+        guard path.hasPrefix("/") else { throw MatchingError.databaseNotFound }
+        if let root {
+            let rootPath = try canonicalDirectoryPath(root)
+            guard path.hasPrefix(rootPath + "/") else { throw MatchingError.databaseNotFound }
+            try validateStorageDirectory(root)
+        } else {
+            try validateAncestorChain(forAbsolutePath: path)
+        }
+
+        var before = stat()
+        guard lstat(path, &before) == 0,
+              (before.st_mode & S_IFMT) == S_IFREG,
+              before.st_nlink == 1,
+              (!requireOwner || before.st_uid == getuid()),
+              (before.st_mode & S_IWOTH) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        if let maximumSize, before.st_size > off_t(maximumSize) {
+            throw CustomDatabaseValidationError.importTooLarge(actual: Int64(before.st_size), limit: Int(maximumSize))
+        }
+
+        let descriptor = open(path, O_RDONLY | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        var after = stat()
+        guard fstat(descriptor, &after) == 0,
+              after.st_dev == before.st_dev,
+              after.st_ino == before.st_ino,
+              (after.st_mode & S_IFMT) == S_IFREG,
+              after.st_nlink == 1,
+              (!requireOwner || after.st_uid == getuid()),
+              (after.st_mode & S_IWOTH) == 0 else {
+            close(descriptor)
+            throw MatchingError.databaseNotFound
+        }
+        return descriptor
+    }
+
+    static func readBounded(
+        descriptor: Int32,
+        maximumSize: Int,
+        cancellation: () -> Bool = { Task.isCancelled }
+    ) throws -> Data {
+        var initial = stat()
+        guard fstat(descriptor, &initial) == 0,
+              initial.st_size >= 0,
+              initial.st_size <= off_t(maximumSize) else {
+            throw CustomDatabaseValidationError.importTooLarge(
+                actual: max(0, Int64(initial.st_size)), limit: maximumSize
+            )
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        var result = Data()
+        result.reserveCapacity(Int(initial.st_size))
+        while true {
+            if cancellation() { throw CustomDatabaseValidationError.cancelled }
+            let remaining = maximumSize - result.count
+            guard remaining > 0 else {
+                let probe = try handle.read(upToCount: 1)
+                guard probe?.isEmpty ?? true else {
+                    throw CustomDatabaseValidationError.importTooLarge(actual: Int64(maximumSize) + 1, limit: maximumSize)
+                }
+                break
+            }
+            guard let chunk = try handle.read(upToCount: min(1_048_576, remaining)), !chunk.isEmpty else { break }
+            result.append(chunk)
+        }
+        if cancellation() { throw CustomDatabaseValidationError.cancelled }
+        var final = stat()
+        guard fstat(descriptor, &final) == 0,
+              final.st_size == off_t(result.count),
+              final.st_size <= off_t(maximumSize) else {
+            throw MatchingError.databaseNotFound
+        }
+        return result
+    }
+
+    static func synchronize(_ url: URL, directory: Bool = false) throws {
+        let descriptor = open(url.path, O_RDONLY | (directory ? O_DIRECTORY : O_NOFOLLOW))
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw MatchingError.databaseNotFound }
+    }
+
+    static func validateStorageDirectory(_ directory: URL) throws {
+        let resolved = try canonicalDirectoryPath(directory)
+        try validateDirectoryChain(URL(fileURLWithPath: resolved, isDirectory: true))
+        var info = stat()
+        guard lstat(resolved, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid(),
+              (info.st_mode & 0o077) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+    }
+
+    private static func validateDirectoryChain(_ root: URL) throws {
+        let path = root.standardizedFileURL.path
+        try validateAncestorChain(forAbsolutePath: path)
+        var info = stat()
+        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+            throw MatchingError.databaseNotFound
+        }
+    }
+
+    private static func canonicalDirectoryPath(_ url: URL) throws -> String {
+        guard let resolved = realpath(url.standardizedFileURL.path, nil) else {
+            throw MatchingError.databaseNotFound
+        }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    private static func canonicalFilePath(_ url: URL) throws -> String {
+        let leaf = url.lastPathComponent
+        guard !leaf.isEmpty, leaf != ".", leaf != ".." else { throw MatchingError.databaseNotFound }
+        let parent = try canonicalDirectoryPath(url.deletingLastPathComponent())
+        return URL(fileURLWithPath: parent, isDirectory: true).appendingPathComponent(leaf).path
+    }
+
+    private static func validateAncestorChain(forAbsolutePath path: String) throws {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        var current = ""
+        for component in components.dropLast() {
+            current += "/\(component)"
+            var info = stat()
+            guard lstat(current, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+                throw MatchingError.databaseNotFound
+            }
+        }
+    }
+}
 
 enum FoodMapperStorage {
-    nonisolated(unsafe) static var applicationSupportOverride: URL?
+    private final class RootStore: @unchecked Sendable {
+        let lock = NSLock()
+        var override: URL?
+    }
+
+    private static let rootStore = RootStore()
+
+    static var applicationSupportOverride: URL? {
+        get {
+            rootStore.lock.lock()
+            defer { rootStore.lock.unlock() }
+            return rootStore.override
+        }
+        set {
+            rootStore.lock.lock()
+            rootStore.override = newValue
+            rootStore.lock.unlock()
+        }
+    }
 
     static var applicationSupportURL: URL {
         applicationSupportOverride ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -240,7 +404,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Whether any embeddings exist (any model version)
     var hasEmbeddings: Bool {
-        !allCacheFiles.isEmpty
+        embeddedModelKeys.contains { hasEmbeddings(for: $0) }
     }
 
     /// Total size of all embedding cache files
@@ -265,30 +429,58 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     /// Whether embeddings exist for a specific model key
     func hasEmbeddings(for modelKey: String) -> Bool {
         guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey),
+              let expectedDimensions = Self.embeddingDimensions(for: modelKey),
               let sourceURL = csvURL,
               let validated = try? CustomDatabaseValidator.load(
                 url: sourceURL, textColumn: textColumn, idColumn: idColumn
               ) else { return false }
-        let cacheURL = cacheURL(for: modelKey)
-        let metadataURL = cacheMetadataURL(for: modelKey)
-        guard let metadataData = try? Data(contentsOf: metadataURL),
-              let metadata = try? JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData),
-              metadata.version == CustomDatabaseCacheMetadata.currentVersion,
-              metadata.databaseID == id,
-              metadata.modelKey == modelKey,
-              metadata.sourceHash == validated.sourceHash,
-              metadata.schemaHash == validated.schemaHash,
-              metadata.rowOrderHash == validated.rowOrderHash,
-              metadata.textColumn == textColumn.trimmingCharacters(in: .whitespacesAndNewlines),
-              metadata.idColumn == idColumn?.trimmingCharacters(in: .whitespacesAndNewlines),
-              metadata.entryCount == validated.entries.count,
-              let data = try? Data(contentsOf: cacheURL),
-              data.count == metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size,
-              SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == metadata.embeddingDigest else {
+        do {
+            let metadataURL = cacheMetadataURL(for: modelKey)
+            let metadataDescriptor = try SecureFileAccess.openRegularFile(
+                metadataURL, under: cacheDirectory, maximumSize: 1_048_576
+            )
+            defer { close(metadataDescriptor) }
+            let metadataData = try SecureFileAccess.readBounded(descriptor: metadataDescriptor, maximumSize: 1_048_576)
+            let metadata = try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData)
+            guard metadata.version == CustomDatabaseCacheMetadata.currentVersion,
+                  metadata.databaseID == id,
+                  metadata.modelKey == modelKey,
+                  metadata.sourceHash == validated.sourceHash,
+                  metadata.schemaHash == validated.schemaHash,
+                  metadata.rowOrderHash == validated.rowOrderHash,
+                  metadata.textColumn == textColumn.trimmingCharacters(in: .whitespacesAndNewlines),
+                  metadata.idColumn == idColumn?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  metadata.entryCount == validated.entries.count,
+                  metadata.embeddingDimensions == expectedDimensions,
+                  metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
+                return false
+            }
+            let expectedSize = try MatchingEngine.expectedEmbeddingByteCount(
+                entries: metadata.entryCount, dimensions: metadata.embeddingDimensions
+            )
+            let cacheDescriptor = try SecureFileAccess.openRegularFile(
+                cacheURL(for: modelKey), under: cacheDirectory, maximumSize: Int64(expectedSize)
+            )
+            defer { close(cacheDescriptor) }
+            let data = try SecureFileAccess.readBounded(descriptor: cacheDescriptor, maximumSize: expectedSize)
+            guard data.count == expectedSize,
+                  SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == metadata.embeddingDigest else {
+                return false
+            }
+            return data.withUnsafeBytes { buffer in
+                buffer.bindMemory(to: Float.self).allSatisfy { $0.isFinite }
+            }
+        } catch {
             return false
         }
-        return data.withUnsafeBytes { buffer in
-            buffer.bindMemory(to: Float.self).allSatisfy { $0.isFinite }
+    }
+
+    private static func embeddingDimensions(for modelKey: String) -> Int? {
+        switch modelKey {
+        case "gte-large", "qwen3-emb-0.6b-4bit": return 1024
+        case "qwen3-emb-4b-4bit": return 2560
+        case "qwen3-emb-8b-4bit": return 4096
+        default: return nil
         }
     }
 

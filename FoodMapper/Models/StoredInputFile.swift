@@ -25,7 +25,7 @@ struct StoredInputFile: Identifiable, Codable {
 
     /// Directory where all stored input files live
     static var storageDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let dir = appSupport.appendingPathComponent("FoodMapper/InputFiles", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

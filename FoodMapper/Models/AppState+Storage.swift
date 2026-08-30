@@ -160,7 +160,7 @@ extension AppState {
     /// Delete all app data (sessions, custom databases, model, preferences) and relaunch
     func resetAllData() {
         let fm = FileManager.default
-        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let foodMapperDir = appSupport.appendingPathComponent("FoodMapper", isDirectory: true)
 
         // Delete the entire FoodMapper application support directory

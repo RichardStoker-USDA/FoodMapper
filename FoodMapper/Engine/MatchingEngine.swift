@@ -48,8 +48,19 @@ struct CustomDatabaseCacheMetadata: Codable, Equatable {
 }
 
 struct CacheCommitJournal: Codable {
+    static let currentVersion = 2
+
+    let version: Int
     let cacheName: String
     let metadataName: String
+    let metadata: CustomDatabaseCacheMetadata
+
+    init(cacheName: String, metadataName: String, metadata: CustomDatabaseCacheMetadata) {
+        self.version = Self.currentVersion
+        self.cacheName = cacheName
+        self.metadataName = metadataName
+        self.metadata = metadata
+    }
 }
 
 struct ValidatedCustomDatabase {
@@ -57,6 +68,8 @@ struct ValidatedCustomDatabase {
     let sourceHash: String
     let schemaHash: String
     let rowOrderHash: String
+    let fileFormat: DataFileFormat
+    let columnNames: [String]
 }
 
 enum CustomDatabaseValidationError: LocalizedError, Equatable {
@@ -102,13 +115,17 @@ enum CustomDatabaseValidator {
     }
 
     static func load(url: URL, textColumn: String, idColumn: String?) throws -> ValidatedCustomDatabase {
-        if Task.isCancelled { throw CustomDatabaseValidationError.cancelled }
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= maximumImportBytes else {
-            throw CustomDatabaseValidationError.importTooLarge(actual: Int64(size), limit: maximumImportBytes)
-        }
-        let data = try Data(contentsOf: url)
-        if Task.isCancelled { throw CustomDatabaseValidationError.cancelled }
+        let descriptor = try SecureFileAccess.openRegularFile(
+            url, maximumSize: Int64(maximumImportBytes)
+        )
+        defer { close(descriptor) }
+        return try load(descriptor: descriptor, textColumn: textColumn, idColumn: idColumn)
+    }
+
+    static func load(descriptor: Int32, textColumn: String, idColumn: String?) throws -> ValidatedCustomDatabase {
+        let data = try SecureFileAccess.readBounded(
+            descriptor: descriptor, maximumSize: maximumImportBytes
+        )
         guard let rawContent = String(data: data, encoding: .utf8) else {
             throw MatchingError.databaseNotFound
         }
@@ -173,6 +190,9 @@ enum CustomDatabaseValidator {
                 }
                 ids[id] = rowNumber
             } else {
+                // The base identity is row content, not the row position. Equal rows
+                // use an occurrence suffix because no content-only key can distinguish
+                // two byte-identical records; other row reordering does not change IDs.
                 let normalizedRow = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .joined(separator: "\u{1F}")
                 let baseID = "row-\(digest(normalizedRow).prefix(24))"
@@ -194,7 +214,9 @@ enum CustomDatabaseValidator {
             entries: entries,
             sourceHash: digest(data),
             schemaHash: digest(header.joined(separator: "\u{1F}")),
-            rowOrderHash: digest(normalizedRows.joined(separator: "\u{1E}"))
+            rowOrderHash: digest(normalizedRows.joined(separator: "\u{1E}")),
+            fileFormat: format,
+            columnNames: header
         )
     }
 
@@ -219,7 +241,8 @@ actor MatchingEngine {
     /// Current embedding model key (for cache versioning)
     private var currentModelKey: String?
     private var currentDatabaseId: String?
-    private var isCancelled = false
+    private var activeRunID: UUID?
+    private var cancelledRunIDs: Set<UUID> = []
     private var artifactFingerprintCache: [String: (signature: String, fingerprint: String)] = [:]
 
     /// Directory for storing generated embeddings for custom databases
@@ -227,11 +250,32 @@ actor MatchingEngine {
         let appSupport = FoodMapperStorage.applicationSupportURL
         let dir = appSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: dir.path)
         return dir
     }
 
     init() async throws {
         Self.recoverInterruptedCacheTransactions()
+    }
+
+    private func beginRun() throws -> UUID {
+        guard activeRunID == nil else { throw CancellationError() }
+        let id = UUID()
+        activeRunID = id
+        return id
+    }
+
+    private func checkRun(_ id: UUID) throws {
+        try Task.checkCancellation()
+        guard activeRunID == id, !cancelledRunIDs.contains(id) else {
+            throw CancellationError()
+        }
+    }
+
+    private func finishRun(_ id: UUID) {
+        guard activeRunID == id else { return }
+        activeRunID = nil
+        cancelledRunIDs.remove(id)
     }
 
     /// Ensure an embedding model is loaded. If a model was already set (via setEmbeddingModel
@@ -464,11 +508,17 @@ actor MatchingEngine {
             do {
                 let cachedMetadata = try decodeCacheMetadata(at: metadataURL)
                 if cachedMetadata.matchesIdentity(metadata) {
-                    let cacheData = try Data(contentsOf: versionedURL)
+                    let expectedSize = try Self.expectedEmbeddingByteCount(
+                        entries: entries.count, dimensions: embeddingDim
+                    )
+                    let cacheData = try readPrivateCache(versionedURL, maximumSize: expectedSize)
                     guard cachedMetadata.embeddingDigest == CustomDatabaseValidator.digest(cacheData) else {
                         throw MatchingError.invalidEmbeddingsFile
                     }
-                    let matrix = try loadBinaryEmbeddingsAsMatrix(from: versionedURL, count: entries.count, embeddingDim: embeddingDim)
+                    guard cacheData.withUnsafeBytes({ $0.bindMemory(to: Float.self).allSatisfy(\.isFinite) }) else {
+                        throw MatchingError.invalidEmbeddingsFile
+                    }
+                    let matrix = MLXArray(cacheData, [entries.count, embeddingDim], type: Float.self)
                     return DatabaseLoadResult(entries: entries, matrix: matrix, embeddings: nil)
                 }
             } catch {
@@ -603,11 +653,20 @@ actor MatchingEngine {
     }
 
     private func decodeCacheMetadata(at url: URL) throws -> CustomDatabaseCacheMetadata {
-        let metadata = try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: Data(contentsOf: url))
+        let data = try readPrivateCache(url, maximumSize: 1_048_576)
+        let metadata = try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: data)
         guard metadata.version == CustomDatabaseCacheMetadata.currentVersion else {
             throw MatchingError.invalidEmbeddingsFile
         }
         return metadata
+    }
+
+    private func readPrivateCache(_ url: URL, maximumSize: Int) throws -> Data {
+        let descriptor = try SecureFileAccess.openRegularFile(
+            url, under: Self.customEmbeddingsDir, maximumSize: Int64(maximumSize)
+        )
+        defer { close(descriptor) }
+        return try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: maximumSize)
     }
 
     private func writeCustomCache(
@@ -654,7 +713,9 @@ actor MatchingEngine {
         try data.write(to: stagingCacheURL, options: [.atomic])
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingCacheURL.path)
         try synchronizeFile(stagingCacheURL)
-        let expectedSize = metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size
+        let expectedSize = try Self.expectedEmbeddingByteCount(
+            entries: metadata.entryCount, dimensions: metadata.embeddingDimensions
+        )
         let stagedSize = try stagingCacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
         guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
         try JSONEncoder().encode(metadata).write(to: stagingMetadataURL, options: [.atomic])
@@ -694,7 +755,8 @@ actor MatchingEngine {
         _ stagedCache: URL,
         _ stagedMetadata: URL,
         cacheURL: URL,
-        metadataURL: URL
+        metadataURL: URL,
+        cancellationCheck: (() throws -> Void)? = nil
     ) throws {
         let fileManager = FileManager.default
         let directory = cacheURL.deletingLastPathComponent()
@@ -703,26 +765,42 @@ actor MatchingEngine {
         let backupMetadata = transaction.appendingPathComponent("metadata.backup")
         try fileManager.createDirectory(at: transaction, withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
-        let journal = CacheCommitJournal(cacheName: cacheURL.lastPathComponent, metadataName: metadataURL.lastPathComponent)
+        let stagedMetadataValue = try decodeCacheMetadata(at: stagedMetadata)
+        let journal = CacheCommitJournal(
+            cacheName: cacheURL.lastPathComponent, metadataName: metadataURL.lastPathComponent,
+            metadata: stagedMetadataValue
+        )
         let journalURL = transaction.appendingPathComponent("journal.json")
         try JSONEncoder().encode(journal).write(to: journalURL, options: [.atomic])
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
         try synchronizeDirectory(transaction)
         do {
+            try cancellationCheck?()
             if fileManager.fileExists(atPath: cacheURL.path) { try fileManager.moveItem(at: cacheURL, to: backupCache) }
             if fileManager.fileExists(atPath: metadataURL.path) { try fileManager.moveItem(at: metadataURL, to: backupMetadata) }
             try synchronizeDirectory(directory)
+            try cancellationCheck?()
             try fileManager.moveItem(at: stagedCache, to: cacheURL)
+            try cancellationCheck?()
             try fileManager.moveItem(at: stagedMetadata, to: metadataURL)
             try synchronizeDirectory(directory)
+            try cancellationCheck?()
             try fileManager.removeItem(at: transaction)
             try synchronizeDirectory(directory)
         } catch {
-            try? fileManager.removeItem(at: cacheURL)
-            try? fileManager.removeItem(at: metadataURL)
-            if fileManager.fileExists(atPath: backupCache.path) { try? fileManager.moveItem(at: backupCache, to: cacheURL) }
-            if fileManager.fileExists(atPath: backupMetadata.path) { try? fileManager.moveItem(at: backupMetadata, to: metadataURL) }
-            try? fileManager.removeItem(at: transaction)
+            do {
+                if fileManager.fileExists(atPath: cacheURL.path) { try fileManager.removeItem(at: cacheURL) }
+                if fileManager.fileExists(atPath: metadataURL.path) { try fileManager.removeItem(at: metadataURL) }
+                if fileManager.fileExists(atPath: backupCache.path) { try fileManager.moveItem(at: backupCache, to: cacheURL) }
+                if fileManager.fileExists(atPath: backupMetadata.path) { try fileManager.moveItem(at: backupMetadata, to: metadataURL) }
+                try synchronizeDirectory(directory)
+                try fileManager.removeItem(at: transaction)
+                try synchronizeDirectory(directory)
+            } catch {
+                // Keep the journal and backups for launch recovery. Removing them
+                // here could discard the last complete cache pair.
+                logger.error("Cache rollback needs recovery: \(error.localizedDescription)")
+            }
             throw error
         }
     }
@@ -734,24 +812,49 @@ actor MatchingEngine {
             let journalURL = transaction.appendingPathComponent("journal.json")
             guard let data = try? Data(contentsOf: journalURL),
                   let journal = try? JSONDecoder().decode(CacheCommitJournal.self, from: data),
-                  Self.isSafeCacheLeaf(journal.cacheName), Self.isSafeCacheLeaf(journal.metadataName) else {
-                try? FileManager.default.removeItem(at: transaction)
+                  journal.version == CacheCommitJournal.currentVersion,
+                  Self.isSafeCacheLeaf(journal.cacheName), Self.isSafeCacheLeaf(journal.metadataName),
+                  Self.cacheLeafNamesMatch(journal) else {
+                quarantine(transaction, in: directory)
                 continue
             }
             let cacheURL = directory.appendingPathComponent(journal.cacheName)
             let metadataURL = directory.appendingPathComponent(journal.metadataName)
             let backupCache = transaction.appendingPathComponent("cache.backup")
             let backupMetadata = transaction.appendingPathComponent("metadata.backup")
-            if !Self.isValidCachePair(cacheURL, metadataURL) {
-                try? FileManager.default.removeItem(at: cacheURL)
-                try? FileManager.default.removeItem(at: metadataURL)
-                if FileManager.default.fileExists(atPath: backupCache.path) { try? FileManager.default.moveItem(at: backupCache, to: cacheURL) }
-                if FileManager.default.fileExists(atPath: backupMetadata.path) { try? FileManager.default.moveItem(at: backupMetadata, to: metadataURL) }
+            do {
+                if !Self.isValidCachePair(cacheURL, metadataURL, expected: journal.metadata) {
+                    if FileManager.default.fileExists(atPath: cacheURL.path) { try FileManager.default.removeItem(at: cacheURL) }
+                    if FileManager.default.fileExists(atPath: metadataURL.path) { try FileManager.default.removeItem(at: metadataURL) }
+                    guard FileManager.default.fileExists(atPath: backupCache.path),
+                          FileManager.default.fileExists(atPath: backupMetadata.path) else {
+                        throw MatchingError.invalidEmbeddingsFile
+                    }
+                    try FileManager.default.moveItem(at: backupCache, to: cacheURL)
+                    try FileManager.default.moveItem(at: backupMetadata, to: metadataURL)
+                    guard Self.isValidCachePair(cacheURL, metadataURL) else {
+                        throw MatchingError.invalidEmbeddingsFile
+                    }
+                }
+                try SecureFileAccess.synchronize(directory, directory: true)
+                try FileManager.default.removeItem(at: transaction)
+                try SecureFileAccess.synchronize(directory, directory: true)
+            } catch {
+                quarantine(transaction, in: directory)
             }
-            try? FileManager.default.removeItem(at: transaction)
         }
         for stage in items where stage.lastPathComponent.hasPrefix(".") && stage.lastPathComponent.hasSuffix(".stage") {
             try? FileManager.default.removeItem(at: stage)
+        }
+    }
+
+    private nonisolated static func quarantine(_ transaction: URL, in directory: URL) {
+        let destination = directory.appendingPathComponent(".cache-quarantine-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.moveItem(at: transaction, to: destination)
+            try SecureFileAccess.synchronize(directory, directory: true)
+        } catch {
+            logger.error("Could not quarantine interrupted cache transaction: \(error.localizedDescription)")
         }
     }
 
@@ -759,13 +862,38 @@ actor MatchingEngine {
         !value.isEmpty && !value.contains("/") && !value.contains("..")
     }
 
-    private nonisolated static func isValidCachePair(_ cacheURL: URL, _ metadataURL: URL) -> Bool {
+    private nonisolated static func cacheLeafNamesMatch(_ journal: CacheCommitJournal) -> Bool {
+        journal.cacheName == "\(journal.metadata.databaseID)_embeddings_\(journal.metadata.modelKey).bin" &&
+        journal.metadataName == "\(journal.metadata.databaseID)_embeddings_\(journal.metadata.modelKey).json" &&
+        CustomDatabase.isSafeStorageIdentifier(journal.metadata.databaseID) &&
+        CustomDatabase.isSafeModelKey(journal.metadata.modelKey) &&
+        journal.metadata.entryCount > 0 && journal.metadata.embeddingDimensions > 0 &&
+        !journal.metadata.sourceHash.isEmpty && !journal.metadata.schemaHash.isEmpty &&
+        !journal.metadata.rowOrderHash.isEmpty &&
+        journal.metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
+
+    nonisolated static func expectedEmbeddingByteCount(entries: Int, dimensions: Int) throws -> Int {
+        guard entries > 0, dimensions > 0 else { throw MatchingError.invalidEmbeddingsFile }
+        let (values, overflowValues) = entries.multipliedReportingOverflow(by: dimensions)
+        let (bytes, overflowBytes) = values.multipliedReportingOverflow(by: MemoryLayout<Float>.size)
+        guard !overflowValues, !overflowBytes else { throw MatchingError.invalidEmbeddingsFile }
+        return bytes
+    }
+
+    nonisolated static func isValidCachePair(
+        _ cacheURL: URL, _ metadataURL: URL, expected: CustomDatabaseCacheMetadata? = nil
+    ) -> Bool {
         guard let metadataData = try? Data(contentsOf: metadataURL),
               let metadata = try? JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData),
               let cacheData = try? Data(contentsOf: cacheURL),
               metadata.version == CustomDatabaseCacheMetadata.currentVersion,
+              expected.map({ metadata == $0 }) ?? true,
+              CustomDatabase.isSafeStorageIdentifier(metadata.databaseID),
+              CustomDatabase.isSafeModelKey(metadata.modelKey),
+              metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
               metadata.embeddingDigest == CustomDatabaseValidator.digest(cacheData),
-              cacheData.count == metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size else { return false }
+              cacheData.count == (try? expectedEmbeddingByteCount(entries: metadata.entryCount, dimensions: metadata.embeddingDimensions)) else { return false }
         return cacheData.withUnsafeBytes { $0.bindMemory(to: Float.self).allSatisfy(\.isFinite) }
     }
 
@@ -897,7 +1025,9 @@ actor MatchingEngine {
         onProgress: @Sendable @escaping (Int) -> Void,
         onEmbedProgress: (@Sendable (Int, Int) -> Void)? = nil
     ) async throws -> [MatchResult] {
-        isCancelled = false
+        let runID = try beginRun()
+        defer { finishRun(runID) }
+        try checkRun(runID)
 
         // Ensure model is loaded
         try await loadModelIfNeeded()
@@ -920,10 +1050,7 @@ actor MatchingEngine {
             // Process chunk in GPU batches
             for batchStart in stride(from: chunkStart, to: chunkEnd, by: batchSize) {
                 // Check cancellation between batches
-                try Task.checkCancellation()
-                guard !isCancelled else {
-                    throw CancellationError()
-                }
+                try checkRun(runID)
 
                 let batchEnd = min(batchStart + batchSize, chunkEnd)
                 let batchInputs = Array(inputs[batchStart..<batchEnd])
@@ -1010,7 +1137,9 @@ actor MatchingEngine {
         onProgress: @Sendable @escaping (Int) -> Void,
         onEmbedProgress: (@Sendable (Int, Int) -> Void)? = nil
     ) async throws -> [[TopKCandidate]] {
-        isCancelled = false
+        let runID = try beginRun()
+        defer { finishRun(runID) }
+        try checkRun(runID)
 
         // Ensure model is loaded
         try await loadModelIfNeeded()
@@ -1033,8 +1162,7 @@ actor MatchingEngine {
             let chunkEnd = min(chunkStart + chunkSize, inputs.count)
 
             for batchStart in stride(from: chunkStart, to: chunkEnd, by: batchSize) {
-                try Task.checkCancellation()
-                guard !isCancelled else { throw CancellationError() }
+                try checkRun(runID)
 
                 let batchEnd = min(batchStart + batchSize, chunkEnd)
                 let batchInputs = Array(inputs[batchStart..<batchEnd])
@@ -1101,7 +1229,9 @@ actor MatchingEngine {
         chunkSize: Int = 2000,
         onProgress: @Sendable @escaping (Int, Int) -> Void  // (completed, total)
     ) async throws {
-        isCancelled = false
+        let runID = try beginRun()
+        defer { finishRun(runID) }
+        try checkRun(runID)
 
         // Ensure model is loaded
         try await loadModelIfNeeded()
@@ -1149,10 +1279,7 @@ actor MatchingEngine {
 
                 // Process chunk in GPU batches
                 for batchStart in stride(from: 0, to: chunkTexts.count, by: batchSize) {
-                    try Task.checkCancellation()
-                    guard !isCancelled else {
-                        throw CancellationError()
-                    }
+                    try checkRun(runID)
 
                     let batchEnd = min(batchStart + batchSize, chunkTexts.count)
                     let batch = Array(chunkTexts[batchStart..<batchEnd])
@@ -1184,14 +1311,12 @@ actor MatchingEngine {
             let expectedSize = totalCount * model.info.dimensions * MemoryLayout<Float>.size
             let stagedSize = try stagingURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
             guard stagedSize == expectedSize else { throw MatchingError.invalidEmbeddingsFile }
-            try Task.checkCancellation()
-            guard !isCancelled else { throw CancellationError() }
+            try checkRun(runID)
             let digest = CustomDatabaseValidator.digest(try Data(contentsOf: stagingURL))
             try commitStagedCustomCache(
                 stagingURL,
                 metadata: metadata.withEmbeddingDigest(digest),
-                cacheURL: embeddingsURL,
-                metadataURL: metadataURL
+                cacheURL: embeddingsURL, metadataURL: metadataURL, runID: runID
             )
         } catch {
             try? fileHandle.close()
@@ -1204,7 +1329,8 @@ actor MatchingEngine {
         _ stagingURL: URL,
         metadata: CustomDatabaseCacheMetadata,
         cacheURL: URL,
-        metadataURL: URL
+        metadataURL: URL,
+        runID: UUID
     ) throws {
         let metadataStage = metadataURL.deletingLastPathComponent()
             .appendingPathComponent(".\(metadataURL.lastPathComponent).\(UUID().uuidString).stage")
@@ -1212,17 +1338,23 @@ actor MatchingEngine {
             try? FileManager.default.removeItem(at: metadataStage)
             try? FileManager.default.removeItem(at: stagingURL)
         }
+        try checkRun(runID)
         try JSONEncoder().encode(metadata).write(to: metadataStage, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metadataStage.path)
         try synchronizeFile(metadataStage)
         _ = try decodeCacheMetadata(at: metadataStage)
 
-        try commitCacheTransaction(stagingURL, metadataStage, cacheURL: cacheURL, metadataURL: metadataURL)
+        try checkRun(runID)
+        try commitCacheTransaction(
+            stagingURL, metadataStage, cacheURL: cacheURL, metadataURL: metadataURL,
+            cancellationCheck: { try self.checkRun(runID) }
+        )
+        try checkRun(runID)
     }
 
     /// Cancel ongoing embedding or matching
     func cancel() {
-        isCancelled = true
+        if let activeRunID { cancelledRunIDs.insert(activeRunID) }
     }
 }
 
