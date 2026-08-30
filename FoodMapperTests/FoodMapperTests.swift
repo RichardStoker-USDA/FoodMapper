@@ -122,6 +122,7 @@ final class CustomDatabaseValidationTests: XCTestCase {
         isolatedApplicationSupport = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-app-support-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: isolatedApplicationSupport.path)
         FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
         _ = CacheRecoveryState.consumeFailure()
     }
@@ -562,6 +563,7 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
         isolatedApplicationSupport = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-operation-support-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: isolatedApplicationSupport.path)
         FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
         _ = CacheRecoveryState.consumeFailure()
     }

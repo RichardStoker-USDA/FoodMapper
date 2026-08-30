@@ -320,10 +320,16 @@ actor MatchingEngine {
     /// Directory for storing generated embeddings for custom databases
     private static var customEmbeddingsDir: URL {
         let appSupport = FoodMapperStorage.applicationSupportURL
-        let dir = appSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: dir.path)
-        return dir
+        let applicationDirectory = appSupport.appendingPathComponent("FoodMapper", isDirectory: true)
+        let cacheDirectory = applicationDirectory.appendingPathComponent("CustomDBs", isDirectory: true)
+        do {
+            try SecureFileAccess.createPrivateDirectory("FoodMapper", in: appSupport)
+            try SecureFileAccess.createPrivateDirectory("CustomDBs", in: applicationDirectory)
+        } catch {
+            // The subsequent descriptor open reports a database error without
+            // accepting a replacement or symlinked cache directory.
+        }
+        return cacheDirectory
     }
 
     init() async throws {
@@ -757,8 +763,7 @@ actor MatchingEngine {
     ) throws {
         try Task.checkCancellation()
         let directory = cacheURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: directory.path)
+        _ = Self.customEmbeddingsDir
         try SecureFileAccess.validateStorageDirectory(directory)
         let stagingCacheURL = directory
             .appendingPathComponent(".\(cacheURL.lastPathComponent).\(UUID().uuidString).stage")
@@ -1418,8 +1423,7 @@ actor MatchingEngine {
         let stagingURL = embeddingsURL.deletingLastPathComponent()
             .appendingPathComponent(".\(embeddingsURL.lastPathComponent).\(UUID().uuidString).stage")
         let stagingDirectory = stagingURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingDirectory.path)
+        _ = Self.customEmbeddingsDir
         try SecureFileAccess.validateStorageDirectory(stagingDirectory)
         let stagingDescriptor = try SecureFileAccess.createPrivateFile(stagingURL.lastPathComponent, in: stagingDirectory)
         let fileHandle = FileHandle(fileDescriptor: stagingDescriptor, closeOnDealloc: false)
