@@ -1391,11 +1391,11 @@ actor MatchingEngine {
         )
         let stagingURL = embeddingsURL.deletingLastPathComponent()
             .appendingPathComponent(".\(embeddingsURL.lastPathComponent).\(UUID().uuidString).stage")
-        try FileManager.default.createDirectory(at: stagingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingURL.deletingLastPathComponent().path)
-        FileManager.default.createFile(atPath: stagingURL.path, contents: nil)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagingURL.path)
-        let fileHandle = try FileHandle(forWritingTo: stagingURL)
+        let stagingDirectory = stagingURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingDirectory.path)
+        let stagingDescriptor = try SecureFileAccess.createPrivateFile(stagingURL.lastPathComponent, in: stagingDirectory)
+        let fileHandle = FileHandle(fileDescriptor: stagingDescriptor, closeOnDealloc: false)
 
         do {
             // Process in chunks to maintain consistent throughput

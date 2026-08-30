@@ -118,6 +118,46 @@ enum SecureFileAccess {
         !value.contains("/") && !value.contains("\\") && !value.contains("\0")
     }
 
+    /// Atomically rename one validated directory entry to another. Both parent
+    /// directories remain open for the operation, preventing a replacement of
+    /// either ancestor between validation and renameat.
+    static func rename(
+        _ source: String, from sourceDirectory: URL,
+        to destination: String, in destinationDirectory: URL
+    ) throws {
+        guard safeLeaf(source), safeLeaf(destination) else { throw MatchingError.databaseNotFound }
+        let sourceDescriptor = try openDirectory(components: pathComponents(for: sourceDirectory))
+        defer { close(sourceDescriptor) }
+        let destinationDescriptor = try openDirectory(components: pathComponents(for: destinationDirectory))
+        defer { close(destinationDescriptor) }
+        guard renameat(sourceDescriptor, source, destinationDescriptor, destination) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(sourceDirectory, directory: true)
+        if sourceDirectory.path != destinationDirectory.path {
+            try synchronize(destinationDirectory, directory: true)
+        }
+    }
+
+    static func createPrivateFile(_ leaf: String, in directory: URL) throws -> Int32 {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        try validateStorageDirectory(directory)
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        let file = openat(descriptor, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, privateFilePermissions)
+        close(descriptor)
+        guard file >= 0 else { throw MatchingError.databaseNotFound }
+        return file
+    }
+
+    static func remove(_ leaf: String, from directory: URL, directoryEntry: Bool = false) throws {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(descriptor) }
+        let flags: Int32 = directoryEntry ? AT_REMOVEDIR : 0
+        guard unlinkat(descriptor, leaf, flags) == 0 else { throw MatchingError.databaseNotFound }
+        try synchronize(directory, directory: true)
+    }
+
     private static func pathComponents(for url: URL) throws -> [String] {
         guard url.isFileURL, url.path.hasPrefix("/") else { throw MatchingError.databaseNotFound }
         let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)

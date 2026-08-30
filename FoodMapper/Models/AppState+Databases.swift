@@ -255,27 +255,25 @@ extension AppState {
         let directory = customDatabasesURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try SecureFileAccess.validateStorageDirectory(directory)
         let stage = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).\(UUID().uuidString).stage")
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
         try stage.lastPathComponent.data(using: .utf8)?.write(to: journal, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: journal.path)
         try SecureFileAccess.synchronize(journal)
         try SecureFileAccess.synchronize(directory, directory: true)
-        FileManager.default.createFile(atPath: stage.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: stage)
+        let stageDescriptor = try SecureFileAccess.createPrivateFile(stage.lastPathComponent, in: directory)
+        let handle = FileHandle(fileDescriptor: stageDescriptor, closeOnDealloc: false)
         do {
             try handle.write(contentsOf: data)
             try handle.synchronize()
             try handle.close()
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.path)
-            if FileManager.default.fileExists(atPath: customDatabasesURL.path) {
-                _ = try FileManager.default.replaceItemAt(customDatabasesURL, withItemAt: stage)
-            } else {
-                try FileManager.default.moveItem(at: stage, to: customDatabasesURL)
-            }
-            try syncDirectory(directory)
-            try FileManager.default.removeItem(at: journal)
-            try SecureFileAccess.synchronize(directory, directory: true)
+            try SecureFileAccess.rename(
+                stage.lastPathComponent, from: directory,
+                to: customDatabasesURL.lastPathComponent, in: directory
+            )
+            try SecureFileAccess.remove(journal.lastPathComponent, from: directory)
         } catch {
             try? handle.close()
             // Preserve the journal and staged record after a rename or sync error.
@@ -300,9 +298,10 @@ extension AppState {
         close(descriptor)
         do {
             let stage = directory.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: stage.path) { try FileManager.default.removeItem(at: stage) }
-            try FileManager.default.removeItem(at: journal)
-            try SecureFileAccess.synchronize(directory, directory: true)
+            if FileManager.default.fileExists(atPath: stage.path) {
+                try SecureFileAccess.remove(stage.lastPathComponent, from: directory)
+            }
+            try SecureFileAccess.remove(journal.lastPathComponent, from: directory)
         } catch {
             quarantineRegistryJournal(journal, in: directory)
         }
@@ -311,8 +310,10 @@ extension AppState {
     private func quarantineRegistryJournal(_ journal: URL, in directory: URL) {
         let quarantine = directory.appendingPathComponent(".registry-quarantine-\(UUID().uuidString)")
         do {
-            try FileManager.default.moveItem(at: journal, to: quarantine)
-            try SecureFileAccess.synchronize(directory, directory: true)
+            try SecureFileAccess.rename(
+                journal.lastPathComponent, from: directory,
+                to: quarantine.lastPathComponent, in: directory
+            )
             databaseRecoveryIssue = .registryWrite
         } catch {
             logger.error("Could not quarantine interrupted registry write: \(error.localizedDescription)")
@@ -350,8 +351,9 @@ extension AppState {
         try SecureFileAccess.validateStorageDirectory(directory)
         let stagedURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
-        let stagedDescriptor = open(stagedURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, SecureFileAccess.privateFilePermissions)
-        guard stagedDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        let stagedDescriptor = try SecureFileAccess.createPrivateFile(
+            stagedURL.lastPathComponent, in: directory
+        )
         let stagedHandle = FileHandle(fileDescriptor: stagedDescriptor, closeOnDealloc: true)
         let sourceHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         var copied = 0
@@ -385,12 +387,10 @@ extension AppState {
         try SecureFileAccess.validateStorageDirectory(destinationURL.deletingLastPathComponent())
         let stagedDescriptor = try SecureFileAccess.openRegularFile(stagedURL, under: destinationURL.deletingLastPathComponent(), maximumSize: Int64(CustomDatabaseValidator.maximumImportBytes))
         defer { close(stagedDescriptor) }
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: stagedURL)
-        } else {
-            try fileManager.moveItem(at: stagedURL, to: destinationURL)
-        }
-        try SecureFileAccess.synchronize(destinationURL.deletingLastPathComponent(), directory: true)
+        try SecureFileAccess.rename(
+            stagedURL.lastPathComponent, from: destinationURL.deletingLastPathComponent(),
+            to: destinationURL.lastPathComponent, in: destinationURL.deletingLastPathComponent()
+        )
     }
 
     /// Register a custom database first. Pre-embedding is optional and only starts
@@ -418,7 +418,10 @@ extension AppState {
                 try persistCustomDatabases(updatedDatabases)
                 customDatabases = updatedDatabases
             } catch {
-                try? FileManager.default.removeItem(at: finalDatabase.storedCsvURL)
+                try? SecureFileAccess.remove(
+                    finalDatabase.storedCsvURL.lastPathComponent,
+                    from: finalDatabase.storedCsvURL.deletingLastPathComponent()
+                )
                 throw error
             }
             selectedDatabase = .custom(finalDatabase)
