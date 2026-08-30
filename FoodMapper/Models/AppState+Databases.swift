@@ -153,7 +153,7 @@ extension AppState {
     // MARK: - Custom Database Management
 
     var customDatabasesURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let dir = appSupport.appendingPathComponent("FoodMapper", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("custom_databases.json")
@@ -555,10 +555,17 @@ extension AppState {
 
     /// Cancel ongoing embedding
     func cancelEmbedding() {
-        Task {
-            await matchingEngine?.cancel()
+        let task = embeddingTask
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.matchingEngine?.cancel()
+            task?.cancel()
+            await task?.value
+            guard case let .databaseEmbedding(operationID, _) = self.activeEngineOperation else { return }
+            self.databaseEmbeddingStatus = .idle
+            self.embeddingTask = nil
+            self.finishEngineOperation(operationID)
         }
-        embeddingTask?.cancel()
     }
 
     /// Re-embed an existing custom database with the current pipeline's embedding model.
@@ -632,7 +639,7 @@ extension AppState {
     }
 
     private func recoverInterruptedDatabaseDeletions(registeredIDs: Set<String>) {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let directory = FoodMapperStorage.applicationSupportURL
             .appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         for stage in contents where stage.lastPathComponent.hasPrefix(".delete-") {

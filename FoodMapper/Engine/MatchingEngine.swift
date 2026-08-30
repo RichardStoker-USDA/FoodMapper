@@ -47,6 +47,11 @@ struct CustomDatabaseCacheMetadata: Codable, Equatable {
     }
 }
 
+struct CacheCommitJournal: Codable {
+    let cacheName: String
+    let metadataName: String
+}
+
 struct ValidatedCustomDatabase {
     let entries: [DatabaseEntry]
     let sourceHash: String
@@ -219,14 +224,14 @@ actor MatchingEngine {
 
     /// Directory for storing generated embeddings for custom databases
     private static var customEmbeddingsDir: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let dir = appSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     init() async throws {
-        // Model loading is deferred until needed
+        Self.recoverInterruptedCacheTransactions()
     }
 
     /// Ensure an embedding model is loaded. If a model was already set (via setEmbeddingModel
@@ -558,7 +563,7 @@ actor MatchingEngine {
         let directory: URL?
         if let model = embeddingModel as? QwenEmbeddingModel {
             let repoID = model.repoId
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let appSupport = FoodMapperStorage.applicationSupportURL
                 .appendingPathComponent("FoodMapper", isDirectory: true)
             directory = HubApi(downloadBase: appSupport).localRepoLocation(Hub.Repo(id: repoID))
         } else {
@@ -657,19 +662,9 @@ actor MatchingEngine {
         try synchronizeFile(stagingMetadataURL)
         _ = try decodeCacheMetadata(at: stagingMetadataURL)
 
-        let originalCache = fileManager.fileExists(atPath: cacheURL.path) ? try Data(contentsOf: cacheURL) : nil
-        let originalMetadata = fileManager.fileExists(atPath: metadataURL.path) ? try Data(contentsOf: metadataURL) : nil
-        do {
-            try replaceAtomically(stagingCacheURL, at: cacheURL)
-            try replaceAtomically(stagingMetadataURL, at: metadataURL)
-            try synchronizeDirectory(cacheURL.deletingLastPathComponent())
-        } catch {
-            if let originalCache { try? originalCache.write(to: cacheURL, options: [.atomic]) }
-            else { try? fileManager.removeItem(at: cacheURL) }
-            if let originalMetadata { try? originalMetadata.write(to: metadataURL, options: [.atomic]) }
-            else { try? fileManager.removeItem(at: metadataURL) }
-            throw error
-        }
+        try commitCacheTransaction(
+            stagingCacheURL, stagingMetadataURL, cacheURL: cacheURL, metadataURL: metadataURL
+        )
     }
 
     private func replaceAtomically(_ stagedURL: URL, at destinationURL: URL) throws {
@@ -693,6 +688,85 @@ actor MatchingEngine {
         guard descriptor >= 0 else { throw MatchingError.invalidEmbeddingsFile }
         defer { close(descriptor) }
         guard fsync(descriptor) == 0 else { throw MatchingError.invalidEmbeddingsFile }
+    }
+
+    private func commitCacheTransaction(
+        _ stagedCache: URL,
+        _ stagedMetadata: URL,
+        cacheURL: URL,
+        metadataURL: URL
+    ) throws {
+        let fileManager = FileManager.default
+        let directory = cacheURL.deletingLastPathComponent()
+        let transaction = directory.appendingPathComponent(".cache-transaction-\(UUID().uuidString)")
+        let backupCache = transaction.appendingPathComponent("cache.backup")
+        let backupMetadata = transaction.appendingPathComponent("metadata.backup")
+        try fileManager.createDirectory(at: transaction, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: transaction.path)
+        let journal = CacheCommitJournal(cacheName: cacheURL.lastPathComponent, metadataName: metadataURL.lastPathComponent)
+        let journalURL = transaction.appendingPathComponent("journal.json")
+        try JSONEncoder().encode(journal).write(to: journalURL, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+        try synchronizeDirectory(transaction)
+        do {
+            if fileManager.fileExists(atPath: cacheURL.path) { try fileManager.moveItem(at: cacheURL, to: backupCache) }
+            if fileManager.fileExists(atPath: metadataURL.path) { try fileManager.moveItem(at: metadataURL, to: backupMetadata) }
+            try synchronizeDirectory(directory)
+            try fileManager.moveItem(at: stagedCache, to: cacheURL)
+            try fileManager.moveItem(at: stagedMetadata, to: metadataURL)
+            try synchronizeDirectory(directory)
+            try fileManager.removeItem(at: transaction)
+            try synchronizeDirectory(directory)
+        } catch {
+            try? fileManager.removeItem(at: cacheURL)
+            try? fileManager.removeItem(at: metadataURL)
+            if fileManager.fileExists(atPath: backupCache.path) { try? fileManager.moveItem(at: backupCache, to: cacheURL) }
+            if fileManager.fileExists(atPath: backupMetadata.path) { try? fileManager.moveItem(at: backupMetadata, to: metadataURL) }
+            try? fileManager.removeItem(at: transaction)
+            throw error
+        }
+    }
+
+    private nonisolated static func recoverInterruptedCacheTransactions() {
+        let directory = customEmbeddingsDir
+        guard let items = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for transaction in items where transaction.lastPathComponent.hasPrefix(".cache-transaction-") {
+            let journalURL = transaction.appendingPathComponent("journal.json")
+            guard let data = try? Data(contentsOf: journalURL),
+                  let journal = try? JSONDecoder().decode(CacheCommitJournal.self, from: data),
+                  Self.isSafeCacheLeaf(journal.cacheName), Self.isSafeCacheLeaf(journal.metadataName) else {
+                try? FileManager.default.removeItem(at: transaction)
+                continue
+            }
+            let cacheURL = directory.appendingPathComponent(journal.cacheName)
+            let metadataURL = directory.appendingPathComponent(journal.metadataName)
+            let backupCache = transaction.appendingPathComponent("cache.backup")
+            let backupMetadata = transaction.appendingPathComponent("metadata.backup")
+            if !Self.isValidCachePair(cacheURL, metadataURL) {
+                try? FileManager.default.removeItem(at: cacheURL)
+                try? FileManager.default.removeItem(at: metadataURL)
+                if FileManager.default.fileExists(atPath: backupCache.path) { try? FileManager.default.moveItem(at: backupCache, to: cacheURL) }
+                if FileManager.default.fileExists(atPath: backupMetadata.path) { try? FileManager.default.moveItem(at: backupMetadata, to: metadataURL) }
+            }
+            try? FileManager.default.removeItem(at: transaction)
+        }
+        for stage in items where stage.lastPathComponent.hasPrefix(".") && stage.lastPathComponent.hasSuffix(".stage") {
+            try? FileManager.default.removeItem(at: stage)
+        }
+    }
+
+    private nonisolated static func isSafeCacheLeaf(_ value: String) -> Bool {
+        !value.isEmpty && !value.contains("/") && !value.contains("..")
+    }
+
+    private nonisolated static func isValidCachePair(_ cacheURL: URL, _ metadataURL: URL) -> Bool {
+        guard let metadataData = try? Data(contentsOf: metadataURL),
+              let metadata = try? JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData),
+              let cacheData = try? Data(contentsOf: cacheURL),
+              metadata.version == CustomDatabaseCacheMetadata.currentVersion,
+              metadata.embeddingDigest == CustomDatabaseValidator.digest(cacheData),
+              cacheData.count == metadata.entryCount * metadata.embeddingDimensions * MemoryLayout<Float>.size else { return false }
+        return cacheData.withUnsafeBytes { $0.bindMemory(to: Float.self).allSatisfy(\.isFinite) }
     }
 
     /// Load binary embeddings file as [[Float]] (legacy fallback for saveBinaryEmbeddings compatibility)
@@ -1143,20 +1217,7 @@ actor MatchingEngine {
         try synchronizeFile(metadataStage)
         _ = try decodeCacheMetadata(at: metadataStage)
 
-        let fileManager = FileManager.default
-        let originalCache = fileManager.fileExists(atPath: cacheURL.path) ? try Data(contentsOf: cacheURL) : nil
-        let originalMetadata = fileManager.fileExists(atPath: metadataURL.path) ? try Data(contentsOf: metadataURL) : nil
-        do {
-            try replaceAtomically(stagingURL, at: cacheURL)
-            try replaceAtomically(metadataStage, at: metadataURL)
-            try synchronizeDirectory(cacheURL.deletingLastPathComponent())
-        } catch {
-            if let originalCache { try? originalCache.write(to: cacheURL, options: [.atomic]) }
-            else { try? fileManager.removeItem(at: cacheURL) }
-            if let originalMetadata { try? originalMetadata.write(to: metadataURL, options: [.atomic]) }
-            else { try? fileManager.removeItem(at: metadataURL) }
-            throw error
-        }
+        try commitCacheTransaction(stagingURL, metadataStage, cacheURL: cacheURL, metadataURL: metadataURL)
     }
 
     /// Cancel ongoing embedding or matching

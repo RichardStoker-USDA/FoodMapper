@@ -107,6 +107,19 @@ final class HaikuBatchSubmissionTests: XCTestCase {
 }
 
 final class CustomDatabaseValidationTests: XCTestCase {
+    private var isolatedApplicationSupport: URL!
+
+    override func setUpWithError() throws {
+        isolatedApplicationSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("foodmapper-app-support-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
+        FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
+    }
+
+    override func tearDownWithError() throws {
+        FoodMapperStorage.applicationSupportOverride = nil
+        try? FileManager.default.removeItem(at: isolatedApplicationSupport)
+    }
     private func writeDatabase(_ content: String, extension fileExtension: String = "csv") throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("foodmapper-database-\(UUID().uuidString).\(fileExtension)")
@@ -166,6 +179,33 @@ final class CustomDatabaseValidationTests: XCTestCase {
         XCTAssertNotEqual(left.sourceHash, right.sourceHash)
         XCTAssertNotEqual(left.rowOrderHash, right.rowOrderHash)
     }
+
+    func testCacheRecoveryRestoresLastGoodPairAfterInterruptedCommit() async throws {
+        let directory = isolatedApplicationSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cacheName = "database_embeddings_model.bin"
+        let metadataName = "database_embeddings_model.json"
+        let transaction = directory.appendingPathComponent(".cache-transaction-test", isDirectory: true)
+        try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: true)
+        let values: [Float] = [1, 2]
+        let cacheData = values.withUnsafeBufferPointer { Data(buffer: $0) }
+        let metadata = CustomDatabaseCacheMetadata(
+            version: 1, databaseID: "database", sourceHash: "source", schemaHash: "schema", rowOrderHash: "rows",
+            textColumn: "description", idColumn: "id", modelKey: "model", modelArtifactFingerprint: "artifact",
+            entryCount: 1, embeddingDimensions: 2, embeddingDigest: CustomDatabaseValidator.digest(cacheData)
+        )
+        try cacheData.write(to: transaction.appendingPathComponent("cache.backup"))
+        try JSONEncoder().encode(metadata).write(to: transaction.appendingPathComponent("metadata.backup"))
+        try JSONEncoder().encode(CacheCommitJournal(cacheName: cacheName, metadataName: metadataName))
+            .write(to: transaction.appendingPathComponent("journal.json"))
+        try Data([0]).write(to: directory.appendingPathComponent(cacheName))
+
+        _ = try await MatchingEngine()
+
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(cacheName)), cacheData)
+        XCTAssertEqual(try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: Data(contentsOf: directory.appendingPathComponent(metadataName))), metadata)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+    }
 }
 
 final class ModelSnapshotTests: XCTestCase {
@@ -210,5 +250,37 @@ final class ModelSnapshotTests: XCTestCase {
         XCTAssertFalse(CustomDatabase.isSafeStorageIdentifier("/tmp/outside"))
         XCTAssertFalse(CustomDatabase.isSafeModelKey("../../outside"))
         XCTAssertFalse(CustomDatabase.isSafeModelKey("model/key"))
+    }
+}
+
+@MainActor
+final class DatabaseOperationAdmissionTests: XCTestCase {
+    private var isolatedApplicationSupport: URL!
+
+    override func setUpWithError() throws {
+        isolatedApplicationSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("foodmapper-operation-support-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
+        FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
+    }
+
+    override func tearDownWithError() throws {
+        FoodMapperStorage.applicationSupportOverride = nil
+        try? FileManager.default.removeItem(at: isolatedApplicationSupport)
+    }
+
+    func testMatchingAndDatabaseOperationsSerializeByGeneration() {
+        let state = AppState()
+        let matching = UUID()
+        let embedding = UUID()
+        XCTAssertTrue(state.beginEngineOperation(.matching(matching)))
+        XCTAssertFalse(state.beginEngineOperation(.databaseEmbedding(embedding, "database")))
+        state.finishEngineOperation(embedding)
+        XCTAssertTrue(state.isCurrentEngineOperation(matching))
+        state.finishEngineOperation(matching)
+        XCTAssertTrue(state.beginEngineOperation(.databaseEmbedding(embedding, "database")))
+        XCTAssertFalse(state.canModifyDatabases)
+        state.finishEngineOperation(embedding)
+        XCTAssertTrue(state.canModifyDatabases)
     }
 }

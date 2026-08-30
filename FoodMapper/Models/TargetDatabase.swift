@@ -1,6 +1,14 @@
 import Foundation
 import CryptoKit
 
+enum FoodMapperStorage {
+    nonisolated(unsafe) static var applicationSupportOverride: URL?
+
+    static var applicationSupportURL: URL {
+        applicationSupportOverride ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    }
+}
+
 // MARK: - Food Database Protocol
 
 /// Protocol for any food database (built-in or custom)
@@ -173,7 +181,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// URL for the self-contained CSV copy stored in app support
     var storedCsvURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         let directory = appSupport.appendingPathComponent("FoodMapper/CustomDBs", isDirectory: true)
         guard hasSafeStorageIdentifier else { return directory.appendingPathComponent("invalid_data.csv") }
         return directory.appendingPathComponent("\(id)_data.csv")
@@ -191,7 +199,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Directory where embedding cache files are stored
     var cacheDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FoodMapperStorage.applicationSupportURL
         return appSupport.appendingPathComponent("FoodMapper/CustomDBs")
     }
 
@@ -438,7 +446,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             }
             // Check versioned cache in app support (covers all models including gte-large
             // when bundle embeddings aren't present)
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let appSupport = FoodMapperStorage.applicationSupportURL
             let versionedURL = appSupport.appendingPathComponent("FoodMapper/CustomDBs/\(db.id)_embeddings_\(modelKey).bin")
             return FileManager.default.fileExists(atPath: versionedURL.path)
         case .custom(let db):
@@ -455,7 +463,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
                 keys.append("gte-large")
             }
             // Check versioned caches in app support
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let appSupport = FoodMapperStorage.applicationSupportURL
             let dir = appSupport.appendingPathComponent("FoodMapper/CustomDBs")
             let prefix = "\(db.id)_embeddings_"
             if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
