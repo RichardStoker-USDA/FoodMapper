@@ -112,6 +112,7 @@ final class AppState: ObservableObject {
 
     // Database embedding state (for pre-embedding custom databases)
     @Published var databaseEmbeddingStatus: DatabaseEmbeddingStatus = .idle
+    @Published private(set) var activeEngineOperation: EngineOperation?
 
     /// Bumped whenever embedding cache files change on disk, forcing SwiftUI views
     /// that depend on `hasEmbeddings(for:)` to re-evaluate.
@@ -737,6 +738,41 @@ final class AppState: ObservableObject {
     var modelStateSubscription: AnyCancellable?
     var isVerifyingModelAfterDownload = false
 
+    enum EngineOperation: Equatable {
+        case matching(UUID)
+        case databaseEmbedding(UUID, String)
+        case databaseRemoval(UUID, String)
+
+        var id: UUID {
+            switch self {
+            case let .matching(id), let .databaseEmbedding(id, _), let .databaseRemoval(id, _): return id
+            }
+        }
+    }
+
+    var canModifyDatabases: Bool { activeEngineOperation == nil }
+
+    func beginEngineOperation(_ operation: EngineOperation) -> Bool {
+        guard activeEngineOperation == nil else { return false }
+        activeEngineOperation = operation
+        return true
+    }
+
+    func isCurrentEngineOperation(_ id: UUID) -> Bool {
+        activeEngineOperation?.id == id
+    }
+
+    func requireCurrentEngineOperation(_ id: UUID) throws {
+        guard !Task.isCancelled, isCurrentEngineOperation(id) else {
+            throw CancellationError()
+        }
+    }
+
+    func finishEngineOperation(_ id: UUID) {
+        guard isCurrentEngineOperation(id) else { return }
+        activeEngineOperation = nil
+    }
+
     // Session storage
     var sessionsDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -755,6 +791,7 @@ final class AppState: ObservableObject {
         selectedColumn != nil &&
         selectedDatabase != nil &&
         !isProcessing &&
+        activeEngineOperation == nil &&
         !hasResults &&
         canRunSelectedPipeline
     }
@@ -1144,20 +1181,26 @@ enum MatchingPhase: Equatable {
 /// Status for pre-embedding custom databases when added
 enum DatabaseEmbeddingStatus: Equatable {
     case idle
+    case preparing(databaseName: String)
     case embedding(completed: Int, total: Int, databaseName: String, startTime: Date)
+    case registered(databaseName: String, itemCount: Int)
     case completed(databaseName: String, itemCount: Int, duration: TimeInterval)
     case error(String)
 
     var isEmbedding: Bool {
-        if case .embedding = self { return true }
-        return false
+        switch self {
+        case .preparing, .embedding: return true
+        default: return false
+        }
     }
 
     var progress: Double {
         switch self {
+        case .preparing:
+            return 0
         case .embedding(let completed, let total, _, _):
             return total > 0 ? Double(completed) / Double(total) : 0
-        case .completed:
+        case .registered, .completed:
             return 1.0
         default:
             return 0
@@ -1168,8 +1211,12 @@ enum DatabaseEmbeddingStatus: Equatable {
         switch self {
         case .idle:
             return ""
+        case .preparing(let name):
+            return "Preparing \(name)..."
         case .embedding(let completed, let total, let name, _):
             return "Embedding \(name)... \(completed)/\(total)"
+        case .registered(let name, _):
+            return "\(name) imported"
         case .completed(let name, _, _):
             return "\(name) ready"
         case .error(let msg):

@@ -33,6 +33,8 @@ struct RegisteredModel: Identifiable {
     let sizeCategory: ModelSizeCategory
     /// HuggingFace repo ID for download (nil for bundled models)
     let repoId: String?
+    /// Immutable Hugging Face commit for models that are downloaded by the app.
+    let revision: String?
     /// Approximate download size in bytes
     let downloadSize: Int64?
     /// Approximate GPU memory usage in bytes
@@ -44,6 +46,28 @@ struct RegisteredModel: Identifiable {
 
     /// Whether this model is bundled with the app (no download needed)
     var isBundled: Bool { repoId == nil }
+
+    init(
+        key: String,
+        displayName: String,
+        modelFamily: ModelFamily,
+        sizeCategory: ModelSizeCategory,
+        repoId: String?,
+        revision: String? = nil,
+        downloadSize: Int64?,
+        gpuMemoryUsage: Int64?,
+        minimumProfile: HardwareProfile
+    ) {
+        self.key = key
+        self.displayName = displayName
+        self.modelFamily = modelFamily
+        self.sizeCategory = sizeCategory
+        self.repoId = repoId
+        self.revision = revision
+        self.downloadSize = downloadSize
+        self.gpuMemoryUsage = gpuMemoryUsage
+        self.minimumProfile = minimumProfile
+    }
 }
 
 /// Model family grouping
@@ -159,6 +183,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Embedding,
                 sizeCategory: .small,
                 repoId: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+                revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a",
                 downloadSize: 351_000_000,
                 gpuMemoryUsage: 500_000_000,
                 minimumProfile: .base
@@ -169,6 +194,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Embedding,
                 sizeCategory: .medium,
                 repoId: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
+                revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72",
                 downloadSize: 2_280_000_000,
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
@@ -179,6 +205,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Embedding,
                 sizeCategory: .large,
                 repoId: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ",
+                revision: "885642d6b98742ea03b77a1673579c92ca961efd",
                 downloadSize: 4_500_000_000,
                 gpuMemoryUsage: 5_000_000_000,
                 minimumProfile: .standard
@@ -189,6 +216,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Reranker,
                 sizeCategory: .small,
                 repoId: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
+                revision: "e8a94247380953b292660c992e41d94ac04df5f8",
                 downloadSize: 1_200_000_000,
                 gpuMemoryUsage: 1_200_000_000,
                 minimumProfile: .base
@@ -199,6 +227,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Reranker,
                 sizeCategory: .medium,
                 repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
+                revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1",
                 downloadSize: 2_300_000_000,
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
@@ -209,6 +238,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Generative,
                 sizeCategory: .small,
                 repoId: "mlx-community/Qwen3-0.6B-4bit",
+                revision: "73e3e38d981303bc594367cd910ea6eb48349da8",
                 downloadSize: 351_000_000,
                 gpuMemoryUsage: 500_000_000,
                 minimumProfile: .base
@@ -219,6 +249,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Generative,
                 sizeCategory: .medium,
                 repoId: "mlx-community/Qwen3-4B-4bit",
+                revision: "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
                 downloadSize: 2_280_000_000,
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
@@ -310,7 +341,7 @@ final class ModelManager: ObservableObject {
             case "gte-large":
                 modelStates[model.key] = MLXEmbeddingModel.isModelAvailable ? .downloaded : .notDownloaded
             default:
-                if let repoId = model.repoId, downloader.isDownloaded(repoId: repoId) {
+                if let repoId = model.repoId, downloader.isDownloaded(repoId: repoId, revision: model.revision) {
                     modelStates[model.key] = .downloaded
                 } else {
                     modelStates[model.key] = .notDownloaded
@@ -389,11 +420,11 @@ final class ModelManager: ObservableObject {
                 // GTE-Large uses flat file layout (individual files to Models/)
                 try await downloadGTELarge(modelKey: key)
             } else {
-                guard let repoId = repoId else {
+                guard let repoId = repoId, let revision = registration.revision else {
                     throw ModelManagerError.unknownModel(key)
                 }
                 // Other models use Hub snapshot (nested {org}/{repo}/ directories)
-                _ = try await downloader.download(repoId: repoId) { [weak self] progress in
+                _ = try await downloader.download(repoId: repoId, revision: revision) { [weak self] progress in
                     Task { @MainActor in
                         guard let self else { return }
                         guard !self.shouldCancelDownload(for: key) else { return }
@@ -606,8 +637,6 @@ final class ModelManager: ObservableObject {
         do {
             let model: any EmbeddingModelProtocol
 
-            let hub = downloader.hubApi
-
             switch key {
             case "gte-large":
                 let gteModel = MLXEmbeddingModel()
@@ -621,12 +650,14 @@ final class ModelManager: ObservableObject {
                     modelKey: "qwen3-emb-0.6b-4bit",
                     modelDisplayName: "Qwen3-Embedding 0.6B"
                 )
-                try await qwenModel.load(hub: hub)
+                let directory = try await downloader.validatedLocalPath(for: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a")
+                try await qwenModel.load(localDirectory: directory)
                 model = qwenModel
 
             case "qwen3-emb-4b-4bit":
                 let qwenModel = QwenEmbeddingModel()
-                try await qwenModel.load(hub: hub)
+                let directory = try await downloader.validatedLocalPath(for: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ", revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72")
+                try await qwenModel.load(localDirectory: directory)
                 model = qwenModel
 
             case "qwen3-emb-8b-4bit":
@@ -636,7 +667,8 @@ final class ModelManager: ObservableObject {
                     modelKey: "qwen3-emb-8b-4bit",
                     modelDisplayName: "Qwen3-Embedding 8B"
                 )
-                try await qwenModel.load(hub: hub)
+                let directory = try await downloader.validatedLocalPath(for: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ", revision: "885642d6b98742ea03b77a1673579c92ca961efd")
+                try await qwenModel.load(localDirectory: directory)
                 model = qwenModel
 
             default:
@@ -682,19 +714,23 @@ final class ModelManager: ObservableObject {
         do {
             let model: QwenRerankerModel
 
-            let hub = downloader.hubApi
-
             switch key {
             case "qwen3-reranker-0.6b":
                 model = QwenRerankerModel()
-                try await model.load(hub: hub)
+                try await model.load(localDirectory: try await downloader.validatedLocalPath(
+                    for: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
+                    revision: "e8a94247380953b292660c992e41d94ac04df5f8"
+                ))
             case "qwen3-reranker-4b":
                 model = QwenRerankerModel(
                     repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
                     key: "qwen3-reranker-4b",
                     displayName: "Qwen3-Reranker 4B"
                 )
-                try await model.load(hub: hub)
+                try await model.load(localDirectory: try await downloader.validatedLocalPath(
+                    for: "richtext/Qwen3-Reranker-4B-mlx-4bit",
+                    revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1"
+                ))
             default:
                 throw ModelManagerError.unknownModel(key)
             }
@@ -747,8 +783,9 @@ final class ModelManager: ObservableObject {
                 displayName: registration.displayName
             )
 
-            let hub = downloader.hubApi
-            try await model.load(hub: hub)
+            guard let revision = registration.revision else { throw ModelManagerError.unknownModel(key) }
+            let directory = try await downloader.validatedLocalPath(for: repoId, revision: revision)
+            try await model.load(localDirectory: directory)
 
             loadedGenerativeModel = model
             modelStates[key] = .loaded

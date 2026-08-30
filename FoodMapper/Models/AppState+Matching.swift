@@ -66,6 +66,12 @@ extension AppState {
             return
         }
 
+        let operationID = UUID()
+        guard beginEngineOperation(.matching(operationID)) else {
+            error = AppError.matchingFailed("Another database operation is still running.")
+            return
+        }
+
         isProcessing = true
         userNavigatedAwayDuringMatching = false
         matchingPhase = .loadingDatabase
@@ -137,12 +143,14 @@ extension AppState {
                     rerankerInstruction: rerankerInst,
                     onProgress: { [weak self] completed in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.progress?.completedUnitCount = Int64(completed)
                             self?.matchingCompleted = completed
                         }
                     },
                     onPhaseChange: { [weak self] phase in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.matchingPhase = phase
                             // Track batch start time when entering batch phase
                             if phase.isBatchWaiting && self?.batchStartTime == nil {
@@ -167,6 +175,8 @@ extension AppState {
                         }
                     }
                 )
+                try Task.checkCancellation()
+                guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
 
                 // Collect API tier + token usage from Haiku pipeline
                 var apiTokensUsed: Int? = nil
@@ -183,6 +193,7 @@ extension AppState {
 
                 // Capture state needed for branching before modifying @Published properties
                 let userWasAway = await MainActor.run { self.userNavigatedAwayDuringMatching }
+                try Task.checkCancellation()
                 let pipelineType = await MainActor.run { self.selectedPipelineType }
                 let userMatchThresh = await MainActor.run { self.userMatchThreshold }
                 let userRejectThresh = await MainActor.run { self.userRejectThreshold }
@@ -192,7 +203,8 @@ extension AppState {
                 // Clear non-UI matching metadata. Keep isProcessing, progress, and
                 // matchingPhase intact so the progress view stays visible until
                 // results are ready in Block 2.
-                await MainActor.run {
+                try await MainActor.run {
+                    try self.requireCurrentEngineOperation(operationID)
                     self.matchingPhase = .savingResults
                     self.batchStartTime = nil
                     self.activeBatchId = nil
@@ -202,7 +214,8 @@ extension AppState {
 
                 if userWasAway {
                     // User navigated away during matching: stash results, show banner, save to disk
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.isProcessing = false
                         self.progress = nil
                         self.matchingPhase = .idle
@@ -223,6 +236,8 @@ extension AppState {
                             await self.modelManager.unloadGenerativeModel()
                             MLX.Memory.clearCache()
                         }
+                        self.matchingTask = nil
+                        self.finishEngineOperation(operationID)
                     }
                 } else {
                     // Compute triage + filtering + sorting + categories on a background thread.
@@ -256,10 +271,12 @@ extension AppState {
                         }
                         return (triage, filtered, cats)
                     }.value
+                    try Task.checkCancellation()
 
                     // Apply everything atomically on main thread -- single @Published update batch.
                     // Keep this block lean: no file I/O, no expensive loops.
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.suppressFilterUpdates = true
                         self.resultsReady = false
 
@@ -319,8 +336,10 @@ extension AppState {
                         let decisionsData = try? JSONEncoder().encode(triageDecisions)
                         return (unique, resultsData, decisionsData)
                     }.value
+                    try Task.checkCancellation()
 
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.allUniqueCandidates = candidateIndex
 
                         // Save session using pre-encoded data (avoids re-encoding on main thread)
@@ -335,10 +354,11 @@ extension AppState {
                     // Ensure a minimum "preparing" display of 0.3s so it doesn't flash
                     let elapsed = ContinuousClock.now - readyStart
                     if elapsed < .milliseconds(300) {
-                        try? await Task.sleep(for: .milliseconds(300) - elapsed)
+                        try await Task.sleep(for: .milliseconds(300) - elapsed)
                     }
 
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.resultsReady = true
                     }
 
@@ -349,9 +369,15 @@ extension AppState {
                         await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
+                        self.matchingTask = nil
+                        self.finishEngineOperation(operationID)
+                    }
                 }
             } catch is CancellationError {
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.isProcessing = false
                     self.matchingPhase = .idle
                     self.progress = nil
@@ -366,9 +392,12 @@ extension AppState {
                         await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
+                    self.matchingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             } catch {
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.error = AppError.matchingFailed(error.localizedDescription)
                     self.isProcessing = false
                     self.matchingPhase = .idle
@@ -384,6 +413,8 @@ extension AppState {
                         await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
+                    self.matchingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             }
         }
@@ -473,12 +504,8 @@ extension AppState {
             MLX.Memory.clearCache()
         }
         matchingTask?.cancel()
-        isProcessing = false
-        matchingPhase = .idle
-        progress = nil
-        batchStartTime = nil
-        activeBatchId = nil
-        clearPersistedBatchState()
+        // Keep the admission lease until the task has observed cancellation. A new
+        // database operation must not reuse the shared engine while it unwinds.
     }
 
     func getOrCreateEngine() async throws -> MatchingEngine {

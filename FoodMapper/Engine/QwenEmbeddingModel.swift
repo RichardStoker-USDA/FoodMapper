@@ -49,26 +49,31 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
 
     // MARK: - Loading
 
-    /// Protocol conformance: load with default Hub location.
+    /// Protocol conformance. Qwen snapshots must be downloaded explicitly and
+    /// loaded through `load(localDirectory:)` after manifest validation.
     func load() async throws {
-        try await load(hub: HubApi())
+        throw EmbeddingError.modelNotFound
     }
 
     /// Load model using the provided HubApi for download/cache location.
     func load(hub: HubApi) async throws {
-        let configuration = MLXEmbedders.ModelConfiguration(id: self.repoId)
-        logger.info("Loading \(self.modelDisplayName) from \(self.repoId)...")
-        modelContainer = try await loadModelContainer(hub: hub, configuration: configuration)
-        logger.info("\(self.modelDisplayName) loaded successfully")
+        _ = hub
+        throw EmbeddingError.modelNotFound
     }
 
     /// Load with external progress handler (for UI download progress)
     func load(hub: HubApi, onProgress: @Sendable @escaping (Double) -> Void) async throws {
-        let configuration = MLXEmbedders.ModelConfiguration(id: self.repoId)
-        modelContainer = try await loadModelContainer(
-            hub: hub, configuration: configuration, onProgress: onProgress
-        )
-        logger.info("\(self.modelDisplayName) loaded successfully")
+        _ = hub
+        _ = onProgress
+        throw EmbeddingError.modelNotFound
+    }
+
+    /// Loads a manifest-validated local snapshot. This path does not ask Hub to
+    /// resolve or download files.
+    func load(localDirectory: URL) async throws {
+        let configuration = MLXEmbedders.ModelConfiguration(directory: localDirectory)
+        modelContainer = try await loadModelContainer(hub: HubApi(), configuration: configuration)
+        logger.info("\(self.modelDisplayName) loaded from local snapshot")
     }
 
     // MARK: - Custom Loader
@@ -82,17 +87,13 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
         configuration: MLXEmbedders.ModelConfiguration,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> MLXEmbedders.ModelContainer {
+        _ = hub
+        _ = onProgress
         // Download model files
         let modelDirectory: URL
         switch configuration.id {
-        case .id(let id):
-            let repo = Hub.Repo(id: id)
-            let modelFiles = ["*.safetensors", "config.json", "*/config.json"]
-            modelDirectory = try await hub.snapshot(
-                from: repo, matching: modelFiles
-            ) { progress in
-                onProgress?(progress.fractionCompleted)
-            }
+        case .id:
+            throw EmbeddingError.modelNotFound
         case .directory(let directory):
             modelDirectory = directory
         }

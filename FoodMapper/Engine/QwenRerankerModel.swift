@@ -90,6 +90,13 @@ actor QwenRerankerModel {
         logger.info("Qwen3-Reranker loaded (yes=\(self.yesTokenId), no=\(self.noTokenId))")
     }
 
+    func load(localDirectory: URL) async throws {
+        container = try await MLXLMCommon.loadModelContainer(
+            hub: HubApi(), configuration: .init(directory: localDirectory)
+        )
+        try await resolveTokenIds()
+    }
+
     /// Resolve "yes" and "no" token IDs from the tokenizer.
     /// Uses direct vocab lookup (convertTokenToId) instead of full encoding pipeline
     /// to match the Python reference implementation's convert_tokens_to_ids behavior.

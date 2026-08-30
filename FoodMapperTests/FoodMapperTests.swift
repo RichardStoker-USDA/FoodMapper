@@ -105,3 +105,86 @@ final class HaikuBatchSubmissionTests: XCTestCase {
         XCTAssertTrue(HaikuBatchSubmission.shouldSubmit(taskCount: 1))
     }
 }
+
+final class CustomDatabaseValidationTests: XCTestCase {
+    private func writeDatabase(_ content: String, extension fileExtension: String = "csv") throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("foodmapper-database-\(UUID().uuidString).\(fileExtension)")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func testRejectsDuplicateAndBlankIDs() throws {
+        let duplicate = try writeDatabase("id,description\n1,Milk\n1,Cheese\n")
+        defer { try? FileManager.default.removeItem(at: duplicate) }
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: duplicate, textColumn: "description", idColumn: "id")) { error in
+            XCTAssertEqual(error as? CustomDatabaseValidationError, .duplicateID(id: "1", firstRow: 2, duplicateRow: 3))
+        }
+
+        let blank = try writeDatabase("id,description\n ,Milk\n")
+        defer { try? FileManager.default.removeItem(at: blank) }
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: blank, textColumn: "description", idColumn: "id")) { error in
+            XCTAssertEqual(error as? CustomDatabaseValidationError, .blankID(row: 2, column: "id"))
+        }
+    }
+
+    func testValidatesTSVRowsAndGeneratesIDsWithoutAnIDColumn() throws {
+        let url = try writeDatabase("description\tnote\nMilk\tfresh\nCheese\taged\n", extension: "tsv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let validated = try CustomDatabaseValidator.load(url: url, textColumn: "description", idColumn: nil)
+        XCTAssertEqual(validated.entries.map(\.id), ["1", "2"])
+        XCTAssertEqual(validated.entries.map(\.text), ["Milk", "Cheese"])
+    }
+
+    func testRejectsMalformedAndBlankTextRows() throws {
+        let malformed = try writeDatabase("id,description\n1\n")
+        defer { try? FileManager.default.removeItem(at: malformed) }
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: malformed, textColumn: "description", idColumn: "id")) { error in
+            XCTAssertEqual(error as? CustomDatabaseValidationError, .malformedRow(row: 2, expected: 2, actual: 1))
+        }
+
+        let blank = try writeDatabase("id,description\n1,   \n")
+        defer { try? FileManager.default.removeItem(at: blank) }
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: blank, textColumn: "description", idColumn: "id")) { error in
+            XCTAssertEqual(error as? CustomDatabaseValidationError, .blankText(row: 2, column: "description"))
+        }
+
+        let duplicateHeaders = try writeDatabase("id,ID,description\n1,1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: duplicateHeaders) }
+        XCTAssertThrowsError(try CustomDatabaseValidator.load(url: duplicateHeaders, textColumn: "description", idColumn: "id")) { error in
+            XCTAssertEqual(error as? CustomDatabaseValidationError, .duplicateHeader("ID"))
+        }
+    }
+
+    func testRowOrderChangesCacheFingerprint() throws {
+        let first = try writeDatabase("id,description\n1,Milk\n2,Cheese\n")
+        let second = try writeDatabase("id,description\n2,Cheese\n1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: first); try? FileManager.default.removeItem(at: second) }
+        let left = try CustomDatabaseValidator.load(url: first, textColumn: "description", idColumn: "id")
+        let right = try CustomDatabaseValidator.load(url: second, textColumn: "description", idColumn: "id")
+        XCTAssertNotEqual(left.sourceHash, right.sourceHash)
+        XCTAssertNotEqual(left.rowOrderHash, right.rowOrderHash)
+    }
+}
+
+final class ModelSnapshotTests: XCTestCase {
+    func testPartialSnapshotIsNotInstalled() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-model-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("config.json"))
+        XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory))
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("tokenizer.json"))
+        try Data(repeating: 0, count: 2048).write(to: directory.appendingPathComponent("model.safetensors"))
+        XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory))
+        let artifacts = ["config.json", "tokenizer.json", "model.safetensors"].reduce(into: [String: String]()) { hashes, path in
+            hashes[path] = CustomDatabaseValidator.digest(try! Data(contentsOf: directory.appendingPathComponent(path)))
+        }
+        let manifest = LocalModelSnapshotManifest(version: 1, repository: "test/model", revision: "main", artifacts: artifacts)
+        try JSONEncoder().encode(manifest).write(to: directory.appendingPathComponent("foodmapper_snapshot_manifest.json"))
+        XCTAssertTrue(ModelDownloader.isCompleteSnapshot(at: directory, repository: "test/model"))
+        XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory, repository: "test/model", revision: "pinned-commit"))
+        try Data("not json".utf8).write(to: directory.appendingPathComponent("config.json"))
+        XCTAssertFalse(ModelDownloader.isCompleteSnapshot(at: directory))
+    }
+}

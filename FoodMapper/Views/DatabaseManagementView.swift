@@ -31,6 +31,7 @@ struct DatabaseManagementView: View {
                 }
                 .buttonStyle(HeaderIconButtonStyle())
                 .help("Add a custom database")
+                .disabled(!appState.canModifyDatabases)
             }
             .frame(height: HeaderLayout.height)
             .padding(.horizontal, Spacing.xxl)
@@ -103,7 +104,7 @@ struct DatabaseManagementView: View {
                                 Divider()
 
                                 // Re-embed option (only when not currently embedding)
-                                if !appState.databaseEmbeddingStatus.isEmbedding {
+                                if appState.canModifyDatabases {
                                     Button {
                                         reembedTarget = db
                                     } label: {
@@ -118,6 +119,7 @@ struct DatabaseManagementView: View {
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
+                                .disabled(!appState.canModifyDatabases)
                             }
                             .onTapGesture {
                                 showingDatabaseInfo = db
@@ -160,6 +162,7 @@ struct DatabaseManagementView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(!appState.canModifyDatabases)
                         .padding(.horizontal, Spacing.lg)
                     }
                 }

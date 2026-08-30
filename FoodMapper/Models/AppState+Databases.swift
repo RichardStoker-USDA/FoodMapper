@@ -162,40 +162,30 @@ extension AppState {
             logger.error("Failed to load custom databases: \(error)")
         }
 
-        // Migrate legacy databases: generate metadata if missing
+        // Migrate legacy databases into app support before any runtime access.
         var needsSave = false
         for i in customDatabases.indices {
-            if customDatabases[i].sampleValues == nil {
-                // Try stored copy first, then original path
-                let csvPath: String
-                if FileManager.default.fileExists(atPath: customDatabases[i].storedCsvURL.path) {
-                    csvPath = customDatabases[i].storedCsvURL.path
-                } else if FileManager.default.fileExists(atPath: customDatabases[i].csvPath) {
-                    csvPath = customDatabases[i].csvPath
-                    // Also copy the CSV to app support while we can
-                    let storedURL = customDatabases[i].storedCsvURL
-                    do {
-                        try FileManager.default.createDirectory(
-                            at: storedURL.deletingLastPathComponent(),
-                            withIntermediateDirectories: true
-                        )
-                        try FileManager.default.copyItem(
-                            at: URL(fileURLWithPath: customDatabases[i].csvPath),
-                            to: storedURL
-                        )
-                    } catch {
-                        logger.warning("Migration: failed to copy CSV for \(self.customDatabases[i].displayName): \(error)")
-                    }
-                } else {
+            let storedURL = customDatabases[i].storedCsvURL
+            if !FileManager.default.fileExists(atPath: storedURL.path) {
+                guard FileManager.default.fileExists(atPath: customDatabases[i].csvPath) else {
                     logger.warning("Migration: CSV not found for \(self.customDatabases[i].displayName) -- database may be stale")
                     continue
                 }
-
-                let metadata = generateDatabaseMetadata(from: csvPath, textColumn: customDatabases[i].textColumn)
+                do {
+                    try copyDatabaseSourceAtomically(customDatabases[i])
+                } catch {
+                    logger.warning("Migration: failed to copy CSV for \(self.customDatabases[i].displayName): \(error)")
+                    continue
+                }
+            }
+            if customDatabases[i].sampleValues == nil {
+                // Legacy records are copied once into app support. Runtime access never
+                // reads the original import location.
+                let metadata = generateDatabaseMetadata(from: storedURL.path, textColumn: customDatabases[i].textColumn)
                 customDatabases[i].sampleValues = metadata.sampleValues
                 customDatabases[i].columnNames = metadata.columnNames
-                needsSave = true
             }
+            needsSave = true
         }
 
         // Fix corrupted metadata from \r\n line ending bug
@@ -207,8 +197,6 @@ extension AppState {
             let csvPath: String
             if FileManager.default.fileExists(atPath: customDatabases[i].storedCsvURL.path) {
                 csvPath = customDatabases[i].storedCsvURL.path
-            } else if FileManager.default.fileExists(atPath: customDatabases[i].csvPath) {
-                csvPath = customDatabases[i].csvPath
             } else {
                 continue
             }
@@ -227,37 +215,104 @@ extension AppState {
 
     func saveCustomDatabases() {
         do {
-            let data = try JSONEncoder().encode(customDatabases)
-            try data.write(to: customDatabasesURL)
+            try persistCustomDatabases(customDatabases)
         } catch {
             logger.error("Failed to save custom databases: \(error)")
         }
     }
 
-    /// Add a custom database and pre-embed it
-    /// The database is only persisted after embedding completes successfully
-    /// The embedding happens asynchronously with progress reported via databaseEmbeddingStatus
-    func addCustomDatabase(_ database: CustomDatabase) {
-        // Don't add to list yet - only after embedding succeeds
-        embedDatabaseAsync(database)
+    private func persistCustomDatabases(_ databases: [CustomDatabase]) throws {
+        let data = try JSONEncoder().encode(databases)
+        try data.write(to: customDatabasesURL, options: [.atomic])
     }
 
-    /// Embed a custom database with progress reporting
-    /// Database is only added to the list after successful embedding
+    private func copyDatabaseSourceAtomically(_ database: CustomDatabase) throws {
+        let sourceURL = URL(fileURLWithPath: database.csvPath)
+        let destinationURL = database.storedCsvURL
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sourceURL.path) else { throw MatchingError.databaseNotFound }
+        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let stagedURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).stage")
+        defer { try? fileManager.removeItem(at: stagedURL) }
+        try fileManager.copyItem(at: sourceURL, to: stagedURL)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: stagedURL)
+        } else {
+            try fileManager.moveItem(at: stagedURL, to: destinationURL)
+        }
+    }
+
+    /// Register a custom database first. Pre-embedding is optional and only starts
+    /// after the selected embedding model has been explicitly downloaded.
+    func addCustomDatabase(_ database: CustomDatabase) {
+        guard canModifyDatabases else {
+            databaseEmbeddingStatus = .error("Wait for the current matching or database operation to finish.")
+            return
+        }
+        do {
+            let sourceURL = URL(fileURLWithPath: database.csvPath)
+            let validated = try CustomDatabaseValidator.load(
+                url: sourceURL, textColumn: database.textColumn, idColumn: database.idColumn
+            )
+            let sourceContent = try String(contentsOf: sourceURL, encoding: .utf8)
+            var finalDatabase = database
+            finalDatabase.fileFormat = DataFileFormat.detect(from: CSVParser.stripBOM(sourceContent))
+            finalDatabase.itemCount = validated.entries.count
+            finalDatabase.sampleValues = Array(validated.entries.prefix(10).map(\.text))
+            finalDatabase.columnNames = try CSVParser.parseRecords(
+                content: CSVParser.stripBOM(sourceContent),
+                delimiter: finalDatabase.fileFormat.delimiter
+            ).first?.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            try copyDatabaseSourceAtomically(finalDatabase)
+            do {
+                let updatedDatabases = customDatabases + [finalDatabase]
+                try persistCustomDatabases(updatedDatabases)
+                customDatabases = updatedDatabases
+            } catch {
+                try? FileManager.default.removeItem(at: finalDatabase.storedCsvURL)
+                throw error
+            }
+            selectedDatabase = .custom(finalDatabase)
+            databaseEmbeddingStatus = .registered(
+                databaseName: finalDatabase.displayName,
+                itemCount: finalDatabase.itemCount
+            )
+            if let embeddingKey = selectedPipelineType.embeddingModelKey,
+               modelManager.state(for: embeddingKey).isAvailable {
+                reembedCustomDatabase(finalDatabase)
+            }
+        } catch {
+            databaseEmbeddingStatus = .error(error.localizedDescription)
+        }
+    }
+
+    /// Request pre-embedding for an already registered database.
     func embedDatabaseAsync(_ database: CustomDatabase) {
+        reembedCustomDatabase(database)
+    }
+
+    private func startEmbedding(_ database: CustomDatabase, embeddingKey: String, registersOnSuccess: Bool = false) {
+        let operationID = UUID()
+        guard beginEngineOperation(.databaseEmbedding(operationID, database.id)) else {
+            databaseEmbeddingStatus = .error("Wait for the current matching or database operation to finish.")
+            return
+        }
+        databaseEmbeddingStatus = .preparing(databaseName: database.displayName)
         embeddingTask = Task { [self] in
             do {
                 let engine = try await getOrCreateEngine()
                 let startTime = Date()
-
-                await MainActor.run {
-                    self.databaseEmbeddingStatus = .embedding(
-                        completed: 0,
-                        total: database.itemCount,
-                        databaseName: database.displayName,
-                        startTime: startTime
-                    )
-                }
+                let model = try await self.modelManager.loadEmbeddingModel(key: embeddingKey)
+                guard self.isCurrentEngineOperation(operationID) else { return }
+                self.databaseEmbeddingStatus = .embedding(
+                    completed: 0,
+                    total: database.itemCount,
+                    databaseName: database.displayName,
+                    startTime: startTime
+                )
+                await engine.invalidateLoadedDatabase()
+                await engine.setEmbeddingModel(model)
 
                 try await engine.embedCustomDatabase(
                     database,
@@ -265,6 +320,7 @@ extension AppState {
                     chunkSize: self.effectiveChunkSize
                 ) { [weak self] completed, total in
                     Task { @MainActor in
+                        guard self?.isCurrentEngineOperation(operationID) == true else { return }
                         self?.databaseEmbeddingStatus = .embedding(
                             completed: completed,
                             total: total,
@@ -279,36 +335,18 @@ extension AppState {
                 // Calculate cache file size
                 let cacheSize = self.getCacheFileSize(for: database)
 
-                // Copy source CSV into app support for self-contained storage
-                let sourceURL = URL(fileURLWithPath: database.csvPath)
-                let storedURL = database.storedCsvURL
-                do {
-                    // Ensure directory exists
-                    try FileManager.default.createDirectory(
-                        at: storedURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    // Remove existing copy if present (re-embedding)
-                    if FileManager.default.fileExists(atPath: storedURL.path) {
-                        try FileManager.default.removeItem(at: storedURL)
-                    }
-                    try FileManager.default.copyItem(at: sourceURL, to: storedURL)
-                } catch {
-                    logger.warning("Failed to copy CSV to app support: \(error). Original path will be used.")
-                }
-
-                // Generate preview metadata from the CSV
-                let metadata = self.generateDatabaseMetadata(from: storedURL.path, textColumn: database.textColumn)
-
                 await MainActor.run {
-                    // NOW add the database - embedding succeeded
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     var finalDatabase = database
                     finalDatabase.embeddingDuration = duration
                     finalDatabase.cacheSize = cacheSize
-                    finalDatabase.sampleValues = metadata.sampleValues
-                    finalDatabase.columnNames = metadata.columnNames
-                    self.customDatabases.append(finalDatabase)
-                    self.saveCustomDatabases()
+                    if let index = self.customDatabases.firstIndex(where: { $0.id == database.id }) {
+                        self.customDatabases[index] = finalDatabase
+                        self.saveCustomDatabases()
+                    } else if registersOnSuccess {
+                        self.customDatabases.append(finalDatabase)
+                        self.saveCustomDatabases()
+                    }
 
                     self.databaseEmbeddingStatus = .completed(
                         databaseName: database.displayName,
@@ -318,19 +356,22 @@ extension AppState {
                     self.embeddingCacheVersion += 1
                     // Auto-select the newly added database
                     self.selectedDatabase = .custom(finalDatabase)
-                    // Completion screen stays visible until user clicks "Done"
+                    self.embeddingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             } catch is CancellationError {
                 await MainActor.run {
-                    // Cancelled - don't add database, clean up any partial cache file
-                    self.cleanupPartialEmbeddings(for: database)
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.databaseEmbeddingStatus = .idle
+                    self.embeddingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             } catch {
                 await MainActor.run {
-                    // Error - don't add database, clean up any partial cache file
-                    self.cleanupPartialEmbeddings(for: database)
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.databaseEmbeddingStatus = .error(error.localizedDescription)
+                    self.embeddingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             }
         }
@@ -417,73 +458,21 @@ extension AppState {
             await matchingEngine?.cancel()
         }
         embeddingTask?.cancel()
-        databaseEmbeddingStatus = .idle
     }
 
     /// Re-embed an existing custom database with the current pipeline's embedding model.
     /// Does not remove existing embeddings from other models -- adds alongside them.
     func reembedCustomDatabase(_ database: CustomDatabase) {
-        guard let embeddingKey = selectedPipelineType.embeddingModelKey else { return }
-        guard !databaseEmbeddingStatus.isEmbedding else { return }
-
-        embeddingTask = Task { [self] in
-            do {
-                let engine = try await getOrCreateEngine()
-                let startTime = Date()
-
-                // Load the embedding model for the selected pipeline
-                let model = try await self.modelManager.loadEmbeddingModel(key: embeddingKey)
-                await engine.setEmbeddingModel(model)
-
-                await MainActor.run {
-                    self.databaseEmbeddingStatus = .embedding(
-                        completed: 0,
-                        total: database.itemCount,
-                        databaseName: database.displayName,
-                        startTime: startTime
-                    )
-                }
-
-                try await engine.embedCustomDatabase(
-                    database,
-                    batchSize: self.effectiveEmbeddingBatchSize,
-                    chunkSize: self.effectiveChunkSize
-                ) { [weak self] completed, total in
-                    Task { @MainActor in
-                        self?.databaseEmbeddingStatus = .embedding(
-                            completed: completed,
-                            total: total,
-                            databaseName: database.displayName,
-                            startTime: startTime
-                        )
-                    }
-                }
-
-                let duration = Date().timeIntervalSince(startTime)
-
-                await MainActor.run {
-                    // Update the database metadata
-                    if let idx = self.customDatabases.firstIndex(where: { $0.id == database.id }) {
-                        self.customDatabases[idx].cacheSize = self.getCacheFileSize(for: database)
-                        self.saveCustomDatabases()
-                    }
-                    self.databaseEmbeddingStatus = .completed(
-                        databaseName: database.displayName,
-                        itemCount: database.itemCount,
-                        duration: duration
-                    )
-                    self.embeddingCacheVersion += 1
-                }
-            } catch is CancellationError {
-                await MainActor.run {
-                    self.databaseEmbeddingStatus = .idle
-                }
-            } catch {
-                await MainActor.run {
-                    self.databaseEmbeddingStatus = .error(error.localizedDescription)
-                }
-            }
+        guard let embeddingKey = selectedPipelineType.embeddingModelKey else {
+            databaseEmbeddingStatus = .error("The selected pipeline does not use an embedding model.")
+            return
         }
+        guard modelManager.state(for: embeddingKey).isAvailable else {
+            pendingDownloadModels = modelManager.registeredModel(for: embeddingKey).map { [$0] } ?? []
+            showModelDownloadSheet = true
+            return
+        }
+        startEmbedding(database, embeddingKey: embeddingKey)
     }
 
     /// Get total cache file size for a database (all model versions)
@@ -492,21 +481,67 @@ extension AppState {
         return total > 0 ? total : nil
     }
 
+    private func removeDatabaseStorageTransactionally(_ database: CustomDatabase) throws {
+        let fileManager = FileManager.default
+        let directory = database.cacheDirectory
+        let stagingDirectory = directory.appendingPathComponent(".delete-\(database.id)-\(UUID().uuidString)")
+        let files = database.allCacheFiles + database.allCacheMetadataFiles + [database.legacyCacheURL, database.storedCsvURL]
+        let existingFiles = Array(Set(files)).filter { fileManager.fileExists(atPath: $0.path) }
+        try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        var moved: [(from: URL, to: URL)] = []
+        do {
+            for source in existingFiles {
+                let staged = stagingDirectory.appendingPathComponent(source.lastPathComponent)
+                try fileManager.moveItem(at: source, to: staged)
+                moved.append((source, staged))
+            }
+        } catch {
+            for item in moved.reversed() where fileManager.fileExists(atPath: item.to.path) {
+                try fileManager.moveItem(at: item.to, to: item.from)
+            }
+            try fileManager.removeItem(at: stagingDirectory)
+            throw error
+        }
+        do {
+            let updatedDatabases = customDatabases.filter { $0.id != database.id }
+            try persistCustomDatabases(updatedDatabases)
+            customDatabases = updatedDatabases
+            do {
+                try fileManager.removeItem(at: stagingDirectory)
+            } catch {
+                logger.error("Database removal completed but cleanup is pending at \(stagingDirectory.path): \(error)")
+            }
+        } catch {
+            for item in moved.reversed() where fileManager.fileExists(atPath: item.to.path) {
+                try fileManager.moveItem(at: item.to, to: item.from)
+            }
+            try fileManager.removeItem(at: stagingDirectory)
+            throw error
+        }
+    }
+
     func deleteCustomDatabase(_ database: CustomDatabase) {
-        // Delete all cached embedding files (all model versions + legacy)
-        for file in database.allCacheFiles {
-            try? FileManager.default.removeItem(at: file)
+        if case let .databaseEmbedding(_, activeID)? = activeEngineOperation, activeID == database.id {
+            let task = embeddingTask
+            cancelEmbedding()
+            Task { @MainActor [weak self] in
+                await task?.value
+                self?.deleteCustomDatabase(database)
+            }
+            return
         }
-        try? FileManager.default.removeItem(at: database.legacyCacheURL)
-
-        // Delete self-contained CSV copy
-        try? FileManager.default.removeItem(at: database.storedCsvURL)
-
-        customDatabases.removeAll { $0.id == database.id }
-        saveCustomDatabases()
-
-        if case .custom(let selected) = selectedDatabase, selected.id == database.id {
-            selectedDatabase = nil
+        guard canModifyDatabases else {
+            databaseEmbeddingStatus = .error("Wait for matching to finish before removing a database.")
+            return
         }
+        let operationID = UUID()
+        guard beginEngineOperation(.databaseRemoval(operationID, database.id)) else { return }
+        do {
+            try removeDatabaseStorageTransactionally(database)
+            if case .custom(let selected) = selectedDatabase, selected.id == database.id { selectedDatabase = nil }
+        } catch {
+            databaseEmbeddingStatus = .error(error.localizedDescription)
+        }
+        finishEngineOperation(operationID)
     }
 }

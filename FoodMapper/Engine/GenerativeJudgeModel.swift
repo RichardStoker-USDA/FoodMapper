@@ -146,6 +146,13 @@ actor GenerativeJudgeModel {
         logger.info("Generative judge loaded (\(self.labelTokenIds.count) label tokens resolved)")
     }
 
+    func load(localDirectory: URL) async throws {
+        container = try await MLXLMCommon.loadModelContainer(
+            hub: HubApi(), configuration: .init(directory: localDirectory)
+        )
+        try await resolveTokenIds()
+    }
+
     func unload() {
         container = nil
         labelTokenIds.removeAll()

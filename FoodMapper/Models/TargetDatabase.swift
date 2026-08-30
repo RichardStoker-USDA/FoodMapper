@@ -165,13 +165,8 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     }
 
     var csvURL: URL? {
-        // Prefer self-contained copy in app support
         let stored = storedCsvURL
-        if FileManager.default.fileExists(atPath: stored.path) {
-            return stored
-        }
-        // Fall back to original path (legacy databases before self-contained storage)
-        return URL(fileURLWithPath: csvPath)
+        return FileManager.default.fileExists(atPath: stored.path) ? stored : nil
     }
 
     var embeddingsURL: URL? {
@@ -190,6 +185,10 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
         cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).bin")
     }
 
+    func cacheMetadataURL(for modelKey: String) -> URL {
+        cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).json")
+    }
+
     /// Legacy unversioned cache URL (for migration/cleanup)
     var legacyCacheURL: URL {
         cacheDirectory.appendingPathComponent("\(id)_embeddings.bin")
@@ -203,6 +202,15 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
         }
         let prefix = "\(id)_embeddings"
         return files.filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "bin" }
+    }
+
+    var allCacheMetadataFiles: [URL] {
+        let dir = cacheDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        let prefix = "\(id)_embeddings"
+        return files.filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "json" }
     }
 
     /// Whether any embeddings exist (any model version)
@@ -245,6 +253,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     /// Delete embedding cache for a specific model
     func deleteEmbeddings(for modelKey: String) {
         try? FileManager.default.removeItem(at: cacheURL(for: modelKey))
+        try? FileManager.default.removeItem(at: cacheMetadataURL(for: modelKey))
     }
 
     enum CodingKeys: String, CodingKey {
