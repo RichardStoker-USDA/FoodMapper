@@ -610,6 +610,10 @@ private struct LogicalRecordReader {
                 let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
                 guard let next = try handle.read(upToCount: 65_536), !next.isEmpty else {
                     guard !record.isEmpty else { return nil }
+                    if afterQuote {
+                        quoted = false
+                        afterQuote = false
+                    }
                     guard !quoted else { throw CSVParseError.unterminatedQuotedField }
                     defer { record.removeAll(keepingCapacity: true) }
                     return record
