@@ -2,18 +2,46 @@ import SwiftUI
 import MLX
 import os
 import Darwin
+import CryptoKit
 
 private struct DatabaseDeletionJournal: Codable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     let version: Int
     let databaseID: String
     let files: [String]
+    /// The registry bytes that existed before files were staged. Keeping the
+    /// exact payload lets recovery distinguish an interrupted deletion from a
+    /// later, unrelated registry write.
+    let priorRegistry: Data
+    let replacementRegistryDigest: String
 
-    init(databaseID: String, files: [String]) {
+    init(databaseID: String, files: [String], priorRegistry: Data, replacementRegistry: Data) {
         self.version = Self.currentVersion
         self.databaseID = databaseID
         self.files = files
+        self.priorRegistry = priorRegistry
+        self.replacementRegistryDigest = Self.digest(replacementRegistry)
+    }
+
+    static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private struct RegistryPersistenceJournal: Codable {
+    static let currentVersion = 1
+
+    let version: Int
+    let stageName: String
+    let priorRegistry: Data?
+    let replacementRegistryDigest: String
+
+    init(stageName: String, priorRegistry: Data?, replacementRegistry: Data) {
+        self.version = Self.currentVersion
+        self.stageName = stageName
+        self.priorRegistry = priorRegistry
+        self.replacementRegistryDigest = DatabaseDeletionJournal.digest(replacementRegistry)
     }
 }
 
@@ -258,8 +286,13 @@ extension AppState {
         try SecureFileAccess.validateStorageDirectory(directory)
         let stage = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).\(UUID().uuidString).stage")
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
-        try stage.lastPathComponent.data(using: .utf8)?.write(to: journal, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: journal.path)
+        let priorRegistry = try registryData(at: customDatabasesURL, in: directory)
+        let journalData = try JSONEncoder().encode(RegistryPersistenceJournal(
+            stageName: stage.lastPathComponent,
+            priorRegistry: priorRegistry,
+            replacementRegistry: data
+        ))
+        try writePrivateData(journalData, named: journal.lastPathComponent, in: directory)
         try SecureFileAccess.synchronize(journal)
         try SecureFileAccess.synchronize(directory, directory: true)
         let stageDescriptor = try SecureFileAccess.createPrivateFile(stage.lastPathComponent, in: directory)
@@ -269,7 +302,7 @@ extension AppState {
             try handle.synchronize()
             try handle.close()
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.path)
-            try SecureFileAccess.rename(
+            try SecureFileAccess.renameRegularFile(
                 stage.lastPathComponent, from: directory,
                 to: customDatabasesURL.lastPathComponent, in: directory
             )
@@ -285,25 +318,59 @@ extension AppState {
     private func recoverInterruptedDatabasePersistence() {
         let directory = customDatabasesURL.deletingLastPathComponent()
         let journal = directory.appendingPathComponent(".\(customDatabasesURL.lastPathComponent).journal")
-        guard FileManager.default.fileExists(atPath: journal.path) else { return }
-        guard let descriptor = try? SecureFileAccess.openRegularFile(journal, under: directory, maximumSize: 1_024),
-              let data = try? SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 1_024),
-              let name = String(data: data, encoding: .utf8),
-              name.hasPrefix(".\(customDatabasesURL.lastPathComponent)."),
-              name.hasSuffix(".stage"),
-              !name.contains("/"), !name.contains("..") else {
+        guard let data = try? registryData(at: journal, in: directory) else { return }
+        guard let record = try? JSONDecoder().decode(RegistryPersistenceJournal.self, from: data),
+              record.version == RegistryPersistenceJournal.currentVersion,
+              record.stageName.hasPrefix(".\(customDatabasesURL.lastPathComponent)."),
+              record.stageName.hasSuffix(".stage"),
+              SecureFileAccess.safeLeaf(record.stageName) else {
             quarantineRegistryJournal(journal, in: directory)
             return
         }
-        close(descriptor)
         do {
-            let stage = directory.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: stage.path) {
+            let currentRegistry = try registryData(at: customDatabasesURL, in: directory)
+            let currentDigest = currentRegistry.map(DatabaseDeletionJournal.digest)
+            let priorDigest = record.priorRegistry.map(DatabaseDeletionJournal.digest)
+            guard currentDigest == record.replacementRegistryDigest || currentDigest == priorDigest else {
+                quarantineRegistryJournal(journal, in: directory)
+                return
+            }
+            let stage = directory.appendingPathComponent(record.stageName)
+            if let stageDescriptor = try? SecureFileAccess.openRegularFile(
+                stage, under: directory, maximumSize: 8 * 1_024 * 1_024
+            ) {
+                close(stageDescriptor)
                 try SecureFileAccess.remove(stage.lastPathComponent, from: directory)
             }
             try SecureFileAccess.remove(journal.lastPathComponent, from: directory)
         } catch {
             quarantineRegistryJournal(journal, in: directory)
+        }
+    }
+
+    private func registryData(at url: URL, in directory: URL) throws -> Data? {
+        do {
+            let descriptor = try SecureFileAccess.openRegularFile(
+                url, under: directory, maximumSize: 8 * 1_024 * 1_024
+            )
+            defer { close(descriptor) }
+            return try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: 8 * 1_024 * 1_024)
+        } catch MatchingError.databaseNotFound {
+            return nil
+        }
+    }
+
+    private func writePrivateData(_ data: Data, named leaf: String, in directory: URL) throws {
+        let descriptor = try SecureFileAccess.createPrivateFile(leaf, in: directory)
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            try? SecureFileAccess.remove(leaf, from: directory)
+            throw error
         }
     }
 
@@ -387,7 +454,7 @@ extension AppState {
         try SecureFileAccess.validateStorageDirectory(destinationURL.deletingLastPathComponent())
         let stagedDescriptor = try SecureFileAccess.openRegularFile(stagedURL, under: destinationURL.deletingLastPathComponent(), maximumSize: Int64(CustomDatabaseValidator.maximumImportBytes))
         defer { close(stagedDescriptor) }
-        try SecureFileAccess.rename(
+        try SecureFileAccess.renameRegularFile(
             stagedURL.lastPathComponent, from: destinationURL.deletingLastPathComponent(),
             to: destinationURL.lastPathComponent, in: destinationURL.deletingLastPathComponent()
         )
@@ -649,17 +716,31 @@ extension AppState {
         let existingFiles = Array(Set(files)).filter { fileManager.fileExists(atPath: $0.path) }
         try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingDirectory.path)
-        let journal = DatabaseDeletionJournal(databaseID: database.id, files: existingFiles.map(\.lastPathComponent))
+        try SecureFileAccess.validateStorageDirectory(directory)
+        try SecureFileAccess.validateStorageDirectory(stagingDirectory)
+        let priorRegistry = try registryData(
+            at: customDatabasesURL, in: customDatabasesURL.deletingLastPathComponent()
+        ) ?? JSONEncoder().encode(customDatabases)
+        let updatedDatabases = customDatabases.filter { $0.id != database.id }
+        let replacementRegistry = try JSONEncoder().encode(updatedDatabases)
+        let journal = DatabaseDeletionJournal(
+            databaseID: database.id,
+            files: existingFiles.map(\.lastPathComponent),
+            priorRegistry: priorRegistry,
+            replacementRegistry: replacementRegistry
+        )
         let journalURL = stagingDirectory.appendingPathComponent("journal.json")
-        try JSONEncoder().encode(journal).write(to: journalURL, options: [.atomic])
-        try fileManager.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: journalURL.path)
+        try writePrivateData(try JSONEncoder().encode(journal), named: journalURL.lastPathComponent, in: stagingDirectory)
         try SecureFileAccess.synchronize(journalURL)
         try SecureFileAccess.synchronize(stagingDirectory, directory: true)
         var moved: [(from: URL, to: URL)] = []
         do {
             for source in existingFiles {
                 let staged = stagingDirectory.appendingPathComponent(source.lastPathComponent)
-                try fileManager.moveItem(at: source, to: staged)
+                try SecureFileAccess.renameRegularFile(
+                    source.lastPathComponent, from: directory,
+                    to: staged.lastPathComponent, in: stagingDirectory
+                )
                 moved.append((source, staged))
                 try SecureFileAccess.synchronize(directory, directory: true)
                 try SecureFileAccess.synchronize(stagingDirectory, directory: true)
@@ -673,7 +754,6 @@ extension AppState {
             throw error
         }
         do {
-            let updatedDatabases = customDatabases.filter { $0.id != database.id }
             try persistCustomDatabases(updatedDatabases)
             customDatabases = updatedDatabases
             do {
@@ -713,28 +793,33 @@ extension AppState {
                 continue
             }
             do {
-                if registeredIDs.contains(journal.databaseID) {
-                    var conflict = false
-                    for name in journal.files {
+                let currentRegistry = try registryData(
+                    at: customDatabasesURL, in: customDatabasesURL.deletingLastPathComponent()
+                )
+                let currentDigest = currentRegistry.map(DatabaseDeletionJournal.digest)
+                let priorDigest = DatabaseDeletionJournal.digest(journal.priorRegistry)
+                if currentDigest == journal.replacementRegistryDigest, !registeredIDs.contains(journal.databaseID) {
+                    // Registry replacement reached disk. Files remain staged until
+                    // this cleanup point, so a committed deletion never removes a
+                    // current CSV from the live custom-database directory.
+                } else if currentDigest == priorDigest, registeredIDs.contains(journal.databaseID) {
+                    let canRestore = journal.files.allSatisfy { name in
                         let staged = stage.appendingPathComponent(name)
                         let destination = directory.appendingPathComponent(name)
-                        guard FileManager.default.fileExists(atPath: staged.path) else {
-                            // Do not delete a journal whose promised rollback member
-                            // vanished. It remains recoverable evidence for repair.
-                            conflict = true
-                            continue
-                        }
-                        if FileManager.default.fileExists(atPath: destination.path) {
-                            conflict = true
-                            continue
-                        }
-                        try FileManager.default.moveItem(at: staged, to: destination)
-                        try SecureFileAccess.synchronize(directory, directory: true)
+                        guard let descriptor = try? SecureFileAccess.openRegularFile(staged, under: stage) else { return false }
+                        close(descriptor)
+                        return !FileManager.default.fileExists(atPath: destination.path)
                     }
-                    if conflict {
+                    guard canRestore else {
                         quarantineDeletionStage(stage, in: directory)
                         continue
                     }
+                    for name in journal.files {
+                        try SecureFileAccess.renameRegularFile(name, from: stage, to: name, in: directory)
+                    }
+                } else {
+                    quarantineDeletionStage(stage, in: directory)
+                    continue
                 }
                 try FileManager.default.removeItem(at: stage)
                 try SecureFileAccess.synchronize(directory, directory: true)

@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 @testable import FoodMapper
 
 final class CSVParserTests: XCTestCase {
@@ -465,7 +466,7 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
     private var isolatedApplicationSupport: URL!
 
     override func setUpWithError() throws {
-        isolatedApplicationSupport = FileManager.default.temporaryDirectory
+        isolatedApplicationSupport = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("foodmapper-operation-support-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: isolatedApplicationSupport, withIntermediateDirectories: true)
         FoodMapperStorage.applicationSupportOverride = isolatedApplicationSupport
@@ -517,5 +518,95 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
         }
         XCTAssertNil(state.activeEngineOperation)
         XCTAssertNil(state.embeddingTask)
+    }
+
+    func testInterruptedDeletionRestoresAllFilesBeforeRegistryReplacement() throws {
+        let database = CustomDatabase(
+            id: "recovery_database", displayName: "Recovery", csvPath: "",
+            textColumn: "description", itemCount: 1
+        )
+        let registry = try JSONEncoder().encode([database])
+        let root = isolatedApplicationSupport.appendingPathComponent("FoodMapper", isDirectory: true)
+        let cache = root.appendingPathComponent("CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cache.path)
+        try registry.write(to: root.appendingPathComponent("custom_databases.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: root.appendingPathComponent("custom_databases.json").path)
+
+        let stage = cache.appendingPathComponent(".delete-recovery", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stage.path)
+        let files = ["recovery_database_data.csv", "recovery_database_embeddings_model.bin"]
+        try "id,description\n1,Milk\n".data(using: .utf8)!.write(to: stage.appendingPathComponent(files[0]))
+        try Data([1, 2, 3]).write(to: stage.appendingPathComponent(files[1]))
+        for name in files {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.appendingPathComponent(name).path)
+        }
+        try deletionJournalData(
+            databaseID: database.id, files: files, priorRegistry: registry,
+            replacementRegistry: try JSONEncoder().encode([CustomDatabase]())
+        ).write(to: stage.appendingPathComponent("journal.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.appendingPathComponent("journal.json").path)
+
+        let state = AppState()
+        state.loadCustomDatabases()
+
+        XCTAssertEqual(try Data(contentsOf: cache.appendingPathComponent(files[0])), "id,description\n1,Milk\n".data(using: .utf8))
+        XCTAssertEqual(try Data(contentsOf: cache.appendingPathComponent(files[1])), Data([1, 2, 3]))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stage.path))
+    }
+
+    func testInterruptedDeletionConflictDoesNotPartiallyRestoreFiles() throws {
+        let database = CustomDatabase(
+            id: "conflict_database", displayName: "Conflict", csvPath: "",
+            textColumn: "description", itemCount: 1
+        )
+        let registry = try JSONEncoder().encode([database])
+        let root = isolatedApplicationSupport.appendingPathComponent("FoodMapper", isDirectory: true)
+        let cache = root.appendingPathComponent("CustomDBs", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cache.path)
+        try registry.write(to: root.appendingPathComponent("custom_databases.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: root.appendingPathComponent("custom_databases.json").path)
+
+        let stage = cache.appendingPathComponent(".delete-conflict", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stage.path)
+        let files = ["conflict_database_data.csv", "conflict_database_embeddings_model.bin"]
+        try Data([1]).write(to: stage.appendingPathComponent(files[0]))
+        try Data([2]).write(to: stage.appendingPathComponent(files[1]))
+        try Data([9]).write(to: cache.appendingPathComponent(files[1]))
+        for name in files {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.appendingPathComponent(name).path)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cache.appendingPathComponent(files[1]).path)
+        try deletionJournalData(
+            databaseID: database.id, files: files, priorRegistry: registry,
+            replacementRegistry: try JSONEncoder().encode([CustomDatabase]())
+        ).write(to: stage.appendingPathComponent("journal.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.appendingPathComponent("journal.json").path)
+
+        let state = AppState()
+        state.loadCustomDatabases()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.appendingPathComponent(files[0]).path))
+        XCTAssertEqual(try Data(contentsOf: cache.appendingPathComponent(files[1])), Data([9]))
+        let names = try FileManager.default.contentsOfDirectory(atPath: cache.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix(".delete-quarantine-") })
+    }
+
+    private func deletionJournalData(
+        databaseID: String, files: [String], priorRegistry: Data, replacementRegistry: Data
+    ) throws -> Data {
+        let digest = SHA256.hash(data: replacementRegistry).map { String(format: "%02x", $0) }.joined()
+        return try JSONSerialization.data(withJSONObject: [
+            "version": 3,
+            "databaseID": databaseID,
+            "files": files,
+            "priorRegistry": priorRegistry.base64EncodedString(),
+            "replacementRegistryDigest": digest
+        ])
     }
 }

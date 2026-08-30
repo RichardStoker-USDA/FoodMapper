@@ -139,6 +139,48 @@ enum SecureFileAccess {
         }
     }
 
+    /// Moves a regular file and verifies that the destination is the same file
+    /// that was opened before renameat. The source descriptor stays open until
+    /// the destination identity has been checked, which catches an ABA swap of
+    /// the source directory entry during a storage transaction.
+    static func renameRegularFile(
+        _ source: String, from sourceDirectory: URL,
+        to destination: String, in destinationDirectory: URL
+    ) throws {
+        guard safeLeaf(source), safeLeaf(destination) else { throw MatchingError.databaseNotFound }
+        let sourceDirectoryDescriptor = try openDirectory(components: pathComponents(for: sourceDirectory))
+        defer { close(sourceDirectoryDescriptor) }
+        let destinationDirectoryDescriptor = try openDirectory(components: pathComponents(for: destinationDirectory))
+        defer { close(destinationDirectoryDescriptor) }
+        let sourceDescriptor = openat(sourceDirectoryDescriptor, source, O_RDONLY | O_NOFOLLOW)
+        guard sourceDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(sourceDescriptor) }
+        var sourceInfo = stat()
+        guard fstat(sourceDescriptor, &sourceInfo) == 0,
+              (sourceInfo.st_mode & S_IFMT) == S_IFREG,
+              sourceInfo.st_nlink == 1,
+              sourceInfo.st_uid == getuid(),
+              (sourceInfo.st_mode & S_IWOTH) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        guard renameat(sourceDirectoryDescriptor, source, destinationDirectoryDescriptor, destination) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        let destinationDescriptor = openat(destinationDirectoryDescriptor, destination, O_RDONLY | O_NOFOLLOW)
+        guard destinationDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(destinationDescriptor) }
+        var destinationInfo = stat()
+        guard fstat(destinationDescriptor, &destinationInfo) == 0,
+              destinationInfo.st_dev == sourceInfo.st_dev,
+              destinationInfo.st_ino == sourceInfo.st_ino else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(sourceDirectory, directory: true)
+        if sourceDirectory.path != destinationDirectory.path {
+            try synchronize(destinationDirectory, directory: true)
+        }
+    }
+
     static func createPrivateFile(_ leaf: String, in directory: URL) throws -> Int32 {
         guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
         try validateStorageDirectory(directory)
