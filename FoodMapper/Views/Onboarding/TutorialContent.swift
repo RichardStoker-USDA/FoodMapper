@@ -74,7 +74,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 6,
             title: "Start Matching",
-            body: "Click the Match button in the toolbar and FoodMapper will match your food descriptions against DFG2 using semantic similarity. Everything runs on your GPU, no data leaves your Mac.",
+            body: "Click the Match button in the toolbar and FoodMapper will match your food descriptions against DFG2 using local semantic similarity. This tutorial uses the default local path. The optional Anthropic path sends the text and candidate entries needed for that run only after you configure and select it.",
             icon: "play.circle",
             highlightAnchors: [],
             coachMarkPosition: .below,
@@ -87,7 +87,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 7,
             title: "Your Results",
-            body: "Each row shows your input, its best database match, a similarity score, and the match status. FoodMapper auto-matches high-confidence results, but you should always verify matches for accuracy.",
+            body: "Each row shows your input, a selected target when one is available, a score when one is available, and the match status. A row can retain candidate database entries even when no target is selected. Review the result before use.",
             icon: "tablecells",
             highlightAnchors: ["resultsTable"],
             coachMarkPosition: .centerBottom
@@ -123,7 +123,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 10,
             title: "Pick an Alternative",
-            body: "The candidate list shows other possible matches ranked by score. Click any candidate to select it. During Guided Review, press 1\u{2013}5 to quickly pick a candidate by rank. If you don't see the right option, scroll down to Manual Override to search the full database.",
+            body: "The candidate list shows retrieved candidate database entries ranked by score. Click any candidate to select it. During Guided Review, press 1\u{2013}5 to select a candidate by rank. Manual Override searches candidate entries retained across the current session, not the full target database.",
             icon: "arrow.triangle.swap",
             highlightAnchors: ["inspectorCandidates"],
             coachMarkPosition: .left,
@@ -180,7 +180,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 15,
             title: "Export Your Results",
-            body: "Click Export in the toolbar to save your results as a CSV or TSV file. The export includes all your decisions, scores, and matched entries.",
+            body: "Click Export in the toolbar to save your results as a CSV or TSV file. The current session export includes stored decisions, available scores, and target metadata. Original input columns are included when the input is available.",
             icon: "square.and.arrow.up",
             highlightAnchors: [],
             coachMarkPosition: .below,
@@ -204,7 +204,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 17,
             title: "Your Session History",
-            body: "Your recent sessions appear here. Click \"View All\" for your full history. Sessions persist even after closing the app, so you can always pick up where you left off.",
+            body: "Your recent sessions appear here. Click \"View All\" for your full history. Sessions persist after closing the app. A History export can restore original input columns only when its stored input file is still available and readable.",
             icon: "clock.arrow.circlepath",
             highlightAnchors: ["recentSessionsArea", "viewAllSessions"],
             coachMarkPosition: .above

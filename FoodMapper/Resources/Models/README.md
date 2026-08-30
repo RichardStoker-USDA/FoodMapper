@@ -17,7 +17,7 @@ pipeline_tag: sentence-similarity
 
 # FoodMapper GTE-Large (MLX Format)
 
-This is [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) at revision [`4bef63f39fcc5e2d6b0aae83089f307af4970164`](https://huggingface.co/thenlper/gte-large/tree/4bef63f39fcc5e2d6b0aae83089f307af4970164), converted to MLX-Swift float16 BERT safetensors for use with the FoodMapper macOS application.
+This is an MLX-Swift float16 BERT SafeTensors conversion of [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) at revision [`4bef63f39fcc5e2d6b0aae83089f307af4970164`](https://huggingface.co/thenlper/gte-large/tree/4bef63f39fcc5e2d6b0aae83089f307af4970164). FoodMapper uses this artifact for its default local embedding path.
 
 ## Model Description
 
@@ -53,7 +53,7 @@ The converted weights run on Apple Silicon through [MLX-Swift](https://github.co
 
 ## Usage with FoodMapper
 
-FoodMapper prompts you to download this model before matching. It downloads only after you approve the prompt, and checks the downloaded files against the pinned manifest before making the model available. Built-in database rows ship with the app; their GTE-Large embeddings are computed and cached on first use.
+FoodMapper prompts you to download this model before default matching. The download starts only after approval. FoodMapper checks the files against the bundled manifest before making the model available. Built-in database rows ship with the app; their GTE-Large embeddings are computed and cached on first use.
 
 ## Usage with MLX-Swift
 
@@ -83,7 +83,7 @@ func meanPooling(_ hiddenState: MLXArray, attentionMask: MLXArray) -> MLXArray {
 
 ## Original Model
 
-Based on [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) by Alibaba DAMO Academy, revision `4bef63f39fcc5e2d6b0aae83089f307af4970164`.
+Based on [thenlper/gte-large](https://huggingface.co/thenlper/gte-large), revision `4bef63f39fcc5e2d6b0aae83089f307af4970164`.
 
 ## License
 

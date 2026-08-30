@@ -128,7 +128,7 @@ struct PipelineConfigurationView: View {
                         .padding(.horizontal, Spacing.sm)
                         .padding(.vertical, Spacing.xxxs)
                         .background(Color.badgeBackground(for: colorScheme))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.primary)
                         .clipShape(Capsule())
                 }
             }

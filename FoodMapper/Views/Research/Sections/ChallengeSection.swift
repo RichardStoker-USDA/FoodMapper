@@ -1,16 +1,12 @@
 import SwiftUI
 
 /// Section 2: The Challenge -- why automated food matching matters.
-/// Shows dataset scale with animated counting, example matches, and benchmark details.
+/// Shows dataset scale, example matches, and benchmark details.
 struct ChallengeSection: View {
     var onScrollToNext: (() -> Void)? = nil
 
     @State private var paperStats: TourPaperStats?
     @State private var loadError: String?
-    @State private var inputCount: Double = 0
-    @State private var targetCount: Double = 0
-    @State private var hasAnimated = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xxl) {
@@ -19,10 +15,10 @@ struct ChallengeSection: View {
                 subtitle: "Why nutrition researchers need automated food matching"
             )
 
-            // Scale visualization with animated counting
+            // Scale visualization
             scaleVisualization
 
-            Text("Diet studies collect food descriptions through surveys like NHANES (National Health and Nutrition Examination Survey), dietary recalls, and food frequency questionnaires. Each description must be matched to a standardized database entry before any nutrient analysis can begin. Doing this by hand can take 28 minutes per food item for a single nutrient, and scales dramatically when mapping across entire food composition databases.")
+            Text("Diet studies collect food descriptions through surveys, dietary recalls, and food frequency questionnaires. Each description needs a defensible mapping to a standardized database entry before downstream analysis. The review workflow keeps the researcher responsible for that decision.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -60,7 +56,7 @@ struct ChallengeSection: View {
     private var scaleVisualization: some View {
         HStack(spacing: Spacing.xl) {
             scaleCard(
-                displayedValue: inputCount,
+                displayedValue: 1304,
                 useComma: true,
                 label: "food descriptions",
                 sublabel: "NHANES dietary recall",
@@ -77,7 +73,7 @@ struct ChallengeSection: View {
             }
 
             scaleCard(
-                displayedValue: targetCount,
+                displayedValue: 256,
                 useComma: false,
                 label: "database entries",
                 sublabel: "DFG2 (Davis Food Glycopedia 2.0)",
@@ -87,12 +83,6 @@ struct ChallengeSection: View {
         .frame(maxWidth: .infinity)
         .padding(Spacing.lg)
         .showcaseCard()
-        .modifier(ScaleCounterTrigger(
-            hasAnimated: $hasAnimated,
-            inputCount: $inputCount,
-            targetCount: $targetCount,
-            reduceMotion: reduceMotion
-        ))
     }
 
     private func scaleCard(
@@ -109,7 +99,6 @@ struct ChallengeSection: View {
 
             Text(formattedScaleValue(displayedValue, useComma: useComma))
                 .font(.system(size: 28, weight: .bold, design: .rounded))
-                .contentTransition(.numericText())
 
             VStack(spacing: Spacing.xxxs) {
                 Text(label)
@@ -124,7 +113,6 @@ struct ChallengeSection: View {
     }
 
     private func formattedScaleValue(_ value: Double, useComma: Bool) -> String {
-        guard hasAnimated else { return " " }
         if useComma {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
@@ -232,66 +220,6 @@ struct ChallengeSection: View {
             paperStats = try await TourDataLoader.shared.loadPaperStats()
         } catch {
             loadError = error.localizedDescription
-        }
-    }
-}
-
-// MARK: - Scale Counter Animation Trigger
-
-/// Animates the scale card numbers counting up when scrolled into view.
-private struct ScaleCounterTrigger: ViewModifier {
-    @Binding var hasAnimated: Bool
-    @Binding var inputCount: Double
-    @Binding var targetCount: Double
-    let reduceMotion: Bool
-
-    func body(content: Content) -> some View {
-        if #available(macOS 15, *) {
-            content
-                .onScrollVisibilityChange(threshold: 0.3) { visible in
-                    if visible && !hasAnimated {
-                        triggerAnimation()
-                    }
-                }
-        } else {
-            content
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onChange(of: geo.frame(in: .named("showcaseScroll")).midY) { _, midY in
-                                let viewportH = NSApp.mainWindow?.contentView?.bounds.height ?? 800
-                                if midY > 0 && midY < viewportH && !hasAnimated {
-                                    triggerAnimation()
-                                }
-                            }
-                    }
-                )
-        }
-    }
-
-    private func triggerAnimation() {
-        guard !hasAnimated else { return }
-        hasAnimated = true
-
-        guard !reduceMotion else {
-            inputCount = 1304
-            targetCount = 256
-            return
-        }
-
-        let steps = 30
-        let duration = 0.8
-        let interval = duration / Double(steps)
-
-        for step in 0...steps {
-            let fraction = Double(step) / Double(steps)
-            let eased = 1.0 - pow(1.0 - fraction, 3)
-            DispatchQueue.main.asyncAfter(deadline: .now() + interval * Double(step)) {
-                withAnimation(.linear(duration: interval)) {
-                    inputCount = 1304.0 * eased
-                    targetCount = 256.0 * eased
-                }
-            }
         }
     }
 }

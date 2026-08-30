@@ -68,7 +68,7 @@ struct ResultsTableView: View {
                                     .truncationMode(.tail)
                                     .help(text)
                             } else {
-                                Text("No candidates")
+                                Text("No selected candidate")
                                     .foregroundStyle(.tertiary)
                             }
                         }

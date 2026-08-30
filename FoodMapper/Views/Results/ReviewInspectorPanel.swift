@@ -541,8 +541,7 @@ struct ReviewInspectorPanel: View {
                         .padding(.leading, Spacing.xxs)
 
                     if isNoMatch {
-                        let profile = ThresholdProfile.defaults(for: result.scoreType)
-                        Text("No match exceeded the \(Int(profile.matchThreshold * 100))% confidence threshold")
+                        Text("No candidate was selected. Retrieved candidate database entries appear below when the session stored them.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.leading, Spacing.xxs)
@@ -951,7 +950,7 @@ struct ReviewInspectorPanel: View {
 
             if overrideExpanded {
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    TextField("Search database entries...", text: $overrideSearchText)
+                    TextField("Search candidate database entries...", text: $overrideSearchText)
                         .textFieldStyle(.plain)
                         .font(.callout)
                         .focused($isOverrideFieldFocused)
@@ -1014,7 +1013,7 @@ struct ReviewInspectorPanel: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.02)))
                         .padding(.top, 4)
                     } else if debouncedOverrideSearchText.count >= 2 {
-                        Text("No matches found in database")
+                        Text("No matching candidate database entries in this session")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 4)

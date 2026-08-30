@@ -696,7 +696,7 @@ struct MatchSetupView: View {
                             if appState.selectedClaudeModel.isPaperModel {
                                 Text("Paper model")
                                     .font(.caption2)
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(.primary)
                                     .padding(.horizontal, Spacing.xs)
                                     .padding(.vertical, Spacing.xxxs)
                                     .background(

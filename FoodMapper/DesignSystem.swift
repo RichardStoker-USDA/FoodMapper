@@ -124,11 +124,11 @@ extension Color {
             : Color.black.opacity(0.18)
     }
 
-    // Badge background with better light mode visibility
+    // Neutral badge background for compact status text.
     static func badgeBackground(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color.accentColor.opacity(0.15)
-            : Color.accentColor.opacity(0.18)
+            ? Color.white.opacity(0.10)
+            : Color.black.opacity(0.06)
     }
 
     static func appBadgeFill(_ tone: AppBadgeTone, for colorScheme: ColorScheme) -> Color {

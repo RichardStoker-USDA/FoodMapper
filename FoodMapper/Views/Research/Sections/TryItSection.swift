@@ -47,24 +47,20 @@ struct TryItSection: View {
                 subtitle: "Run the matching pipeline on the paper's benchmark data"
             )
 
-            Text("Run each stage of the pipeline on the full NHANES-to-DFG2 benchmark (1,304 items against 256 targets). Results stay visible as you scroll, so you can compare both stages.")
+            Text("Run the local and optional Anthropic stages on the bundled NHANES-to-DFG2 demonstration (1,304 items against 256 targets). The NHANES-to-DFG2 task includes descriptions with no valid DFG2 entry.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
-                .scrollReveal()
 
             // Stage 1: Embedding Matching
             embeddingStageContent
-                .scrollReveal()
 
             // Stage 2: Hybrid Matching
             hybridStageContent
-                .scrollReveal()
 
             // Technical notes
             TourTechnicalDetail(title: "Implementation Notes") {
                 implementationNotesContent
             }
-            .scrollReveal()
 
             if let onScrollToNext {
                 HStack {
@@ -129,7 +125,7 @@ struct TryItSection: View {
             ShowcaseSectionBreak(number: 1, title: "Embedding Matching", icon: "cpu")
 
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                Text("Run GTE-Large on the full NHANES benchmark (1,304 items) against DFG2 (256 targets). The embedding model runs entirely on your Mac's GPU via MLX and Apple Silicon.")
+                Text("Run GTE-Large on the bundled NHANES-to-DFG2 demonstration. The default embedding stage runs locally through MLX on Apple Silicon.")
                     .font(.body)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .fixedSize(horizontal: false, vertical: true)
@@ -188,7 +184,7 @@ struct TryItSection: View {
             ShowcaseSectionBreak(number: 2, title: "Hybrid Matching", icon: "cloud")
 
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                Text("The hybrid pipeline combines GTE-Large embedding with Claude for LLM match selection. This runs the full two-stage approach from the paper on the NHANES-to-DFG2 benchmark.")
+                Text("The optional Anthropic path sends each input description and its retrieved candidate database entries to Claude for selection. It requires an Anthropic API key and an explicit run.")
                     .font(.body)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .fixedSize(horizontal: false, vertical: true)
@@ -325,7 +321,7 @@ struct TryItSection: View {
                 }
                 .padding(.vertical, Spacing.sm)
 
-                Text("Embedding can only rank candidates -- it has no way to detect \"no match\" items. The paper reports 76.9% match accuracy for GTE-Large on NHANES-to-DFG2.")
+                Text("The default embedding path ranks candidate database entries. The NHANES-to-DFG2 task includes descriptions with no valid DFG2 match, so a top retrieval can still require review.")
                     .font(.caption)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.80))
 
@@ -440,7 +436,7 @@ struct TryItSection: View {
                 if tourModelSelection == .sonnet45 {
                     TourInfoLine(
                         icon: "dollarsign.circle",
-                        text: "Sonnet 4.5 costs ~12x more than Haiku 3 per run."
+                        text: "Model availability and charges are set by Anthropic. Check the provider before a run."
                     )
                 }
             }
@@ -459,7 +455,7 @@ struct TryItSection: View {
 
             TourInfoLine(
                 icon: "cloud",
-                text: "Uses Anthropic's Batches API. Processing typically takes 5-15 minutes, depending on available compute capacity."
+                text: "Uses Anthropic's Batches API. Completion time is controlled by the service and is not estimated here."
             )
         }
     }
@@ -886,7 +882,7 @@ struct TryItSection: View {
 
     private var apiKeyOnboardingContent: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
-            Text("The hybrid pipeline sends the top-5 embedding candidates to Claude Haiku for final selection. This requires an Anthropic API key.")
+                Text("The optional Anthropic path sends retrieved candidate database entries and the input description to Claude for selection. This requires an Anthropic API key.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -991,7 +987,7 @@ struct TryItSection: View {
 
             TourInfoLine(
                 icon: "lock.shield",
-                text: "Your API key is stored in your Mac's Keychain. It is only sent directly to Anthropic's API when you run hybrid matching."
+                text: "Your API key is stored in your Mac's Keychain. When you run the optional Anthropic path, FoodMapper sends the input text and retrieved candidate database entries needed for that run to Anthropic."
             )
         }
     }
@@ -1020,14 +1016,14 @@ struct TryItSection: View {
                 Text("Runtime Profile")
                     .font(.callout.weight(.semibold))
 
-                Text("Timing is hardware-dependent and varies by Mac model. These are rough estimates.")
+                Text("Local elapsed time is recorded for the run. Anthropic batch completion depends on the service and is shown as status rather than an estimate.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    timingRow("GTE-Large model load", value: "~2s")
-                    timingRow("Embed 1,304 inputs", value: "2-15s")
-                    timingRow("Cosine similarity + top-5", value: "<1s")
+                    timingRow("GTE-Large model load", value: "recorded for this run")
+                    timingRow("Local embedding", value: "recorded for this run")
+                    timingRow("Candidate retrieval", value: "recorded for this run")
                     HStack {
                         HStack(spacing: Spacing.xs) {
                             Text("Batches API (Haiku)")
@@ -1045,8 +1041,8 @@ struct TryItSection: View {
                             .appBadgeStyle(tone: .neutral, cornerRadius: 999)
                         }
                         Spacer()
-                        Text("5-15 min")
-                            .font(.callout.monospacedDigit())
+                        Text("service status")
+                            .font(.callout)
                     }
                 }
             }
@@ -1058,7 +1054,7 @@ struct TryItSection: View {
                 Text("Model Specs")
                     .font(.callout.weight(.semibold))
 
-                Text("GTE-Large: a 335M-parameter BERT-based model producing 1,024-dimensional vectors. Symmetric embedding with normalized outputs. ~640 MB GPU memory. Batch size auto-scales based on your system (8 GB: batch=16, 32 GB: batch=64). The model is unloaded after embedding to free VRAM.")
+                Text("GTE-Large is a 335M-parameter BERT-based model that produces 1,024-dimensional embeddings. FoodMapper uses its pinned MLX conversion for the default local path.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1067,7 +1063,7 @@ struct TryItSection: View {
                 Text("LLM Match Selection")
                     .font(.callout.weight(.semibold))
 
-                Text("The paper used Claude 3 Haiku for final match selection. It's the most cost-effective option for this task.")
+                Text("The publication evaluates a GTE-Large plus Claude Haiku path. The optional Anthropic path transfers the input text and retrieved candidate database entries needed for the selected run.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1090,7 +1086,7 @@ struct TryItSection: View {
                 Text("Batches API")
                     .font(.callout.weight(.semibold))
 
-                Text("Rather than sending 1,304 individual API calls (which hits rate limits fast), the app submits all matching requests in a single batch. The Batches API bypasses per-minute rate limits and processes requests concurrently on available compute capacity. It also provides a 50% discount on both input and output tokens.")
+                Text("FoodMapper submits the selected optional run through Anthropic's Batches API. Provider availability, timing, and charges are external to FoodMapper.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1113,7 +1109,7 @@ struct TryItSection: View {
                 Text("On-Device Processing")
                     .font(.callout.weight(.semibold))
 
-                Text("The embedding model runs natively on Apple Silicon via MLX. Unified memory architecture means the GPU and CPU share the same memory pool, so there's no data copying between discrete GPU and system RAM. Fast and memory-efficient across M-series Macs.")
+                Text("The default embedding model runs through MLX on Apple Silicon. Its local runtime and memory use vary with the Mac, input, target database, and cache state.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1126,18 +1122,14 @@ struct TryItSection: View {
                     .font(.callout.weight(.semibold))
 
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    parameterRow("Embedding model (MLX)", value: "Free")
-                    parameterRow("Input tokens (batch)", value: "$0.125 / M")
-                    parameterRow("Output tokens (batch)", value: "$0.625 / M")
+                    parameterRow("Default local embedding", value: "no provider account")
+                    parameterRow("Optional Anthropic path", value: "provider account and charges")
                 }
 
-                Text("The Batches API gives a 50% discount on both input and output tokens compared to the standard Messages API. The paper reported $0.72 for 1,304 items using the full-context approach (all 256 database items per prompt). The hybrid top-5 approach sends far fewer tokens per request.")
+                Text("Check Anthropic's current documentation and account pricing before an optional run. FoodMapper does not set provider pricing or availability.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("For this showcase benchmark (1,304 NHANES items against 256 DFG2 targets), the full hybrid pipeline costs roughly $0.05 using Claude 3 Haiku with the Batches API.")
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(Spacing.md)
             .showcaseCard(cornerRadius: 8, tone: .deep)

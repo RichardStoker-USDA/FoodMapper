@@ -772,7 +772,7 @@ private struct HelpGettingStartedContent: View {
         // Steps
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                HelpStep(number: 1, title: "Download a model", description: appState.isAdvancedMode ? "On first launch, FoodMapper prompts you to download GTE-Large (640 MiB). Additional models are available in Settings > Models for experimental pipelines." : "On first launch, FoodMapper prompts you to download GTE-Large (640 MiB).")
+                HelpStep(number: 1, title: "Download a model", description: appState.isAdvancedMode ? "FoodMapper prompts you to download GTE-Large (about 640 MiB) before default matching. Advanced mode may show optional experimental model downloads that have not been qualified for research use." : "FoodMapper prompts you to download GTE-Large (about 640 MiB) before default matching.")
 
                 HelpStep(number: 2, title: "Load your data", description: "Drop a CSV or TSV file onto the drop zone, or click to browse. The file needs at least one column with food descriptions.")
 
@@ -784,7 +784,7 @@ private struct HelpGettingStartedContent: View {
 
                 HelpStep(number: 6, title: "Review results", description: "Results are categorized as Match, Needs Review, or No Match. Use the inspector panel to confirm, reject, or override matches.")
 
-                HelpStep(number: 7, title: "Export", description: "Export your results as CSV or TSV with your original data plus match results. All input and target database columns are preserved, with four fm_ columns added for match metadata.")
+                HelpStep(number: 7, title: "Export", description: "Export your current session as CSV or TSV. When the input and target metadata remain available, FoodMapper includes original input columns, target columns, and fm_ match metadata.")
             }
         }
 
@@ -809,7 +809,7 @@ private struct HelpHowItWorksContent: View {
         }
 
         HelpCard {
-            HelpItem(title: "GPU-Accelerated Matching", content: "FoodMapper runs embedding models directly on your Mac's GPU through Apple's MLX framework. Similarity between your inputs and every item in the database is computed as a single matrix multiplication, which is why matching thousands of items takes seconds.")
+            HelpItem(title: "Local Embedding Matching", content: "The default GTE-Large path runs through Apple's MLX framework on Apple Silicon. FoodMapper compares input embeddings with candidate database entries. Runtime depends on the input, target database, and Mac configuration.")
         }
 
         if appState.isAdvancedMode {
@@ -821,17 +821,17 @@ private struct HelpHowItWorksContent: View {
                         ExperimentalLabel()
                     }
 
-                    Text("Beyond basic embedding, FoodMapper supports multi-stage matching. A cross-encoder reranker can rescore the top candidates for higher accuracy. A generative model can evaluate candidates and pick the best match. These stages refine the initial embedding results.")
+                    Text("Advanced mode may show optional experimental Qwen3 and Gemma artifact downloads. They are separate from the default GTE-Large path and have not been qualified for research use.")
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                         .fixedSize(horizontal: false, vertical: true)
 
-                    HelpWarningCard(text: "Multi-stage pipelines are under active development and require tuning. For scientific research, review all results, including matches and no-matches. False negatives are possible and human review is needed for research-quality data.")
+                    HelpWarningCard(text: "Experimental downloads are not research-qualified. Review all results before research use.")
                 }
             }
 
             HelpCard {
-                HelpItem(title: "Pipeline-Based Categorization", content: "Results are categorized by the pipeline's decision, not by a fixed score threshold. GTE-Large embedding-only results can mark high-confidence results as matches when the Smart Auto-Match floor and gap pass. Experimental embedding-only paths remain in Needs Review unless their pipeline decides otherwise. Multi-stage pipelines can also make match or no-match decisions. Review all results before research use.")
+                HelpItem(title: "Selected Targets and Candidates", content: "For default embedding matching, the fixed 0.50 eligibility floor decides whether the leading retrieval becomes the selected target. Retrieved candidate database entries remain available for review even when no target is selected. The Smart Auto-Match floor and gap are separate controls for selected GTE-Large results.")
             }
         }
 
@@ -861,7 +861,7 @@ private struct HelpPipelineModesContent: View {
                         .font(.headline)
                 }
 
-                Text("Production matching for active research. GTE-Large Embedding is the default pipeline. GTE-Large + Haiku v2 adds Claude API verification.")
+                Text("GTE-Large Embedding is the default local pipeline. GTE-Large + Haiku v2 sends the run's input text and candidate entries to Anthropic for optional verification.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -883,7 +883,7 @@ private struct HelpPipelineModesContent: View {
                         .font(.headline)
                 }
 
-                Text("Replicates the exact methods from the research paper. Uses GTE-Large embeddings with optional Claude Haiku API verification. Includes a scrolling showcase explaining the paper's approach with interactive visualizations.")
+                Text("Presents the paper's methods and an NHANES-to-DFG2 demonstration. It uses GTE-Large retrieval with optional Claude Haiku verification when you configure and select that path.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -899,13 +899,13 @@ private struct HelpPipelineModesContent: View {
                     Text("Simple and Advanced Mode")
                         .font(.headline)
 
-                    Text("FoodMapper starts in Simple mode with embedding-only and embedding plus Claude Haiku paths.")
+                    Text("FoodMapper starts in Simple mode with the default local embedding path and the optional Anthropic verification path.")
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
                     HStack(alignment: .top, spacing: Spacing.sm) {
                         ExperimentalLabel()
-                        Text("Advanced mode adds experimental pipelines, model size selection, instruction presets, and detailed export.")
+                        Text("Advanced mode can show experimental model downloads and related controls. These are not qualified for research use.")
                             .font(.callout)
                             .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
                             .fixedSize(horizontal: false, vertical: true)
@@ -964,7 +964,7 @@ private struct HelpReviewWorkflowContent: View {
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
-                Text("For GTE-Large embedding-only results, Smart Auto-Match promotes a result when its score meets the configured floor and its gap to the next candidate exceeds the configured minimum. These results go directly to Match instead of Needs Review.")
+                Text("For a GTE-Large result with a selected target, Smart Auto-Match can promote the result when its score meets the configured floor and its gap to the next candidate exceeds the configured minimum. The 0.50 eligibility floor for selecting a target is separate.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
             }
@@ -1039,7 +1039,7 @@ private struct HelpReviewWorkflowContent: View {
                 Text("Override Search")
                     .font(.headline)
 
-                Text("If the right match is not in the top candidates, open the Manual Override section in the inspector and search the candidate records available from the current matching session. Type at least 2 characters to search. Click a result to set it as the match.")
+                Text("If the right match is not in the displayed alternatives, open Manual Override and search the deduplicated union of candidate database entries retained for the current session. Type at least 2 characters to search. This is not a full target-database search. Click a result to set it as the match.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1164,7 +1164,7 @@ private struct HelpUnderstandingScoresContent: View {
                 Text("Score Display")
                     .font(.headline)
 
-                Text("Each result shows a colored dot and percentage in the Score column. The dot color gives a quick visual sense of similarity strength:")
+                Text("A row with an available score shows a colored dot and percentage. Rows without an available score show --:")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1174,13 +1174,13 @@ private struct HelpUnderstandingScoresContent: View {
                     scoreRow(color: Color(nsColor: .secondaryLabelColor), label: "Gray", desc: "Low similarity")
                 }
 
-                Text(appState.isAdvancedMode ? "GTE-Large tends to produce higher cosine similarity scores overall, so its thresholds are set accordingly. Other models produce different score distributions. A 75% from one model can mean the same thing as 85% from another. Compare scores within a single run, not across models." : "Compare scores within a single run. They are useful for reviewing similar records, not for comparing unrelated reference databases.")
+                Text("Compare scores within one run. A score is a retrieval signal, not a measure of scientific equivalence or a probability of a correct match.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
                     .fixedSize(horizontal: false, vertical: true)
 
                 if appState.isAdvancedMode {
-                    Text("Smart Auto-Match uses one shared score floor and minimum gap for GTE-Large embedding-only results. Score display uses fixed profiles for each pipeline.")
+                    Text("The default GTE-Large path uses a separate Smart Auto-Match floor and gap after a target is eligible for selection. Experimental artifacts do not share that qualification.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1188,7 +1188,7 @@ private struct HelpUnderstandingScoresContent: View {
         }
 
         HelpCard {
-            HelpItem(title: "Scores Are Relative", content: "What counts as a good score depends on your data and reference database. A 90% against FooDB means something different than 90% against DFG2. Compare scores within a single run, not across different datasets or models.")
+            HelpItem(title: "Fixed Eligibility Floor", content: "For default embedding matching, the leading retrieval must reach 0.50 before FoodMapper selects it as the target. Retrieved candidate database entries can still be present for rows without a selected target.")
         }
 
         if appState.isAdvancedMode {
@@ -1200,7 +1200,7 @@ private struct HelpUnderstandingScoresContent: View {
                         ExperimentalLabel()
                     }
 
-                    Text("Embedding pipelines produce cosine similarity scores. Reranker pipelines produce a probability score from the cross-encoder. Generative pipelines produce a selection confidence score. These scales are not directly comparable. Score display uses fixed profiles for each pipeline. Smart Auto-Match applies only to GTE-Large embedding-only results.")
+                    Text("Experimental artifact scores and default GTE-Large retrieval scores are not interchangeable. Experimental artifacts have not been qualified for research use.")
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                         .fixedSize(horizontal: false, vertical: true)
@@ -1209,14 +1209,14 @@ private struct HelpUnderstandingScoresContent: View {
 
             HelpCard {
                 VStack(alignment: .leading, spacing: Spacing.md) {
-                    HelpItem(title: "Categorization Is Pipeline-Based", content: "The pipeline decides whether a record is a match, needs review, or has no match. GTE-Large embedding-only results use the shared Smart Auto-Match floor and gap. Experimental embedding-only paths remain in Needs Review unless their pipeline decides otherwise. Multi-stage pipelines use their second stage to decide.")
+                    HelpItem(title: "Review Experimental Output", content: "Review experimental output against the default GTE-Large path. Do not use an experimental result as research evidence without a separate qualification run.")
 
-                    HelpWarningCard(text: "Multi-stage pipeline decisions are experimental and should be verified. For scientific research, review both matches and no-matches to catch false negatives.")
+                    HelpWarningCard(text: "Experimental artifacts are not research-qualified. Review selected targets and no-match rows before use.")
                 }
             }
         }
 
-        HelpHint("Focus on the Match/Needs Review/No Match categories rather than raw scores. The pipeline has already done the triage for you -- the scores are there for reference, not for manual filtering.")
+        HelpHint("Use the selected target, retrieved candidate database entries, and your review together. Do not use score color alone to make a scientific decision.")
     }
 
     private func scoreRow(color: Color, label: String, desc: String) -> some View {
@@ -1245,7 +1245,7 @@ private struct HelpExportingContent: View {
     var body: some View {
         HelpSectionTitle(
             "Exporting Results",
-            subtitle: "Export your match results as CSV or TSV. The export preserves all your original data and adds match metadata."
+            subtitle: "Export your match results as CSV or TSV. Original input columns are available only when the current or stored input file can be read."
         )
 
         HelpCard {
@@ -1253,7 +1253,7 @@ private struct HelpExportingContent: View {
                 Text("Standard Export")
                     .font(.headline)
 
-                Text("Click the Export button in the toolbar and choose Export CSV or Export TSV. You can also use File > Export as CSV (Cmd+E) or Export as TSV (Shift+Cmd+E). The file layout is:")
+                Text("Click the Export button in the toolbar and choose Export CSV or Export TSV. You can also use File > Export as CSV (Cmd+E) or Export as TSV (Shift+Cmd+E). When the current input and target metadata are available, the file layout is:")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1265,7 +1265,7 @@ private struct HelpExportingContent: View {
                     .background(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.03))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                Text("Row order matches your original input file, regardless of how you sorted the results table.")
+                Text("With a readable current input file, row order matches the original input file regardless of table sorting. A reduced export contains saved mapping rows and metadata.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
             }
@@ -1278,8 +1278,8 @@ private struct HelpExportingContent: View {
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     fmColumn("fm_status", "Match outcome: \"Match\", \"No Match\", \"Needs Review\", \"Match (confirmed)\", \"Match (overridden)\", \"No Match (confirmed)\", or \"Match (LLM)\". Parenthetical suffixes indicate how the decision was made: confirmed/overridden = human review, LLM = generative model selection.")
-                    fmColumn("fm_score", "Similarity score as a decimal, e.g. \"0.8723\".")
-                    fmColumn("fm_pipeline", appState.isAdvancedMode ? "Which pipeline produced the match, for example \"GTE-Large\" or an experimental pipeline." : "Which standard pipeline produced the match, for example \"GTE-Large\".")
+                    fmColumn("fm_score", "Score when available, for example \"0.8723\".")
+                    fmColumn("fm_pipeline", "Pipeline label when it was stored with the result.")
                     fmColumn("fm_note", "Your review note, or empty if none.")
                 }
             }
@@ -1291,7 +1291,7 @@ private struct HelpExportingContent: View {
                     Text("Detailed Export")
                         .font(.headline)
 
-                    Text("The export menu adds \"Detailed Export (Pipeline Data)\". It includes additional columns for model reasoning, when available, and the top five embedding candidates with their scores.")
+                    Text("The export menu can add stored reasoning and retrieved candidate database entries when they are available for the session.")
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                 }
@@ -1303,7 +1303,7 @@ private struct HelpExportingContent: View {
                 Text("Override Handling")
                     .font(.headline)
 
-                Text("The export records the override status and selected match description. Review target fields in the exported file before downstream use. No-match rows have empty target columns. If input and target databases share a column name, the target column gets a \" (target)\" suffix.")
+                Text("The export records override status, selected text, ID, and score. Extra target fields come from an override only when that candidate is retained in the result's candidate list. Otherwise those fields use the original selected target when available. No-match rows have empty target columns. If input and target databases share a column name, the target column gets a \" (target)\" suffix.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1320,7 +1320,7 @@ private struct HelpExportingContent: View {
             }
         }
 
-        HelpHint("You can also export from History without loading the session first: right-click a session and choose \"Export...\". To export all sessions at once, use the export icon at the top of the History page. Both CSV and TSV formats preserve all your data.")
+        HelpHint("You can export one History session without loading it first. It restores original input columns only when the stored input file is available and readable. Bulk History exports use saved mapping rows and do not restore original input columns.")
     }
 
     private func fmColumn(_ name: String, _ desc: String) -> some View {
@@ -1363,15 +1363,10 @@ private struct HelpCustomDatabasesContent: View {
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "Disk Space by Model", content: "Embedding size depends on the model's output dimensions. For a 100,000-item database:")
+                HelpItem(title: "Embedding Cache Size", content: "Embedding cache size depends on the target database and model. FoodMapper shows the available cache state for each database.")
 
                 VStack(alignment: .leading, spacing: Spacing.xs) {
                     diskRow("GTE-Large (1024-dim)", "~400 MB")
-                    if appState.isAdvancedMode {
-                        diskRow("Qwen3-Embedding 0.6B (1024-dim)", "~400 MB")
-                        diskRow("Qwen3-Embedding 4B (2560-dim)", "~1 GB")
-                        diskRow("Qwen3-Embedding 8B (4096-dim)", "~1.6 GB")
-                    }
                 }
             }
         }
@@ -1413,14 +1408,14 @@ private struct HelpSessionsContent: View {
     var body: some View {
         HelpSectionTitle(
             "Sessions & History",
-            subtitle: "Match results and review decisions are automatically saved. Pick up where you left off or re-export anytime."
+            subtitle: "Match results and review decisions are automatically saved. Stored input files are separate from session records."
         )
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HelpItem(title: "Auto-Save", content: "When matching completes, results are automatically saved as a session. As you make review decisions, those are saved incrementally too. No manual save needed.")
 
-                HelpItem(title: "What Gets Saved", content: "All results, review decisions (match, no match, overrides, notes), pipeline configuration, and timestamps. Everything you need to continue reviewing or re-export later.")
+                HelpItem(title: "What Gets Saved", content: "Results, review decisions, pipeline configuration, and timestamps are saved with the session. Retrieved candidate database entries are available only when that session stored them.")
             }
         }
 
@@ -1432,7 +1427,7 @@ private struct HelpSessionsContent: View {
 
                 HelpItem(title: "Deleting Sessions", content: "Right-click a session in History to delete it. The \"Clear All History\" button (with confirmation) removes everything.")
 
-                HelpItem(title: "Exporting Sessions", content: "Right-click any session in History to export it. You can also hover a session row and click the export icon. To export everything at once, click the export icon at the top of the History page and choose \"Export as Zip\" or \"Export to Folder\".")
+                HelpItem(title: "Exporting Sessions", content: "Right-click a session in History to export it. A single-session export can restore original input columns only when the stored input file is readable. Exporting all sessions creates reduced saved mapping rows.")
             }
         }
 
@@ -1517,9 +1512,9 @@ private struct HelpSettingsContent: View {
                             .font(.headline)
                     }
                     VStack(alignment: .leading, spacing: Spacing.sm) {
-                        HelpItem(title: "Advanced Mode Toggle", content: "Shows all pipeline types, model size selection, instruction presets, detailed export, and the Pipelines sidebar section.")
+                        HelpItem(title: "Advanced Mode Toggle", content: "Shows optional experimental downloads and related controls when the app release provides them.")
                         HelpItem(title: "System Info", content: "Shows your Mac's detected hardware profile (Base/Standard/Pro/Max/Ultra), device name, and unified memory.")
-                        HelpItem(title: "Performance Controls", content: "Batch and chunk controls appear only for pipelines with an embedding stage. Exhaustive reranker and LLM-only paths do not have these controls.")
+                        HelpItem(title: "Performance Controls", content: "Available controls depend on the selected path and app release. Record the settings with an experimental comparison.")
                         HelpItem(title: "Database Limits", content: "Allow databases above the hardware-recommended size.")
                         HelpItem(title: "Reset", content: "Removes FoodMapper Application Support data and preferences, then restarts the app. It does not remove the Anthropic API key stored in your Mac's Keychain. Two confirmations are required.")
                     }
@@ -1537,7 +1532,7 @@ private struct HelpExperimentalFeaturesContent: View {
     var body: some View {
         HelpSectionTitle(
             "Experimental Features",
-            subtitle: "Features under active development. Available for testing but not yet validated for production research use."
+            subtitle: "Optional features that have not been qualified for research use."
         )
 
         HelpCard {
@@ -1545,7 +1540,7 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("What Are Experimental Features?")
                     .font(.headline)
 
-                Text("Experimental features are parts of FoodMapper that are still being tuned and validated. They work, but their accuracy and behavior may change between releases. For published research, stick with the default GTE-Large or GTE-Large + Haiku pipelines unless you're specifically evaluating these methods.")
+                Text("Experimental features are separate from the default GTE-Large path. Their artifacts and outputs have not completed the project's research qualification process.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1557,7 +1552,7 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("How to Enable")
                     .font(.headline)
 
-                Text("Go to Settings > Advanced and turn on \"Show advanced options\". This shows the full set of pipelines, model size selection, instruction presets, detailed export columns, and performance tuning controls.")
+                Text("Go to Settings > Advanced and turn on \"Show advanced options\". The available controls and optional downloads depend on the app release.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1565,7 +1560,7 @@ private struct HelpExperimentalFeaturesContent: View {
         }
 
         HelpCard {
-            HelpItem(title: "Experimental Pipelines", content: "Advanced mode adds alternate embedding, reranking, and generative matching paths. Available choices depend on the app release and downloaded models. Review output from these paths against the standard pipeline before research use.")
+            HelpItem(title: "Experimental Downloads", content: "Advanced mode can show optional Qwen3 and Gemma artifact downloads. They are not part of the default local embedding path. Record the exact artifact, settings, and results before comparing one with GTE-Large.")
         }
 
         HelpCard {
@@ -1574,18 +1569,17 @@ private struct HelpExperimentalFeaturesContent: View {
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HelpItem(title: "Model Size Selection", content: "Some experimental model families have multiple sizes. Larger models use more memory and run slower.")
-                    HelpItem(title: "Instruction Presets", content: "Some experimental embedding models use instruction prefixes for different matching tasks.")
-                    HelpItem(title: "Performance Controls", content: "Batch and chunk controls appear only for pipelines with an embedding stage. Exhaustive reranker and LLM-only paths do not have these controls.")
-                    HelpItem(title: "Detailed Export", content: "Adds LLM reasoning and top-5 embedding candidates with scores to your export file.")
+                    HelpItem(title: "Model Selection", content: "Some experimental artifact families have more than one size. Memory and runtime depend on the selected artifact and Mac.")
+                    HelpItem(title: "Run Records", content: "Keep the artifact revision, settings, input and target snapshots, and output with any experimental comparison.")
+                    HelpItem(title: "Detailed Export", content: "Detailed export includes stored fields only when the current session has them.")
                 }
             }
         }
 
         HelpWarningCard(
             icon: "info.circle",
-            title: "Not Production-Ready",
-            text: "These features may produce suboptimal results and their behavior can change between updates. For scientific research, always verify results with human review, regardless of pipeline."
+            title: "Not Research-Qualified",
+            text: "Do not treat experimental output as research evidence without a separate qualification run and review."
         )
     }
 
@@ -1621,7 +1615,7 @@ private struct HelpUnderTheHoodContent: View {
                 Text("The Model Family")
                     .font(.headline)
 
-                HelpItem(title: "GTE-Large", content: "A 335-million parameter BERT-based model with 24 transformer layers, producing 1024-dimensional embeddings. The paper's original model. Symmetric -- no instruction prefix.")
+                HelpItem(title: "GTE-Large", content: "A 335-million parameter BERT-based model that produces 1024-dimensional embeddings. FoodMapper uses the pinned MIT-licensed MLX conversion for default local matching.")
 
                 if appState.isAdvancedMode {
                     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -1630,7 +1624,7 @@ private struct HelpUnderTheHoodContent: View {
                                 .font(.body.weight(.medium))
                             ExperimentalLabel()
                         }
-                        Text("Instruction-following embedding models are available in 0.6B, 4B, and 8B sizes. Queries receive an instruction prefix while database descriptions do not. Higher dimensions capture more detail.")
+                        Text("Optional experimental downloads are shown only in Advanced mode. They have not been qualified for research use.")
                             .font(.callout)
                             .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                             .fixedSize(horizontal: false, vertical: true)
@@ -1642,7 +1636,7 @@ private struct HelpUnderTheHoodContent: View {
                                 .font(.body.weight(.medium))
                             ExperimentalLabel()
                         }
-                        Text("Cross-encoder models score query and database-description pairs. They evaluate one pair at a time.")
+                        Text("Optional experimental downloads are shown only in Advanced mode. They have not been qualified for research use.")
                             .font(.callout)
                             .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                             .fixedSize(horizontal: false, vertical: true)
@@ -1654,7 +1648,7 @@ private struct HelpUnderTheHoodContent: View {
                                 .font(.body.weight(.medium))
                             ExperimentalLabel()
                         }
-                        Text("Generative models choose a match from retrieved candidates by comparing their output scores.")
+                        Text("Optional experimental downloads are shown only in Advanced mode. They have not been qualified for research use.")
                             .font(.callout)
                             .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                             .fixedSize(horizontal: false, vertical: true)
@@ -1675,7 +1669,7 @@ private struct HelpUnderTheHoodContent: View {
 
                 HelpItem(title: "Embedding Pipeline", content: "Each input goes through tokenization, transformer layers, pooling, and L2 normalization. The entire pipeline runs on the GPU in a single pass per batch.")
 
-                HelpItem(title: "Similarity Search", content: "Matching is a single matrix multiplication that computes cosine similarity between your inputs and every item in the database at once. This is why matching thousands of items takes seconds, not minutes.")
+                HelpItem(title: "Similarity Search", content: "FoodMapper computes cosine similarity between input embeddings and candidate database embeddings. Runtime depends on database size, input length, batch settings, and the Mac.")
 
                 HelpItem(title: "GPU-Resident Data", content: "All computation stays on the GPU until the final similarity scores are pulled back to the CPU. Intermediate tensors (token embeddings, attention outputs, pooled vectors) never leave GPU memory.")
             }
@@ -1689,7 +1683,7 @@ private struct HelpUnderTheHoodContent: View {
 
                 HelpItem(title: "Detection at Launch", content: "FoodMapper queries Metal at startup to detect your Mac's unified memory, GPU core count, and chip family. Based on this, it assigns a hardware profile (Base through Ultra).")
 
-                HelpItem(title: "Adaptive Batch Sizes", content: "Batch sizes, chunk sizes, and memory limits are tuned to your hardware. An 8GB Mac uses smaller batches and conservative memory limits. A 96GB+ Mac uses large batches with full GPU utilization.")
+                HelpItem(title: "Adaptive Batch Sizes", content: "FoodMapper uses the detected hardware profile to choose initial batch and chunk settings. The selected settings can change with the model and workload.")
 
                 HelpItem(title: "Unified Memory", content: "M-series chips share memory between CPU and GPU. The GPU can access system RAM directly without copying data back and forth. This is a significant advantage for ML workloads compared to discrete GPUs that require explicit memory transfers.")
             }
@@ -1701,7 +1695,7 @@ private struct HelpUnderTheHoodContent: View {
                 Text("Large-Scale Embedding")
                     .font(.headline)
 
-                HelpItem(title: "Embed Once, Match Many", content: "Custom databases are embedded once and the results are cached to disk. After that initial cost, the database loads instantly for all future matches. Only your input files need fresh embedding each time.")
+                HelpItem(title: "Embed Once, Match Many", content: "FoodMapper caches custom-database embeddings for the model that created them. Reusing a cache avoids re-embedding that target database.")
 
                 HelpItem(title: "Streaming to Disk", content: "FoodMapper processes embeddings in chunks and writes each chunk to disk immediately. This prevents memory exhaustion on large databases. GPU memory cache is cleared between chunks to prevent buffer accumulation.")
 
@@ -1739,7 +1733,7 @@ private struct HelpResearchContent: View {
                 Text("Behind the Research")
                     .font(.headline)
 
-                Text("The app includes an in-depth showcase called \"Behind the Research\" that walks through the paper's methodology with interactive visualizations. The showcase covers GTE-Large embedding and the optional Claude Haiku judge used in the published hybrid pipeline. Food Matching mode defaults to on-device GTE-Large embedding.")
+                Text("The app includes a Behind the Research showcase for the published methods. Food Matching defaults to local GTE-Large embedding. When selected, the optional Anthropic path sends input text and retrieved candidate database entries needed for the run.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1927,7 +1921,7 @@ private struct HelpTroubleshootingContent: View {
 
                 HelpTroubleshootItem(
                     problem: "Custom database embedding is slow",
-                    solution: "Embedding is a one-time cost per database per model. Speed depends on your hardware profile, chip generation, and text description length. After embedding completes, the database loads instantly for future matches."
+                    solution: "Embedding is a one-time cost per database per model. Speed depends on your hardware profile, chip generation, and text description length. A reusable cache avoids embedding the same target database again."
                 )
 
                 HelpTroubleshootItem(
