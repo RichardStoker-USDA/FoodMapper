@@ -13,6 +13,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 enum FoodMapperModelStorage {
     #if DEBUG
     nonisolated(unsafe) static var testingModelsDirectory: URL?
+    nonisolated(unsafe) static var testingURLSessionTemporaryDirectory: URL?
     #endif
 
     static func modelsDirectory() -> URL {
@@ -21,6 +22,16 @@ enum FoodMapperModelStorage {
         #endif
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
+    }
+
+    /// URLSession owns the source temporary file passed to its download
+    /// delegate. Keep its root injectable so installer tests never need the
+    /// user's live temporary directory.
+    static func urlSessionTemporaryDirectory() -> URL {
+        #if DEBUG
+        if let testingURLSessionTemporaryDirectory { return testingURLSessionTemporaryDirectory }
+        #endif
+        return FileManager.default.temporaryDirectory
     }
 }
 

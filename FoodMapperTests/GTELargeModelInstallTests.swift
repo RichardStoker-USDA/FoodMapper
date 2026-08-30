@@ -856,6 +856,20 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertThrowsError(try GTELargeSecurePath.validatedURLSessionTemporaryFile(localhost))
     }
 
+    func testURLSessionTemporaryPathUsesInjectedStorageRoot() throws {
+        #if DEBUG
+        let temporaryRoot = root.appendingPathComponent("urlsession-temp", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: temporaryRoot.path)
+        FoodMapperModelStorage.testingURLSessionTemporaryDirectory = temporaryRoot
+        defer { FoodMapperModelStorage.testingURLSessionTemporaryDirectory = nil }
+
+        let source = temporaryRoot.appendingPathComponent("payload")
+        try Data("payload".utf8).write(to: source)
+        XCTAssertEqual(try GTELargeSecurePath.validatedURLSessionTemporaryFile(source), source)
+        #endif
+    }
+
     func testSecureMoveRefusesToReplaceExistingEntry() throws {
         let source = root.appendingPathComponent("source")
         let destination = root.appendingPathComponent("destination")

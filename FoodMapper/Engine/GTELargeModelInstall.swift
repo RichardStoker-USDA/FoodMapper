@@ -686,7 +686,7 @@ enum GTELargeSecurePath {
             throw GTELargeModelInstallError.unsafePath
         }
 
-        let temporaryRoot = FoodMapperStorage.processTemporaryRootURL
+        let temporaryRoot = FoodMapperModelStorage.urlSessionTemporaryDirectory()
         guard let canonicalSourcePath = canonicalExistingPath(source.path),
               let canonicalTemporaryRootPath = canonicalExistingPath(temporaryRoot.path) else {
             throw GTELargeModelInstallError.unsafePath
