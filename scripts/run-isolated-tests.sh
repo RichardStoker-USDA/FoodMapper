@@ -471,6 +471,7 @@ run_test_workflow() {
         CODE_SIGN_IDENTITY=- \
         CODE_SIGN_STYLE=Manual \
         DEVELOPMENT_TEAM="" \
+        FOODMAPPER_APP_BUNDLE_IDENTIFIER="app.foodmapper.FoodMapper.tests.host.${test_id}" \
         PROVISIONING_PROFILE_SPECIFIER="" || return 1
 
     local xctestrun_files=()

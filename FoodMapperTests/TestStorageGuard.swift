@@ -2,6 +2,14 @@ import XCTest
 import Darwin
 @testable import FoodMapper
 
+private func canonicalExistingTestPath(_ path: String) -> String? {
+    path.withCString { pointer in
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard realpath(pointer, &buffer) != nil else { return nil }
+        return String(cString: buffer)
+    }
+}
+
 final class IsolatedTestHostEnvironmentTests: XCTestCase {
     func testWrapperBindsTheAppHostedTestProcess() throws {
         let environment = ProcessInfo.processInfo.environment
@@ -9,18 +17,26 @@ final class IsolatedTestHostEnvironmentTests: XCTestCase {
         let suppliedSuite = try XCTUnwrap(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"])
         let suppliedTemporaryRoot = try XCTUnwrap(environment["TMPDIR"])
         let suppliedPreferencesRoot = try XCTUnwrap(environment["CFFIXED_USER_HOME"])
-        let storagePrefix = "/private/tmp/foodmapper-xctest-"
+        let storagePrefix = "foodmapper-xctest-"
         let suitePrefix = "app.foodmapper.FoodMapper.tests."
 
-        XCTAssertTrue(suppliedRoot.hasPrefix(storagePrefix))
-        let identifier = String(suppliedRoot.dropFirst(storagePrefix.count))
+        let rootName = URL(fileURLWithPath: suppliedRoot, isDirectory: true).lastPathComponent
+        XCTAssertTrue(rootName.hasPrefix(storagePrefix))
+        let identifier = String(rootName.dropFirst(storagePrefix.count))
+        let canonicalRoot = try XCTUnwrap(canonicalExistingTestPath(suppliedRoot))
+        let canonicalTemporaryRoot = try XCTUnwrap(canonicalExistingTestPath(suppliedTemporaryRoot))
+        let canonicalPreferencesRoot = try XCTUnwrap(canonicalExistingTestPath(suppliedPreferencesRoot))
         XCTAssertEqual(suppliedSuite, suitePrefix + identifier)
         XCTAssertEqual(
-            suppliedTemporaryRoot,
+            canonicalRoot,
+            "/private/tmp/foodmapper-xctest-\(identifier)"
+        )
+        XCTAssertEqual(
+            canonicalTemporaryRoot,
             "/private/tmp/foodmapper-derived-data-\(identifier)/Temporary"
         )
         XCTAssertEqual(
-            suppliedPreferencesRoot,
+            canonicalPreferencesRoot,
             "/private/tmp/foodmapper-preferences-\(identifier)"
         )
         XCTAssertNotNil(FoodMapperStorage.expectedTestConfiguration(environment: environment))
@@ -51,9 +67,10 @@ final class TestStorageGuard: XCTestCase {
         let expectedSuite = "app.foodmapper.FoodMapper.tests.\(identifier)"
         let canonicalRoot = expectedRoot
         let suppliedProcessTemporaryRoot = try XCTUnwrap(environment["TMPDIR"])
-        let expectedProcessTemporaryRoot = FileManager.default.temporaryDirectory
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
+        let expectedProcessTemporaryRoot = URL(
+            fileURLWithPath: try XCTUnwrap(canonicalExistingTestPath(suppliedProcessTemporaryRoot)),
+            isDirectory: true
+        )
         let expectedDerivedDataRoot = URL(
             fileURLWithPath: "/private/tmp/foodmapper-derived-data-\(identifier)",
             isDirectory: true
@@ -61,21 +78,22 @@ final class TestStorageGuard: XCTestCase {
 
         XCTAssertTrue(FoodMapperStorage.isIsolatedTestStorage)
         XCTAssertTrue(FoodMapperStorage.usesInMemoryCredentials)
-        XCTAssertEqual(suppliedRoot, expectedRoot.path)
+        XCTAssertEqual(
+            canonicalExistingTestPath(suppliedRoot),
+            expectedRoot.path
+        )
         XCTAssertEqual(FoodMapperStorage.applicationSupportURL, canonicalRoot)
         XCTAssertEqual(
-            URL(fileURLWithPath: suppliedProcessTemporaryRoot, isDirectory: true)
-                .resolvingSymlinksInPath()
-                .standardizedFileURL,
-            expectedProcessTemporaryRoot
+            canonicalExistingTestPath(suppliedProcessTemporaryRoot),
+            expectedProcessTemporaryRoot.path
         )
         XCTAssertEqual(
-            FoodMapperStorage.temporaryURL.standardizedFileURL,
-            expectedProcessTemporaryRoot.appendingPathComponent("FoodMapper", isDirectory: true).standardizedFileURL
+            canonicalExistingTestPath(FoodMapperStorage.temporaryURL.path),
+            expectedProcessTemporaryRoot.appendingPathComponent("FoodMapper", isDirectory: true).path
         )
         XCTAssertEqual(
-            FoodMapperStorage.processTemporaryRootURL.standardizedFileURL,
-            expectedProcessTemporaryRoot
+            canonicalExistingTestPath(FoodMapperStorage.processTemporaryRootURL.path),
+            expectedProcessTemporaryRoot.path
         )
         XCTAssertEqual(environment["FOODMAPPER_TEST_DEFAULTS_SUITE"], expectedSuite)
         XCTAssertEqual(FoodMapperStorage.defaultsSuite, expectedSuite)
@@ -101,10 +119,12 @@ final class TestStorageGuard: XCTestCase {
         let identifier = UUID().uuidString.lowercased()
         let otherIdentifier = UUID().uuidString.lowercased()
         let root = "/private/tmp/foodmapper-xctest-\(identifier)"
+        let rootAlias = "/tmp/foodmapper-xctest-\(identifier)"
         let derivedRoot = "/private/tmp/foodmapper-derived-data-\(identifier)"
         let otherDerivedRoot = "/private/tmp/foodmapper-derived-data-\(otherIdentifier)"
         let suite = "app.foodmapper.FoodMapper.tests.\(identifier)"
         let expected = "\(root)|\(suite)"
+        let aliasExpected = "\(rootAlias)|\(suite)"
         let fileManager = FileManager.default
         let markerRoots = [
             URL(fileURLWithPath: root, isDirectory: true),
@@ -227,6 +247,14 @@ final class TestStorageGuard: XCTestCase {
                     "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
                 ],
                 expected
+            ),
+            (
+                "valid explicit pair through /tmp alias",
+                [
+                    "FOODMAPPER_TEST_STORAGE_ROOT": rootAlias,
+                    "FOODMAPPER_TEST_DEFAULTS_SUITE": suite,
+                ],
+                aliasExpected
             ),
             (
                 "Xcode relative markers require an explicit pair",

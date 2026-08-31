@@ -244,6 +244,10 @@ enum FoodMapperStorage {
         guard let defaults = UserDefaults(suiteName: testConfiguration.suite) else {
             throw StorageError.defaultsUnavailable
         }
+        guard let processTemporaryRootPath = environment["TMPDIR"],
+              processTemporaryRootPath.hasPrefix("/") else {
+            throw StorageError.invalidTestConfiguration
+        }
 
         let suppliedRoot = testConfiguration.root
         try validateTestRoot(suppliedRoot, requireDirectPath: true)
@@ -256,7 +260,10 @@ enum FoodMapperStorage {
         return try makeConfiguration(
             BootstrapInput(
                 applicationSupportURL: root,
-                processTemporaryRootURL: FileManager.default.temporaryDirectory,
+                processTemporaryRootURL: URL(
+                    fileURLWithPath: processTemporaryRootPath,
+                    isDirectory: true
+                ),
                 temporaryComponents: ["FoodMapper"],
                 defaults: defaults,
                 credentialStore: InMemoryCredentialStore(),
@@ -389,7 +396,7 @@ enum FoodMapperStorage {
         case let (rootPath?, suite?):
             guard rootPath.hasPrefix("/"),
                   let suiteIdentifier = testSuiteIdentifier(suite),
-                  let rootIdentifier = wrapperTestIdentifier(from: rootPath),
+                  let rootIdentifier = testStorageRootIdentifier(from: rootPath),
                   rootIdentifier == suiteIdentifier else { return nil }
             switch markerState {
             case .absent:
@@ -428,6 +435,9 @@ enum FoodMapperStorage {
             if let identifier = markerIdentifier(in: markerPath) {
                 identifiers.append(identifier)
             } else if markerPath.hasPrefix("/"), allowNeutralXcodeMarkers {
+                guard !usesReservedTestTemporaryNamespace(markerPath) else {
+                    return .invalid
+                }
                 sawOpaqueAbsoluteMarker = true
             } else {
                 return .invalid
@@ -438,6 +448,22 @@ enum FoodMapperStorage {
         }
         guard identifiers.allSatisfy({ $0 == first }) else { return .invalid }
         return .valid(first)
+    }
+
+    private static func usesReservedTestTemporaryNamespace(_ path: String) -> Bool {
+        let rawPrefix: String
+        if path.hasPrefix(canonicalTemporaryPathPrefix) {
+            rawPrefix = canonicalTemporaryPathPrefix
+        } else if path.hasPrefix(systemTemporaryPathPrefix), hasSafeSystemTemporaryAlias {
+            rawPrefix = systemTemporaryPathPrefix
+        } else {
+            return false
+        }
+        guard let first = String(path.dropFirst(rawPrefix.count))
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .first else { return false }
+        return first.hasPrefix(derivedDataDirectoryPrefix) ||
+            first.hasPrefix(testStorageDirectoryPrefix)
     }
 
     private static func markerIdentifier(in markerPath: String) -> String? {
@@ -477,16 +503,24 @@ enum FoodMapperStorage {
         )
     }
 
-    private static func wrapperTestIdentifier(from rootPath: String) -> String? {
-        guard rootPath.hasPrefix(canonicalTemporaryPathPrefix) else { return nil }
-        let rawComponents = String(rootPath.dropFirst(canonicalTemporaryPathPrefix.count))
+    private static func testStorageRootIdentifier(from rootPath: String) -> String? {
+        let rawPrefix: String
+        if rootPath.hasPrefix(canonicalTemporaryPathPrefix) {
+            rawPrefix = canonicalTemporaryPathPrefix
+        } else if rootPath.hasPrefix(systemTemporaryPathPrefix),
+                  hasSafeSystemTemporaryAlias {
+            rawPrefix = systemTemporaryPathPrefix
+        } else {
+            return nil
+        }
+        let rawComponents = String(rootPath.dropFirst(rawPrefix.count))
             .split(separator: "/", omittingEmptySubsequences: true)
         guard rawComponents.count == 1,
               let rawWrapper = testStorageDirectory(String(rawComponents[0])) else { return nil }
-        guard rootPath == canonicalTemporaryPathPrefix + rawWrapper.name else { return nil }
+        guard rootPath == rawPrefix + rawWrapper.name else { return nil }
 
         guard let canonicalPath = canonicalExistingPath(rootPath) else { return nil }
-        guard canonicalPath == rootPath else { return nil }
+        guard canonicalPath == canonicalTemporaryPathPrefix + rawWrapper.name else { return nil }
         let canonicalComponents = String(canonicalPath.dropFirst(canonicalTemporaryPathPrefix.count))
             .split(separator: "/", omittingEmptySubsequences: true)
         guard canonicalComponents.count == 1,
