@@ -1,6 +1,20 @@
 import SwiftUI
 import Sparkle
 
+private func resolvedAppearance(_ selection: String) -> NSAppearance? {
+    switch selection {
+    case "light": return NSAppearance(named: .aqua)
+    case "dark": return NSAppearance(named: .darkAqua)
+    default: return nil
+    }
+}
+
+private func applyAppearance(_ selection: String) {
+    guard FoodMapperStorage.isBootstrapped else { return }
+    FoodMapperStorage.defaults.set(selection, forKey: "appearance")
+    NSApp.appearance = resolvedAppearance(selection)
+}
+
 /// Overrides the macOS showHelp: responder chain action (Cmd+?).
 /// Without this, CommandGroup(replacing: .help) breaks because macOS
 /// routes Cmd+? through the responder chain. This override prevents
@@ -29,14 +43,6 @@ struct FoodMapperApp: App {
     @State private var updaterController: SPUStandardUpdaterController?
     @State private var appearance = "system"
 
-    private var nsAppearance: NSAppearance? {
-        switch appearance {
-        case "light": return NSAppearance(named: .aqua)
-        case "dark": return NSAppearance(named: .darkAqua)
-        default: return nil  // follow system
-        }
-    }
-
     private func prepareApplicationIfReady() {
         guard case .ready = startup.state,
               appState == nil,
@@ -50,6 +56,7 @@ struct FoodMapperApp: App {
             "SUAutomaticallyUpdate": false,
         ])
         appearance = defaults.string(forKey: "appearance") ?? "system"
+        applyAppearance(appearance)
         appState = AppState()
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
@@ -73,11 +80,10 @@ struct FoodMapperApp: App {
                             .environmentObject(appState)
                             .environmentObject(helpRequests)
                             .onAppear {
-                                NSApp.appearance = nsAppearance
+                                applyAppearance(appearance)
                             }
-                            .onChange(of: appearance) { _, _ in
-                                FoodMapperStorage.defaults.set(appearance, forKey: "appearance")
-                                NSApp.appearance = nsAppearance
+                            .onChange(of: appearance) { _, newValue in
+                                applyAppearance(newValue)
                             }
                     } else {
                         ProgressView("Opening FoodMapper")
@@ -319,7 +325,8 @@ struct FoodMapperApp: App {
         Settings {
             FoodMapperSettingsRoot(
                 appState: appState,
-                updaterController: updaterController
+                updaterController: updaterController,
+                appearance: $appearance
             )
         }
 
@@ -346,11 +353,21 @@ struct FoodMapperApp: App {
 private struct FoodMapperSettingsRoot: View {
     let appState: AppState?
     let updaterController: SPUStandardUpdaterController?
+    @Binding var appearance: String
 
     var body: some View {
         if let appState, let updaterController {
-            SettingsView(updater: updaterController.updater)
+            SettingsView(
+                updater: updaterController.updater,
+                appearance: $appearance
+            )
                 .environmentObject(appState)
+                .onAppear {
+                    applyAppearance(appearance)
+                }
+                .onChange(of: appearance) { _, newValue in
+                    applyAppearance(newValue)
+                }
         } else {
             Text("FoodMapper is opening")
                 .foregroundStyle(.secondary)
