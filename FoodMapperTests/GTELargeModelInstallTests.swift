@@ -6,8 +6,8 @@ import XCTest
 
 final class GTELargeModelInstallTests: XCTestCase {
 
-    func testCurrentManifestUsesCorrectedMITArtifactRevision() {
-        XCTAssertEqual(GTELargeModelManifest.current.revision, "200d1bf79e6a152736fe1517703d0079a0bd16fa")
+    func testCurrentManifestKeepsPayloadRevisionAcrossMetadataCorrection() {
+        XCTAssertEqual(GTELargeModelManifest.current.revision, "0b7a78872ae6fd502fe2db3273b1b3e065a3d9db")
         XCTAssertEqual(GTELargeModelManifest.current.upstreamLicense, "MIT")
         XCTAssertEqual(GTELargeModelManifest.current.files.first(where: { $0.name == "gte-large.safetensors" })?.sha256, "f917f334b6e38e966519983a6b567a5a86d90065932c780f6b4ad72e6bf3a90b")
     }
@@ -31,7 +31,7 @@ final class GTELargeModelInstallTests: XCTestCase {
 
     func testProductionManifestPinsRevisionSizesAndHashes() {
         let manifest = GTELargeModelManifest.current
-        XCTAssertEqual(manifest.revision, "200d1bf79e6a152736fe1517703d0079a0bd16fa")
+        XCTAssertEqual(manifest.revision, "0b7a78872ae6fd502fe2db3273b1b3e065a3d9db")
         XCTAssertEqual(manifest.upstreamRepositoryID, "thenlper/gte-large")
         XCTAssertEqual(manifest.upstreamRevision, "4bef63f39fcc5e2d6b0aae83089f307af4970164")
         XCTAssertEqual(manifest.upstreamLicense, "MIT")

@@ -17,7 +17,7 @@ pipeline_tag: sentence-similarity
 
 # FoodMapper GTE-Large (MLX Format)
 
-This is an MLX-Swift float16 BERT SafeTensors conversion of [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) at revision [`4bef63f39fcc5e2d6b0aae83089f307af4970164`](https://huggingface.co/thenlper/gte-large/tree/4bef63f39fcc5e2d6b0aae83089f307af4970164). FoodMapper pins the converted artifact at `200d1bf79e6a152736fe1517703d0079a0bd16fa`. That revision corrects the artifact card license to MIT and retains the six payload objects from `0b7a78872ae6fd502fe2db3273b1b3e065a3d9db`.
+This is an MLX-Swift float16 BERT SafeTensors conversion of [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) at revision [`4bef63f39fcc5e2d6b0aae83089f307af4970164`](https://huggingface.co/thenlper/gte-large/tree/4bef63f39fcc5e2d6b0aae83089f307af4970164). FoodMapper pins the six converted payload objects at `0b7a78872ae6fd502fe2db3273b1b3e065a3d9db`. Artifact-card revision `200d1bf79e6a152736fe1517703d0079a0bd16fa` corrects the license metadata to MIT without changing those payload objects.
 
 ## Model Description
 

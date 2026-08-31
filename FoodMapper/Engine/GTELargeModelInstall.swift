@@ -26,9 +26,10 @@ struct GTELargeModelManifest: Codable, Equatable, Sendable {
     static let current = GTELargeModelManifest(
         formatVersion: 1,
         repositoryID: "richtext/foodmapper-gte-large",
-        // `200d1bf` changes the artifact card and license metadata only. The
-        // six installed payload objects retain the hashes below from `0b7a788`.
-        revision: "200d1bf79e6a152736fe1517703d0079a0bd16fa",
+        // `200d1bf` corrects the artifact card metadata only. Keep the six
+        // payload objects on their original revision so the card edit cannot
+        // make an existing verified model look stale.
+        revision: "0b7a78872ae6fd502fe2db3273b1b3e065a3d9db",
         upstreamRepositoryID: "thenlper/gte-large",
         upstreamRevision: "4bef63f39fcc5e2d6b0aae83089f307af4970164",
         upstreamLicense: "MIT",
