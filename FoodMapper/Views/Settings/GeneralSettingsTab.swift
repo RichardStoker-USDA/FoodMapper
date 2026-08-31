@@ -4,7 +4,7 @@ import Sparkle
 /// General settings: appearance, display, and update options
 struct GeneralSettingsTab: View {
     let updater: SPUUpdater
-    @AppStorage("appearance", store: FoodMapperStorage.defaults) private var appearance = "system"
+    @Binding var appearance: String
     @AppStorage("pageSize", store: FoodMapperStorage.defaults) private var pageSize = 200
 
     private var automaticallyChecksForUpdates: Binding<Bool> {
@@ -102,7 +102,7 @@ struct GeneralSettingsTab: View {
 #Preview("General - Light") {
     GeneralSettingsTab(updater: SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
-    ).updater)
+    ).updater, appearance: .constant("light"))
     .frame(width: 520, height: 480)
     .preferredColorScheme(.light)
 }
@@ -110,7 +110,7 @@ struct GeneralSettingsTab: View {
 #Preview("General - Dark") {
     GeneralSettingsTab(updater: SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
-    ).updater)
+    ).updater, appearance: .constant("dark"))
     .frame(width: 520, height: 480)
     .preferredColorScheme(.dark)
 }

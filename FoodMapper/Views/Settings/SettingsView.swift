@@ -1,11 +1,16 @@
 import SwiftUI
 import Sparkle
 
+extension Notification.Name {
+    static let showModelSettings = Notification.Name("showModelSettings")
+}
+
 /// Settings window content with tab-based navigation.
 /// Always shows 4 tabs: General, Models, API Keys, Advanced.
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     let updater: SPUUpdater
+    @Binding var appearance: String
 
     enum SettingsTab: Hashable {
         case general, models, apiKeys, advanced
@@ -15,7 +20,7 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            GeneralSettingsTab(updater: updater)
+            GeneralSettingsTab(updater: updater, appearance: $appearance)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
 
@@ -39,11 +44,8 @@ struct SettingsView: View {
             .tag(SettingsTab.advanced)
         }
         .frame(width: 505, height: 485)
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard let window = notification.object as? NSWindow,
-                  window.title.contains("Settings") || window.identifier?.rawValue.contains("settings") == true
-            else { return }
-            selectedTab = .general
+        .onReceive(NotificationCenter.default.publisher(for: .showModelSettings)) { _ in
+            selectedTab = .models
         }
     }
 }
@@ -51,21 +53,21 @@ struct SettingsView: View {
 #Preview("Settings - Simple Mode") {
     SettingsView(updater: SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
-    ).updater)
+    ).updater, appearance: .constant("system"))
     .environmentObject(PreviewHelpers.emptyState())
 }
 
 #Preview("Settings - Advanced Mode") {
     SettingsView(updater: SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
-    ).updater)
+    ).updater, appearance: .constant("system"))
     .environmentObject(PreviewHelpers.emptyAdvancedState())
 }
 
 #Preview("Settings - Dark") {
     SettingsView(updater: SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
-    ).updater)
+    ).updater, appearance: .constant("dark"))
     .environmentObject(PreviewHelpers.emptyState())
     .preferredColorScheme(.dark)
 }
