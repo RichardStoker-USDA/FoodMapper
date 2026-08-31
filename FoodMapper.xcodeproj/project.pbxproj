@@ -1078,7 +1078,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 2.30.6;
+				minimumVersion = 3.31.4;
 			};
 		};
 		SPARKLE001PKGREF0000 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
