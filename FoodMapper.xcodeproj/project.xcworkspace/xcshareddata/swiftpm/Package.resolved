@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ml-explore/mlx-swift",
       "state" : {
-        "revision" : "6ba4827fb82c97d012eec9ab4b2de21f85c3b33d",
-        "version" : "0.30.6"
+        "revision" : "0bb916c67f4b9e5c682cbe02a42c701c93ab5021",
+        "version" : "0.31.6"
       }
     },
     {

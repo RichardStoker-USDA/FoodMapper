@@ -1070,7 +1070,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.30.6;
+				minimumVersion = 0.31.6;
 			};
 		};
 		PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
