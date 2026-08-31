@@ -54,40 +54,26 @@ actor QwenRerankerModel {
     // MARK: - Loading
 
     func load() async throws {
-        try await load(hub: HubApi())
+        throw RerankerError.modelNotLoaded
     }
 
-    func load(hub: HubApi) async throws {
-        let configuration = MLXLMCommon.ModelConfiguration(id: repoId)
-
-        logger.info("Loading Qwen3-Reranker from \(self.repoId)...")
-
-        container = try await MLXLMCommon.loadModelContainer(
-            hub: hub,
-            configuration: configuration
-        ) { progress in
-            logger.debug("Download progress: \(Int(progress.fractionCompleted * 100))%")
-        }
-
-        // Look up yes/no token IDs for scoring
-        try await resolveTokenIds()
-
-        logger.info("Qwen3-Reranker loaded (yes=\(self.yesTokenId), no=\(self.noTokenId))")
+    func load(hub _: HubApi) async throws {
+        throw RerankerError.modelNotLoaded
     }
 
-    func load(hub: HubApi, onProgress: @Sendable @escaping (Double) -> Void) async throws {
-        let configuration = MLXLMCommon.ModelConfiguration(id: repoId)
+    func load(hub _: HubApi, onProgress _: @Sendable @escaping (Double) -> Void) async throws {
+        throw RerankerError.modelNotLoaded
+    }
 
-        container = try await MLXLMCommon.loadModelContainer(
-            hub: hub,
-            configuration: configuration
-        ) { progress in
-            onProgress(progress.fractionCompleted)
+    func load(snapshot: VerifiedLocalModelSnapshot) async throws {
+        guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
+            throw RerankerError.modelNotLoaded
         }
-
+        try snapshot.revalidate()
+        container = try await MLXLMCommon.loadModelContainer(
+            hub: HubApi(), configuration: .init(directory: snapshot.directory)
+        )
         try await resolveTokenIds()
-
-        logger.info("Qwen3-Reranker loaded (yes=\(self.yesTokenId), no=\(self.noTokenId))")
     }
 
     /// Resolve "yes" and "no" token IDs from the tokenizer.
@@ -136,8 +122,7 @@ actor QwenRerankerModel {
 
         let inst = instruction ?? Self.defaultInstruction
 
-        logger.info("[Model] QwenReranker | rerank() | Instruction: \(inst.prefix(100))")
-        logger.info("[Model] QwenReranker | rerank() | Query: \(query.prefix(80)) | Candidates: \(candidates.count)")
+        logger.info("[Model] QwenReranker | rerank() | Candidates: \(candidates.count) | Custom instruction: \(instruction != nil)")
 
         // Capture token IDs locally to avoid actor isolation in @Sendable closures
         let yesId = self.yesTokenId
@@ -147,7 +132,7 @@ actor QwenRerankerModel {
         let prompts = candidates.map { formatPrompt(query: query, document: $0, instruction: inst) }
 
         // Phase 1: Pre-tokenize all candidates in one container.perform call
-        let allTokens: [[Int]] = try await container.perform { context in
+        let allTokens: [[Int]] = await container.perform { context in
             prompts.map { context.tokenizer.encode(text: $0) }
         }
 
@@ -158,7 +143,7 @@ actor QwenRerankerModel {
         for (index, tokens) in allTokens.enumerated() {
             try Task.checkCancellation()
 
-            let score: Float = try await container.perform { context in
+            let score: Float = await container.perform { context in
                 let model = context.model
                 let inputArray = MLXArray(tokens).reshaped(1, tokens.count)
 
@@ -222,14 +207,13 @@ actor QwenRerankerModel {
         let yesId = self.yesTokenId
         let noId = self.noTokenId
 
-        logger.info("[Model] QwenReranker | batchRerank() | Instruction: \(inst.prefix(100))")
-        logger.info("[Model] QwenReranker | batchRerank() | Query: \(query.prefix(80)) | Candidates: \(candidates.count)")
+        logger.info("[Model] QwenReranker | batchRerank() | Candidates: \(candidates.count) | Custom instruction: \(instruction != nil)")
 
         // Build all prompts
         let prompts = candidates.map { formatPrompt(query: query, document: $0, instruction: inst) }
 
         // Tokenize, pad, forward pass, and extract scores in one container.perform call
-        let scores: [RerankerScore] = try await container.perform { context in
+        let scores: [RerankerScore] = await container.perform { context in
             let tokenizer = context.tokenizer
             let model = context.model
 

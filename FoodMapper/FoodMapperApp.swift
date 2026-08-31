@@ -23,11 +23,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct FoodMapperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appState = AppState()
-    @AppStorage("appearance") private var appearance = "system"
-    private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
-    )
+    @StateObject private var startup = FoodMapperStartupCoordinator()
+    @State private var appState: AppState?
+    @State private var helpRequests: HelpRequestCoordinator?
+    @State private var updaterController: SPUStandardUpdaterController?
+    @State private var appearance = "system"
 
     private var nsAppearance: NSAppearance? {
         switch appearance {
@@ -37,24 +37,69 @@ struct FoodMapperApp: App {
         }
     }
 
+    private func prepareApplicationIfReady() {
+        guard case .ready = startup.state,
+              appState == nil,
+              FoodMapperStorage.isBootstrapped else {
+            return
+        }
+
+        let defaults = FoodMapperStorage.defaults
+        defaults.register(defaults: [
+            "SUEnableAutomaticChecks": true,
+            "SUAutomaticallyUpdate": false,
+        ])
+        appearance = defaults.string(forKey: "appearance") ?? "system"
+        appState = AppState()
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
+        )
+        helpRequests = HelpRequestCoordinator()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appState)
-                .onAppear {
-                    NSApp.appearance = nsAppearance
+            Group {
+                switch startup.state {
+                case .checking, .failed:
+                    FoodMapperStorageStartupView(
+                        state: startup.state,
+                        retry: startup.retry
+                    )
+
+                case .ready:
+                    if let appState, let helpRequests {
+                        ContentView()
+                            .environmentObject(appState)
+                            .environmentObject(helpRequests)
+                            .onAppear {
+                                NSApp.appearance = nsAppearance
+                            }
+                            .onChange(of: appearance) { _, _ in
+                                FoodMapperStorage.defaults.set(appearance, forKey: "appearance")
+                                NSApp.appearance = nsAppearance
+                            }
+                    } else {
+                        ProgressView("Opening FoodMapper")
+                    }
                 }
-                .onChange(of: appearance) { _, _ in
-                    NSApp.appearance = nsAppearance
-                }
+            }
+            .task {
+                startup.start()
+                prepareApplicationIfReady()
+            }
+            .onChange(of: startup.state) { _, _ in
+                prepareApplicationIfReady()
+            }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
         .windowResizability(.contentSize)
         .defaultSize(width: 1340, height: 750)
         .commands {
-            // Inspector toggle (Cmd+Ctrl+I) for review panel
-            InspectorCommands()
+            if let appState, let updaterController {
+                // Inspector toggle (Cmd+Ctrl+I) for review panel
+                InspectorCommands()
 
             // About panel (FoodMapper > About FoodMapper)
             CommandGroup(replacing: .appInfo) {
@@ -268,15 +313,21 @@ struct FoodMapperApp: App {
                         .foregroundStyle(.secondary)
                 }
             }
+            }
         }
 
         Settings {
-            SettingsView(updater: updaterController.updater)
-                .environmentObject(appState)
+            FoodMapperSettingsRoot(
+                appState: appState,
+                updaterController: updaterController
+            )
         }
 
         Window("FoodMapper Help", id: "help") {
-            HelpView()
+            FoodMapperHelpRoot(
+                appState: appState,
+                helpRequests: helpRequests
+            )
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
@@ -289,6 +340,39 @@ struct FoodMapperApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+}
+
+private struct FoodMapperSettingsRoot: View {
+    let appState: AppState?
+    let updaterController: SPUStandardUpdaterController?
+
+    var body: some View {
+        if let appState, let updaterController {
+            SettingsView(updater: updaterController.updater)
+                .environmentObject(appState)
+        } else {
+            Text("FoodMapper is opening")
+                .foregroundStyle(.secondary)
+                .padding()
+        }
+    }
+}
+
+private struct FoodMapperHelpRoot: View {
+    let appState: AppState?
+    let helpRequests: HelpRequestCoordinator?
+
+    var body: some View {
+        if let appState, let helpRequests {
+            HelpView()
+                .environmentObject(appState)
+                .environmentObject(helpRequests)
+        } else {
+            Text("FoodMapper is opening")
+                .foregroundStyle(.secondary)
+                .padding()
+        }
     }
 }
 
@@ -307,6 +391,8 @@ private struct AboutMenuItem: View {
 
 /// Custom About panel: icon left, name + version + credits right.
 private struct AboutPanelView: View {
+    @Environment(\.openURL) private var openURL
+
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
@@ -355,12 +441,12 @@ private struct AboutPanelView: View {
 
             HStack(spacing: Spacing.md) {
                 Button("Research Paper") {
-                    // Placeholder: will open paper DOI link when published
+                    openURL(AppLinks.publication)
                 }
                 .frame(width: 140)
 
                 Button("GitHub Repository") {
-                    // Placeholder: will open GitHub repo URL
+                    openURL(AppLinks.repository)
                 }
                 .frame(width: 140)
             }

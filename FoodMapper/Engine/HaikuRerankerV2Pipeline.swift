@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "haiku-v2-pip
 /// Stage 1: GTE-Large embedding retrieval (same as v1).
 /// Stage 2: Anthropic Batch API with productionV2 prompt strategy.
 ///   - Long system prompt (~2,200 tokens) with 5 worked examples, cached via cache_control
-///   - Minimal user message (~50 tokens): just the food description + numbered candidates
+///   - Minimal user message (~50 tokens): food description + numbered candidates
 ///   - max_tokens capped at 20 (response is always 1-3 tokens)
 final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
     let pipelineType: PipelineType = .gteLargeHaikuV2
@@ -71,8 +71,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
             ? basePrompt + "\n\nAdditional matching context: " + rerankerInstruction!
             : basePrompt
 
-        logger.info("[Pipeline] HaikuRerankerV2 | Stage: embedding | Instruction: (none -- GTE-Large is symmetric)")
-        logger.info("[Pipeline] HaikuRerankerV2 | Stage: haiku | rerankerInstruction: \(rerankerInstruction?.prefix(100) ?? "(none)")")
+        logger.info("[Pipeline] HaikuRerankerV2 | Stage: embedding | Instruction: none")
+        logger.info("[Pipeline] HaikuRerankerV2 | Stage: haiku | Custom context: \(rerankerInstruction != nil)")
         logger.info("[Pipeline] HaikuRerankerV2 | \(totalInputs) inputs, top-\(self.topK) candidates each")
 
         // Stage 1: GTE-Large embedding retrieval
@@ -130,7 +130,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                             matchText: candidate.entry.text,
                             matchID: candidate.entry.id,
                             score: Double(candidate.score),
-                            additionalFields: candidate.entry.additionalFields
+                            additionalFields: candidate.entry.additionalFields,
+                            targetRowKey: candidate.entry.targetRowKey
                         )
                     }
                     finalResults[inputIndex] = MatchResult(
@@ -169,6 +170,21 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                 scores: scores
             )
             return (customId: "task-\(task.originalIndex)", userMessage: userMessage)
+        }
+
+        guard HaikuBatchSubmission.shouldSubmit(taskCount: batchTasks.count) else {
+            logger.info("Stage 2 skipped: no qualified candidates")
+            let results = finalResults.enumerated().map { index, result in
+                result ?? MatchResult(
+                    inputText: inputs[index],
+                    inputRow: index,
+                    score: 0,
+                    status: .error,
+                    scoreType: .noScore
+                )
+            }
+            onProgress(totalInputs)
+            return results
         }
 
         // Submit batch with prompt caching enabled
@@ -249,7 +265,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         matchText: candidate.entry.text,
                         matchID: candidate.entry.id,
                         score: Double(candidate.score),
-                        additionalFields: candidate.entry.additionalFields
+                        additionalFields: candidate.entry.additionalFields,
+                        targetRowKey: candidate.entry.targetRowKey
                     )
                 }
 
@@ -268,7 +285,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         scoreType: .llmSelected,
                         llmReasoning: reasoning,
                         matchAdditionalFields: bestCandidate.entry.additionalFields,
-                        candidates: matchCandidates
+                        candidates: matchCandidates,
+                        targetRowKey: bestCandidate.entry.targetRowKey
                     )
 
                 case .review(let reviewIndex):
@@ -284,7 +302,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         scoreType: .llmSelected,
                         llmReasoning: "Flagged for review: candidate \(reviewIndex + 1) (\(reviewCandidate.entry.text)) is a possible but uncertain match",
                         matchAdditionalFields: reviewCandidate.entry.additionalFields,
-                        candidates: matchCandidates
+                        candidates: matchCandidates,
+                        targetRowKey: reviewCandidate.entry.targetRowKey
                     )
 
                 case .noMatch:
@@ -307,7 +326,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         matchText: candidate.entry.text,
                         matchID: candidate.entry.id,
                         score: Double(candidate.score),
-                        additionalFields: candidate.entry.additionalFields
+                        additionalFields: candidate.entry.additionalFields,
+                        targetRowKey: candidate.entry.targetRowKey
                     )
                 }
                 if score >= threshold {
@@ -320,7 +340,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         status: .match,
                         scoreType: .apiFallback,
                         matchAdditionalFields: topCandidate.entry.additionalFields,
-                        candidates: matchCandidates
+                        candidates: matchCandidates,
+                        targetRowKey: topCandidate.entry.targetRowKey
                     )
                 } else {
                     finalResults[task.originalIndex] = MatchResult(

@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "embedding-ll
 /// Stage 2: GenerativeJudgeModel picks the best from top-K via text gen.
 /// Supports letter (A-Z), number (1-N), and text (name) response formats.
 final class EmbeddingLLMPipeline: MatchingPipelineProtocol {
-    let pipelineType: PipelineType = .embeddingLLM
+    let pipelineType: PipelineType
     var name: String { pipelineType.displayName }
 
     private let engine: MatchingEngine
@@ -19,12 +19,14 @@ final class EmbeddingLLMPipeline: MatchingPipelineProtocol {
     let allowThinking: Bool
 
     init(
+        pipelineType: PipelineType = .embeddingLLM,
         engine: MatchingEngine,
         judge: GenerativeJudgeModel,
         hardwareConfig: HardwareConfig,
         responseFormat: JudgeResponseFormat = .letter,
         allowThinking: Bool = false
     ) {
+        self.pipelineType = pipelineType
         self.engine = engine
         self.judge = judge
         self.hardwareConfig = hardwareConfig
@@ -137,7 +139,8 @@ final class EmbeddingLLMPipeline: MatchingPipelineProtocol {
                     matchText: candidate.entry.text,
                     matchID: candidate.entry.id,
                     score: Double(prob),
-                    additionalFields: candidate.entry.additionalFields
+                    additionalFields: candidate.entry.additionalFields,
+                    targetRowKey: candidate.entry.targetRowKey
                 )
             }.sorted { $0.score > $1.score }
 
@@ -157,7 +160,8 @@ final class EmbeddingLLMPipeline: MatchingPipelineProtocol {
                     status: status,
                     scoreType: .generativeSelection,
                     matchAdditionalFields: selected.entry.additionalFields,
-                    candidates: scoredCandidates
+                    candidates: scoredCandidates,
+                    targetRowKey: selected.entry.targetRowKey
                 ))
             } else {
                 // X selected -- genuine no-match. Include candidates for review.

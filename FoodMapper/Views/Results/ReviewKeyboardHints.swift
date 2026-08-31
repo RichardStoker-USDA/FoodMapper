@@ -21,7 +21,7 @@ struct ReviewKeyboardHints: View {
                     keyHint("Exit Review", key: "Esc")
                 }
             } else {
-                // Normal mode: single row with essential shortcuts
+                // Normal mode: single row with common shortcuts
                 HStack(spacing: Spacing.xl) {
                     keyHint("Reset", key: "R \u{00D7}2")
                     keyHint("Undo", key: "\u{2318}Z")

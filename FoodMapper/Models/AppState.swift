@@ -112,6 +112,8 @@ final class AppState: ObservableObject {
 
     // Database embedding state (for pre-embedding custom databases)
     @Published var databaseEmbeddingStatus: DatabaseEmbeddingStatus = .idle
+    @Published var databaseRecoveryIssue: DatabaseRecoveryIssue?
+    @Published private(set) var activeEngineOperation: EngineOperation?
 
     /// Bumped whenever embedding cache files change on disk, forcing SwiftUI views
     /// that depend on `hasEmbeddings(for:)` to re-evaluate.
@@ -164,6 +166,11 @@ final class AppState: ObservableObject {
     // Deduplicated candidate list for fast override search
     var allUniqueCandidates: [MatchCandidate] = []
 
+    /// Target bytes captured at matching start. This is persisted with the
+    /// session so manual full-target search can reopen the same database after
+    /// a custom database changes or is removed.
+    var activeTargetSnapshot: TargetSnapshotReference?
+
     // Intermediate unsorted filtered results (avoids re-filtering on sort-only changes)
     var cachedUnsortedFilteredResults: [MatchResult] = []
 
@@ -193,23 +200,23 @@ final class AppState: ObservableObject {
     let maxUndoStackSize = 50
     /// User override for match threshold (nil = use profile defaults).
     /// Uses a new key to avoid loading stale values from the old 3-zone system.
-    @Published var userMatchThreshold: Double? = UserDefaults.standard.object(forKey: "userMatchThreshold_v2") as? Double {
+    @Published var userMatchThreshold: Double? = FoodMapperStorage.defaults.object(forKey: "userMatchThreshold_v2") as? Double {
         didSet {
             if let value = userMatchThreshold {
-                UserDefaults.standard.set(value, forKey: "userMatchThreshold_v2")
+                FoodMapperStorage.defaults.set(value, forKey: "userMatchThreshold_v2")
             } else {
-                UserDefaults.standard.removeObject(forKey: "userMatchThreshold_v2")
+                FoodMapperStorage.defaults.removeObject(forKey: "userMatchThreshold_v2")
             }
         }
     }
     /// User override for the lowest threshold boundary (nil = use profile defaults).
     /// Uses a new key to avoid loading stale values from the old 3-zone system.
-    @Published var userRejectThreshold: Double? = UserDefaults.standard.object(forKey: "userRejectThreshold_v2") as? Double {
+    @Published var userRejectThreshold: Double? = FoodMapperStorage.defaults.object(forKey: "userRejectThreshold_v2") as? Double {
         didSet {
             if let value = userRejectThreshold {
-                UserDefaults.standard.set(value, forKey: "userRejectThreshold_v2")
+                FoodMapperStorage.defaults.set(value, forKey: "userRejectThreshold_v2")
             } else {
-                UserDefaults.standard.removeObject(forKey: "userRejectThreshold_v2")
+                FoodMapperStorage.defaults.removeObject(forKey: "userRejectThreshold_v2")
             }
         }
     }
@@ -261,7 +268,7 @@ final class AppState: ObservableObject {
     }
 
     /// Rebuild the category counts from cachedCategories. O(n) but only runs
-    /// when categories actually change, not on every UI read.
+    /// when categories change, not on every UI read.
     func rebuildCategoryCounts() {
         var counts: [MatchCategory: Int] = [:]
         for result in results {
@@ -298,7 +305,7 @@ final class AppState: ObservableObject {
         for result in results {
             guard let candidates = result.candidates else { continue }
             for candidate in candidates {
-                let key = candidate.matchText.lowercased()
+                let key = candidate.deduplicationKey
                 guard !seen.contains(key) else { continue }
                 seen.insert(key)
                 unique.append(candidate)
@@ -323,7 +330,7 @@ final class AppState: ObservableObject {
 
     // Pagination state
     @Published var currentPage: Int = 0
-    @Published var pageSize: Int = UserDefaults.standard.integer(forKey: "pageSize").nonZeroOr(200)
+    @Published var pageSize: Int = FoodMapperStorage.defaults.integer(forKey: "pageSize").nonZeroOr(200)
 
     // Hardware configuration (detected at launch)
     @Published var hardwareConfig: HardwareConfig
@@ -332,9 +339,9 @@ final class AppState: ObservableObject {
     @Published var modelManager: ModelManager
 
     // Simple/Advanced toggle (persisted via UserDefaults)
-    @Published var isAdvancedMode: Bool = UserDefaults.standard.bool(forKey: "isAdvancedMode") {
+    @Published var isAdvancedMode: Bool = FoodMapperStorage.defaults.bool(forKey: "isAdvancedMode") {
         didSet {
-            UserDefaults.standard.set(isAdvancedMode, forKey: "isAdvancedMode")
+            FoodMapperStorage.defaults.set(isAdvancedMode, forKey: "isAdvancedMode")
             // Navigate away from advanced-only pages when switching to simple mode
             if !isAdvancedMode, let sel = sidebarSelection, !sel.isVisibleInSimpleMode {
                 sidebarSelection = .home
@@ -345,47 +352,47 @@ final class AppState: ObservableObject {
     // Smart auto-match thresholds for embedding-only pipelines (persisted via UserDefaults)
     // When the top candidate scores above the floor AND the gap to #2 exceeds minGap,
     // the result is auto-marked as Match instead of Needs Review. Tuned for GTE-Large.
-    @Published var autoMatchScoreFloor: Double = UserDefaults.standard.object(forKey: "autoMatchScoreFloor") as? Double ?? 0.95 {
-        didSet { UserDefaults.standard.set(autoMatchScoreFloor, forKey: "autoMatchScoreFloor") }
+    @Published var autoMatchScoreFloor: Double = FoodMapperStorage.defaults.object(forKey: "autoMatchScoreFloor") as? Double ?? 0.95 {
+        didSet { FoodMapperStorage.defaults.set(autoMatchScoreFloor, forKey: "autoMatchScoreFloor") }
     }
-    @Published var autoMatchMinGap: Double = UserDefaults.standard.object(forKey: "autoMatchMinGap") as? Double ?? 0.01 {
-        didSet { UserDefaults.standard.set(autoMatchMinGap, forKey: "autoMatchMinGap") }
+    @Published var autoMatchMinGap: Double = FoodMapperStorage.defaults.object(forKey: "autoMatchMinGap") as? Double ?? 0.01 {
+        didSet { FoodMapperStorage.defaults.set(autoMatchMinGap, forKey: "autoMatchMinGap") }
     }
 
     // Claude model version (persisted via UserDefaults)
     @Published var selectedClaudeModel: ClaudeModelVersion = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedHaikuModel"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedHaikuModel"),
            let version = ClaudeModelVersion(rawValue: raw) {
             return version
         }
         return .haiku3
     }() {
-        didSet { UserDefaults.standard.set(selectedClaudeModel.rawValue, forKey: "selectedHaikuModel") }
+        didSet { FoodMapperStorage.defaults.set(selectedClaudeModel.rawValue, forKey: "selectedHaikuModel") }
     }
 
     // Model size selection (persisted via UserDefaults)
     @Published var selectedEmbeddingSize: ModelSize = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedEmbeddingSize"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedEmbeddingSize"),
            let size = ModelSize(rawValue: raw) { return size }
         return .medium
     }() {
-        didSet { UserDefaults.standard.set(selectedEmbeddingSize.rawValue, forKey: "selectedEmbeddingSize") }
+        didSet { FoodMapperStorage.defaults.set(selectedEmbeddingSize.rawValue, forKey: "selectedEmbeddingSize") }
     }
 
     @Published var selectedRerankerSize: ModelSize = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedRerankerSize"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedRerankerSize"),
            let size = ModelSize(rawValue: raw) { return size }
         return .small
     }() {
-        didSet { UserDefaults.standard.set(selectedRerankerSize.rawValue, forKey: "selectedRerankerSize") }
+        didSet { FoodMapperStorage.defaults.set(selectedRerankerSize.rawValue, forKey: "selectedRerankerSize") }
     }
 
     @Published var selectedGenerativeSize: ModelSize = {
-        if let raw = UserDefaults.standard.string(forKey: "selectedGenerativeSize"),
+        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedGenerativeSize"),
            let size = ModelSize(rawValue: raw) { return size }
         return .medium
     }() {
-        didSet { UserDefaults.standard.set(selectedGenerativeSize.rawValue, forKey: "selectedGenerativeSize") }
+        didSet { FoodMapperStorage.defaults.set(selectedGenerativeSize.rawValue, forKey: "selectedGenerativeSize") }
     }
 
     /// Resolved embedding model key based on selected size
@@ -398,9 +405,23 @@ final class AppState: ObservableObject {
         ModelFamily.qwen3Reranker.modelKey(for: selectedRerankerSize) ?? "qwen3-reranker-0.6b"
     }
 
-    /// Resolved generative judge model key based on selected size
+    /// Resolved Qwen generative judge model key based on selected size.
     var selectedGenerativeModelKey: String {
         ModelFamily.qwen3Generative.modelKey(for: selectedGenerativeSize) ?? "qwen3-judge-4b-4bit"
+    }
+
+    /// Resolved generative judge model key for the selected pipeline.
+    var generativeModelKeyForCurrentPipeline: String {
+        let family: ModelFamily
+        switch selectedPipelineType {
+        case .gemma4LLMOnly, .gemma4TwoStage:
+            family = .gemma4Generative
+        default:
+            family = .qwen3Generative
+        }
+        return family.modelKey(for: selectedGenerativeSize)
+            ?? family.modelKey(for: .medium)
+            ?? selectedGenerativeModelKey
     }
 
     /// Required model keys for the current pipeline type + selected sizes.
@@ -414,8 +435,10 @@ final class AppState: ObservableObject {
         case .qwen3TwoStage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
         case .gteLargeHaiku, .gteLargeHaikuV2: return ["gte-large"]
         case .qwen3SmartTriage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
-        case .qwen3LLMOnly: return [selectedGenerativeModelKey]
-        case .embeddingLLM: return [selectedEmbeddingModelKey, selectedGenerativeModelKey]
+        case .qwen3LLMOnly: return [generativeModelKeyForCurrentPipeline]
+        case .embeddingLLM: return [selectedEmbeddingModelKey, generativeModelKeyForCurrentPipeline]
+        case .gemma4LLMOnly: return [generativeModelKeyForCurrentPipeline]
+        case .gemma4TwoStage: return [selectedEmbeddingModelKey, generativeModelKeyForCurrentPipeline]
         }
     }
 
@@ -423,9 +446,9 @@ final class AppState: ObservableObject {
     var embeddingModelKeyForCurrentPipeline: String? {
         switch selectedPipelineType {
         case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM:
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return selectedEmbeddingModelKey
-        case .qwen3Reranker, .qwen3LLMOnly: return nil
+        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
 
@@ -528,7 +551,7 @@ final class AppState: ObservableObject {
     /// Per-pipeline performance overrides, keyed by PipelineType.rawValue.
     /// nil values within each config fall back to pipeline+model defaults.
     @Published var pipelinePerformanceOverrides: [String: PipelinePerformanceConfig] = {
-        guard let data = UserDefaults.standard.data(forKey: "pipelinePerformanceOverrides"),
+        guard let data = FoodMapperStorage.defaults.data(forKey: "pipelinePerformanceOverrides"),
               let decoded = try? JSONDecoder().decode([String: PipelinePerformanceConfig].self, from: data) else {
             return [:]
         }
@@ -578,21 +601,33 @@ final class AppState: ObservableObject {
     func embeddingModelKeyForPipeline(_ pipeline: PipelineType) -> String? {
         switch pipeline {
         case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM:
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return selectedEmbeddingModelKey
-        case .qwen3Reranker, .qwen3LLMOnly: return nil
+        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
 
     func savePipelinePerformanceOverrides() {
         if let data = try? JSONEncoder().encode(pipelinePerformanceOverrides) {
-            UserDefaults.standard.set(data, forKey: "pipelinePerformanceOverrides")
+            FoodMapperStorage.defaults.set(data, forKey: "pipelinePerformanceOverrides")
         }
     }
 
     // Model state
     @Published var modelStatus: ModelStatus = .notDownloaded
 
+    // Detailed GTE-Large onboarding download state
+    @Published var downloadBytesWritten: Int64 = 0
+    @Published var downloadBytesTotal: Int64 = GTELargeModelManifest.current.downloadSize
+    @Published var downloadSpeedBytesPerSecond: Double = 0
+    @Published var downloadTimeRemaining: Double? = nil
+    @Published var downloadStartTime: Date? = nil
+
+    // Private variables for EMA smoothing and 1Hz throttled updates
+    private var lastSpeedCalculationTime: Date = .distantPast
+    private var lastBytesWritten: Int64 = 0
+    private var smoothedSpeedBytesPerSecond: Double = 0
+    private var lastMetadataUpdateTime: Date = .distantPast
     // Navigation state
     @Published var sessions: [MatchingSession] = []
     @Published var sidebarSelection: NavigationItem? = .home {
@@ -702,6 +737,8 @@ final class AppState: ObservableObject {
     var tourEngine: MatchingEngine?
     var matchingTask: Task<Void, Never>?
     var embeddingTask: Task<Void, Never>?
+    var sessionRestoreTask: Task<Void, Never>?
+    var tourEmbeddingTask: Task<Void, Never>?
     var tourHybridTask: Task<Void, Never>?
     var tourHybridApiClient: AnthropicAPIClient?
     var settingsObserver: NSObjectProtocol?
@@ -709,12 +746,47 @@ final class AppState: ObservableObject {
     var modelStateSubscription: AnyCancellable?
     var isVerifyingModelAfterDownload = false
 
+    enum EngineOperation: Equatable {
+        case matching(UUID)
+        case databaseEmbedding(UUID, String)
+        case databaseRemoval(UUID, String)
+        case researchTour(UUID)
+        case sessionRestore(UUID)
+
+        var id: UUID {
+            switch self {
+            case let .matching(id), let .databaseEmbedding(id, _), let .databaseRemoval(id, _),
+                 let .researchTour(id), let .sessionRestore(id): return id
+            }
+        }
+    }
+
+    var canModifyDatabases: Bool { activeEngineOperation == nil }
+
+    func beginEngineOperation(_ operation: EngineOperation) -> Bool {
+        guard activeEngineOperation == nil else { return false }
+        activeEngineOperation = operation
+        return true
+    }
+
+    func isCurrentEngineOperation(_ id: UUID) -> Bool {
+        activeEngineOperation?.id == id
+    }
+
+    func requireCurrentEngineOperation(_ id: UUID) throws {
+        guard !Task.isCancelled, isCurrentEngineOperation(id) else {
+            throw CancellationError()
+        }
+    }
+
+    func finishEngineOperation(_ id: UUID) {
+        guard isCurrentEngineOperation(id) else { return }
+        activeEngineOperation = nil
+    }
+
     // Session storage
     var sessionsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("FoodMapper/Sessions", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        FoodMapperStorage.privateDirectory(["Sessions"])
     }
 
     var sessionsIndexURL: URL {
@@ -727,6 +799,7 @@ final class AppState: ObservableObject {
         selectedColumn != nil &&
         selectedDatabase != nil &&
         !isProcessing &&
+        activeEngineOperation == nil &&
         !hasResults &&
         canRunSelectedPipeline
     }
@@ -825,6 +898,7 @@ final class AppState: ObservableObject {
         let search = searchText
         let searchLower = search.lowercased()
         let order = sortOrder
+        let categorySnapshot = cachedCategories
 
         if allResults.count > 2_000 {
             isSorting = true
@@ -842,8 +916,7 @@ final class AppState: ObservableObject {
                         cats[result.id] = MatchCategory.from(result: result, decision: decisions[result.id], profile: profile)
                     }
                 } else {
-                    // Snapshot current cache (safe since we captured before detach)
-                    cats = await MainActor.run { self?.cachedCategories ?? [:] }
+                    cats = categorySnapshot
                 }
 
                 let filtered = allResults.filter { result in
@@ -859,18 +932,15 @@ final class AppState: ObservableObject {
                     return true
                 }
                 let sorted = filtered.sorted(using: order)
-                let shouldResetPage = resetPage
-                await MainActor.run { [weak self] in
-                    guard let self, self.filterVersion == capturedVersion else { return }
-                    if needsCategoryRebuild {
-                        self.cachedCategories = cats
-                        self.rebuildCategoryCounts()
-                    }
-                    if shouldResetPage { self.currentPage = 0 }
-                    self.cachedUnsortedFilteredResults = filtered
-                    self.cachedFilteredResults = sorted
-                    self.isSorting = false
-                }
+                guard let appState = self else { return }
+                await appState.finishBackgroundFilter(
+                    capturedVersion: capturedVersion,
+                    needsCategoryRebuild: needsCategoryRebuild,
+                    categories: cats,
+                    filtered: filtered,
+                    sorted: sorted,
+                    resetPage: resetPage
+                )
             }
         } else {
             // Small datasets: rebuild on main thread (fast enough).
@@ -897,6 +967,25 @@ final class AppState: ObservableObject {
             }
             applySortOrder()
         }
+    }
+
+    private func finishBackgroundFilter(
+        capturedVersion: Int,
+        needsCategoryRebuild: Bool,
+        categories: [UUID: MatchCategory],
+        filtered: [MatchResult],
+        sorted: [MatchResult],
+        resetPage: Bool
+    ) {
+        guard filterVersion == capturedVersion else { return }
+        if needsCategoryRebuild {
+            cachedCategories = categories
+            rebuildCategoryCounts()
+        }
+        if resetPage { currentPage = 0 }
+        cachedUnsortedFilteredResults = filtered
+        cachedFilteredResults = sorted
+        isSorting = false
     }
 
     /// Apply sort order to the cached unsorted filtered results.
@@ -927,6 +1016,18 @@ final class AppState: ObservableObject {
         }
     }
 
+    func beginGTELargeDownloadMetrics(total: Int64) {
+        downloadStartTime = Date()
+        downloadBytesWritten = 0
+        downloadBytesTotal = total
+        downloadSpeedBytesPerSecond = 0
+        downloadTimeRemaining = nil
+        lastSpeedCalculationTime = .distantPast
+        lastBytesWritten = 0
+        smoothedSpeedBytesPerSecond = 0
+        lastMetadataUpdateTime = .distantPast
+    }
+
     init() {
         // Detect hardware configuration at launch
         let hw = HardwareConfig.detect()
@@ -934,13 +1035,60 @@ final class AppState: ObservableObject {
         hw.applyMLXCacheLimit()
         modelManager = ModelManager(hardwareConfig: hw)
 
+        modelManager.onGTELargeProgress = { [weak self] progress, written, total in
+            guard let self = self else { return }
+
+            let now = Date()
+
+            // Initialize calculation metrics on first callback
+            if self.lastSpeedCalculationTime == .distantPast {
+                self.lastSpeedCalculationTime = now
+                self.lastBytesWritten = written
+                self.lastMetadataUpdateTime = now
+                self.downloadBytesWritten = written
+                self.downloadBytesTotal = total
+                return
+            }
+
+            let timeDelta = now.timeIntervalSince(self.lastSpeedCalculationTime)
+            if timeDelta >= 0.5 {
+                let bytesDelta = max(0, written - self.lastBytesWritten)
+                let instSpeed = Double(bytesDelta) / timeDelta
+
+                // Apply Exponential Moving Average (EMA) with alpha = 0.15 for organic, steady damping
+                if self.smoothedSpeedBytesPerSecond == 0 {
+                    self.smoothedSpeedBytesPerSecond = instSpeed
+                } else {
+                    self.smoothedSpeedBytesPerSecond = (0.15 * instSpeed) + (0.85 * self.smoothedSpeedBytesPerSecond)
+                }
+
+                self.lastBytesWritten = written
+                self.lastSpeedCalculationTime = now
+            }
+
+            // Throttle UI metadata updates to exactly 1Hz (once per second) to prevent visual jittering
+            if now.timeIntervalSince(self.lastMetadataUpdateTime) >= 1.0 || progress >= 1.0 {
+                self.downloadBytesWritten = written
+                self.downloadBytesTotal = total
+                self.downloadSpeedBytesPerSecond = self.smoothedSpeedBytesPerSecond
+
+                let remainingBytes = total - written
+                if self.smoothedSpeedBytesPerSecond > 50_000 && remainingBytes > 0 {
+                    self.downloadTimeRemaining = Double(remainingBytes) / self.smoothedSpeedBytesPerSecond
+                } else {
+                    self.downloadTimeRemaining = nil
+                }
+                self.lastMetadataUpdateTime = now
+            }
+        }
+
         // One-time migration: clean up old 3-zone threshold keys
         // The old system used "reviewAutoAcceptThreshold" (default 0.78) and "reviewAutoRejectThreshold" (default 0.50).
         // These values would poison the new 4-zone system (0.78 < 0.85 likelyMatch threshold = broken hierarchy).
-        if !UserDefaults.standard.bool(forKey: "thresholdMigration_v2_done") {
-            UserDefaults.standard.removeObject(forKey: "reviewAutoAcceptThreshold")
-            UserDefaults.standard.removeObject(forKey: "reviewAutoRejectThreshold")
-            UserDefaults.standard.set(true, forKey: "thresholdMigration_v2_done")
+        if !FoodMapperStorage.defaults.bool(forKey: "thresholdMigration_v2_done") {
+            FoodMapperStorage.defaults.removeObject(forKey: "reviewAutoAcceptThreshold")
+            FoodMapperStorage.defaults.removeObject(forKey: "reviewAutoRejectThreshold")
+            FoodMapperStorage.defaults.set(true, forKey: "thresholdMigration_v2_done")
         }
 
         // Load saved settings (including advanced settings)
@@ -958,7 +1106,7 @@ final class AppState: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
-                let newPageSize = UserDefaults.standard.integer(forKey: "pageSize").nonZeroOr(200)
+                let newPageSize = FoodMapperStorage.defaults.integer(forKey: "pageSize").nonZeroOr(200)
                 if self.pageSize != newPageSize {
                     self.pageSize = newPageSize
                     self.resetPagination()
@@ -967,7 +1115,7 @@ final class AppState: ObservableObject {
         }
 
         // React to searchText changes -- the local @State in ResultsToolbar already
-        // debounces keystrokes (150ms), so we just coalesce same-RunLoop updates here.
+        // debounces keystrokes (150ms), so we coalesce same-RunLoop updates here.
         searchDebounce = $searchText
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -987,8 +1135,8 @@ final class AppState: ObservableObject {
         navigationHistory = [NavigationSnapshot(sidebarSelection: .home, showMatchSetup: false, viewingResults: false, selectedPipelineMode: .standard)]
         navigationHistoryIndex = 0
 
-        // Migrate API key from Keychain if this is the first launch after the switch
-        APIKeyStorage.migrateFromKeychainIfNeeded()
+        // Move keys saved by FoodMapper 0.1.x out of UserDefaults.
+        APIKeyStorage.migrateToKeychainIfNeeded()
 
         // Cache API key presence
         refreshAPIKeyState()
@@ -996,6 +1144,23 @@ final class AppState: ObservableObject {
         // Check model availability
         Task {
             await checkModelStatus()
+        }
+    }
+}
+
+enum DatabaseRecoveryIssue: Equatable {
+    case cache
+    case registryWrite
+    case deletion(String)
+
+    var message: String {
+        switch self {
+        case .cache:
+            return "FoodMapper kept an incomplete embedding cache separate from your databases. Rebuild that cache before using it."
+        case .registryWrite:
+            return "FoodMapper kept files from an interrupted database-list update. The previous list remains in use."
+        case let .deletion(name):
+            return "FoodMapper kept files from an interrupted removal of \(name). The database remains available."
         }
     }
 }
@@ -1053,20 +1218,26 @@ enum MatchingPhase: Equatable {
 /// Status for pre-embedding custom databases when added
 enum DatabaseEmbeddingStatus: Equatable {
     case idle
+    case preparing(databaseName: String)
     case embedding(completed: Int, total: Int, databaseName: String, startTime: Date)
+    case registered(databaseName: String, itemCount: Int)
     case completed(databaseName: String, itemCount: Int, duration: TimeInterval)
     case error(String)
 
     var isEmbedding: Bool {
-        if case .embedding = self { return true }
-        return false
+        switch self {
+        case .preparing, .embedding: return true
+        default: return false
+        }
     }
 
     var progress: Double {
         switch self {
+        case .preparing:
+            return 0
         case .embedding(let completed, let total, _, _):
             return total > 0 ? Double(completed) / Double(total) : 0
-        case .completed:
+        case .registered, .completed:
             return 1.0
         default:
             return 0
@@ -1077,8 +1248,12 @@ enum DatabaseEmbeddingStatus: Equatable {
         switch self {
         case .idle:
             return ""
+        case .preparing(let name):
+            return "Preparing \(name)..."
         case .embedding(let completed, let total, let name, _):
             return "Embedding \(name)... \(completed)/\(total)"
+        case .registered(let name, _):
+            return "\(name) imported"
         case .completed(let name, _, _):
             return "\(name) ready"
         case .error(let msg):
@@ -1092,6 +1267,7 @@ enum DatabaseEmbeddingStatus: Equatable {
 enum ModelStatus: Equatable {
     case notDownloaded
     case downloading(progress: Double)
+    case cancelling
     case loading
     case ready(executionProvider: String)
     case error(String)
@@ -1105,6 +1281,7 @@ enum ModelStatus: Equatable {
         switch self {
         case .notDownloaded: return "Model Required"
         case .downloading(let progress): return "Downloading \(Int(progress * 100))%"
+        case .cancelling: return "Finishing cancellation"
         case .loading: return "Loading Model..."
         case .ready(let provider): return "Ready (\(provider))"
         case .error(let msg): return "Error: \(msg)"
@@ -1115,6 +1292,7 @@ enum ModelStatus: Equatable {
         switch self {
         case .notDownloaded: return "Model Missing"
         case .downloading: return "Downloading"
+        case .cancelling: return "Cancelling"
         case .loading: return "Loading"
         case .ready(let provider): return provider
         case .error: return "Error"
@@ -1169,26 +1347,32 @@ extension Int {
 /// URLSession delegate for tracking download progress
 final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
     private let onProgress: (Double) -> Void
+    private let onBytesProgress: ((Int64, Int64) -> Void)?
     private var lastReportedProgress: Double = -1
-    private let minimumProgressIncrement: Double = 0.01  // Report at least every 1%
+    private let minimumProgressIncrement: Double = 0.002  // 0.2% updates for extremely smooth graphics
+    private let expectedContentLength: Int64?
 
-    init(onProgress: @escaping (Double) -> Void) {
+    init(expectedContentLength: Int64? = nil,
+         onProgress: @escaping (Double) -> Void,
+         onBytesProgress: ((Int64, Int64) -> Void)? = nil) {
+        self.expectedContentLength = expectedContentLength
         self.onProgress = onProgress
+        self.onBytesProgress = onBytesProgress
         super.init()
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        let expectedBytes = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : (expectedContentLength ?? 0)
+        guard expectedBytes > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(expectedBytes)
 
-        // Only report if progress changed by at least minimumProgressIncrement
-        // This prevents excessive UI updates while ensuring visibility
         if progress - lastReportedProgress >= minimumProgressIncrement || progress >= 1.0 {
             lastReportedProgress = progress
             DispatchQueue.main.async { [weak self] in
                 self?.onProgress(progress)
+                self?.onBytesProgress?(totalBytesWritten, expectedBytes)
             }
         }
     }

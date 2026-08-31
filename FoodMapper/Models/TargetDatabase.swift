@@ -1,4 +1,430 @@
 import Foundation
+import CryptoKit
+import Darwin
+
+enum SecureFileAccess {
+    static let storageDirectoryPermissions: mode_t = 0o700
+    static let privateFilePermissions: mode_t = 0o600
+
+    #if DEBUG
+    nonisolated(unsafe) static var beforeRenameRegularFileForTesting: (() -> Void)?
+    #endif
+
+    /// Opens a regular file after checking every path component with lstat. The
+    /// returned descriptor remains the authority for the subsequent read.
+    static func openRegularFile(
+        _ url: URL,
+        under root: URL? = nil,
+        maximumSize: Int64? = nil,
+        requireOwner: Bool = true
+    ) throws -> Int32 {
+        let target = try pathComponents(for: url)
+        let parent: [String]
+        let leaf: String
+        if let root {
+            let rootComponents = try pathComponents(for: root)
+            guard target.starts(with: rootComponents), target.count > rootComponents.count else {
+                throw MatchingError.databaseNotFound
+            }
+            try validateStorageDirectory(root)
+            parent = rootComponents + Array(target.dropFirst(rootComponents.count).dropLast())
+            leaf = target.last!
+        } else {
+            guard target.count > 1 else { throw MatchingError.databaseNotFound }
+            parent = Array(target.dropLast())
+            leaf = target.last!
+        }
+
+        let parentDescriptor = try openDirectory(components: parent)
+        defer { close(parentDescriptor) }
+        // Open nonblocking first. A path can name a FIFO or device while it is
+        // still untrusted; opening it in blocking mode would let validation hang
+        // before we learn that it is not a regular file.
+        let descriptor = openat(parentDescriptor, leaf, O_RDONLY | O_NONBLOCK | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_nlink == 1,
+              (!requireOwner || info.st_uid == getuid()),
+              (info.st_mode & S_IWOTH) == 0 else {
+            close(descriptor)
+            throw MatchingError.databaseNotFound
+        }
+        if let maximumSize, info.st_size > off_t(maximumSize) {
+            close(descriptor)
+            throw CustomDatabaseValidationError.importTooLarge(actual: Int64(info.st_size), limit: Int(maximumSize))
+        }
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+            close(descriptor)
+            throw MatchingError.databaseNotFound
+        }
+        return descriptor
+    }
+
+    static func readBounded(
+        descriptor: Int32,
+        maximumSize: Int,
+        cancellation: () -> Bool = { Task.isCancelled }
+    ) throws -> Data {
+        var initial = stat()
+        guard fstat(descriptor, &initial) == 0,
+              initial.st_size >= 0,
+              initial.st_size <= off_t(maximumSize) else {
+            throw CustomDatabaseValidationError.importTooLarge(
+                actual: max(0, Int64(initial.st_size)), limit: maximumSize
+            )
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        var result = Data()
+        result.reserveCapacity(Int(initial.st_size))
+        while true {
+            if cancellation() { throw CustomDatabaseValidationError.cancelled }
+            let remaining = maximumSize - result.count
+            guard remaining > 0 else {
+                let probe = try handle.read(upToCount: 1)
+                guard probe?.isEmpty ?? true else {
+                    throw CustomDatabaseValidationError.importTooLarge(actual: Int64(maximumSize) + 1, limit: maximumSize)
+                }
+                break
+            }
+            guard let chunk = try handle.read(upToCount: min(1_048_576, remaining)), !chunk.isEmpty else { break }
+            result.append(chunk)
+        }
+        if cancellation() { throw CustomDatabaseValidationError.cancelled }
+        var final = stat()
+        guard fstat(descriptor, &final) == 0,
+              final.st_size == off_t(result.count),
+              final.st_size <= off_t(maximumSize) else {
+            throw MatchingError.databaseNotFound
+        }
+        return result
+    }
+
+    static func synchronize(_ url: URL, directory: Bool = false) throws {
+        let descriptor: Int32
+        if directory {
+            descriptor = try openDirectory(components: pathComponents(for: url))
+        } else {
+            descriptor = try openRegularFile(url, requireOwner: false)
+        }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw MatchingError.databaseNotFound }
+    }
+
+    static func validateStorageDirectory(_ directory: URL) throws {
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid(),
+              (info.st_mode & 0o077) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+    }
+
+    static func safeLeaf(_ value: String) -> Bool {
+        !value.isEmpty && value != "." && value != ".." &&
+        !value.contains("/") && !value.contains("\\") && !value.contains("\0")
+    }
+
+    /// Atomically rename one validated directory entry to another. Both parent
+    /// directories remain open for the operation, preventing a replacement of
+    /// either ancestor between validation and renameat.
+    static func rename(
+        _ source: String, from sourceDirectory: URL,
+        to destination: String, in destinationDirectory: URL
+    ) throws {
+        guard safeLeaf(source), safeLeaf(destination) else { throw MatchingError.databaseNotFound }
+        let sourceDescriptor = try openDirectory(components: pathComponents(for: sourceDirectory))
+        defer { close(sourceDescriptor) }
+        let destinationDescriptor = try openDirectory(components: pathComponents(for: destinationDirectory))
+        defer { close(destinationDescriptor) }
+        guard renameat(sourceDescriptor, source, destinationDescriptor, destination) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(sourceDirectory, directory: true)
+        if sourceDirectory.path != destinationDirectory.path {
+            try synchronize(destinationDirectory, directory: true)
+        }
+    }
+
+    /// Moves a regular file and verifies that the destination is the same file
+    /// that was opened before renameat. The source descriptor stays open until
+    /// the destination identity has been checked, which catches an ABA swap of
+    /// the source directory entry during a storage transaction.
+    static func renameRegularFile(
+        _ source: String, from sourceDirectory: URL,
+        to destination: String, in destinationDirectory: URL
+    ) throws {
+        guard safeLeaf(source), safeLeaf(destination) else { throw MatchingError.databaseNotFound }
+        let sourceDirectoryDescriptor = try openDirectory(components: pathComponents(for: sourceDirectory))
+        defer { close(sourceDirectoryDescriptor) }
+        let destinationDirectoryDescriptor = try openDirectory(components: pathComponents(for: destinationDirectory))
+        defer { close(destinationDirectoryDescriptor) }
+        let sourceDescriptor = openat(sourceDirectoryDescriptor, source, O_RDONLY | O_NOFOLLOW)
+        guard sourceDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(sourceDescriptor) }
+        var sourceInfo = stat()
+        guard fstat(sourceDescriptor, &sourceInfo) == 0,
+              (sourceInfo.st_mode & S_IFMT) == S_IFREG,
+              sourceInfo.st_nlink == 1,
+              sourceInfo.st_uid == getuid(),
+              (sourceInfo.st_mode & S_IWOTH) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        #if DEBUG
+        beforeRenameRegularFileForTesting?()
+        #endif
+        guard renameat(sourceDirectoryDescriptor, source, destinationDirectoryDescriptor, destination) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        let destinationDescriptor = openat(destinationDirectoryDescriptor, destination, O_RDONLY | O_NOFOLLOW)
+        guard destinationDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(destinationDescriptor) }
+        var destinationInfo = stat()
+        guard fstat(destinationDescriptor, &destinationInfo) == 0,
+              destinationInfo.st_dev == sourceInfo.st_dev,
+              destinationInfo.st_ino == sourceInfo.st_ino else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(sourceDirectory, directory: true)
+        if sourceDirectory.path != destinationDirectory.path {
+            try synchronize(destinationDirectory, directory: true)
+        }
+    }
+
+    static func createPrivateFile(_ leaf: String, in directory: URL) throws -> Int32 {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        try validateStorageDirectory(directory)
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        let file = openat(descriptor, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, privateFilePermissions)
+        close(descriptor)
+        guard file >= 0 else { throw MatchingError.databaseNotFound }
+        return file
+    }
+
+    static func createPrivateDirectory(_ leaf: String, in directory: URL) throws {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        try validateStorageDirectory(directory)
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(descriptor) }
+        if mkdirat(descriptor, leaf, storageDirectoryPermissions) != 0, errno != EEXIST {
+            throw MatchingError.databaseNotFound
+        }
+        let child = openat(descriptor, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard child >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(child) }
+        var info = stat()
+        guard fstat(child, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == getuid(),
+              (info.st_mode & 0o077) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(directory, directory: true)
+    }
+
+    static func writePrivateFile(_ data: Data, named leaf: String, in directory: URL) throws {
+        let descriptor = try createPrivateFile(leaf, in: directory)
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            _ = try? removeRegularFileIfPresent(leaf, from: directory)
+            throw error
+        }
+        try synchronize(directory, directory: true)
+    }
+
+    @discardableResult
+    static func renameRegularFileIfPresent(
+        _ source: String, from sourceDirectory: URL,
+        to destination: String, in destinationDirectory: URL
+    ) throws -> Bool {
+        guard safeLeaf(source), safeLeaf(destination) else { throw MatchingError.databaseNotFound }
+        let sourceDirectoryDescriptor = try openDirectory(components: pathComponents(for: sourceDirectory))
+        defer { close(sourceDirectoryDescriptor) }
+        let destinationDirectoryDescriptor = try openDirectory(components: pathComponents(for: destinationDirectory))
+        defer { close(destinationDirectoryDescriptor) }
+        let sourceDescriptor = openat(sourceDirectoryDescriptor, source, O_RDONLY | O_NOFOLLOW)
+        if sourceDescriptor < 0 {
+            if errno == ENOENT { return false }
+            throw MatchingError.databaseNotFound
+        }
+        defer { close(sourceDescriptor) }
+        var sourceInfo = stat()
+        guard fstat(sourceDescriptor, &sourceInfo) == 0,
+              (sourceInfo.st_mode & S_IFMT) == S_IFREG,
+              sourceInfo.st_nlink == 1,
+              sourceInfo.st_uid == getuid(),
+              (sourceInfo.st_mode & S_IWOTH) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        guard renameat(sourceDirectoryDescriptor, source, destinationDirectoryDescriptor, destination) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        let destinationDescriptor = openat(destinationDirectoryDescriptor, destination, O_RDONLY | O_NOFOLLOW)
+        guard destinationDescriptor >= 0 else { throw MatchingError.databaseNotFound }
+        defer { close(destinationDescriptor) }
+        var destinationInfo = stat()
+        guard fstat(destinationDescriptor, &destinationInfo) == 0,
+              destinationInfo.st_dev == sourceInfo.st_dev,
+              destinationInfo.st_ino == sourceInfo.st_ino else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(sourceDirectory, directory: true)
+        if sourceDirectory.path != destinationDirectory.path {
+            try synchronize(destinationDirectory, directory: true)
+        }
+        return true
+    }
+
+    @discardableResult
+    static func removeRegularFileIfPresent(_ leaf: String, from directory: URL) throws -> Bool {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        let directoryDescriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(directoryDescriptor) }
+        let fileDescriptor = openat(directoryDescriptor, leaf, O_RDONLY | O_NOFOLLOW)
+        if fileDescriptor < 0 {
+            if errno == ENOENT { return false }
+            throw MatchingError.databaseNotFound
+        }
+        defer { close(fileDescriptor) }
+        var info = stat()
+        guard fstat(fileDescriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_nlink == 1,
+              info.st_uid == getuid(),
+              (info.st_mode & S_IWOTH) == 0,
+              unlinkat(directoryDescriptor, leaf, 0) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        try synchronize(directory, directory: true)
+        return true
+    }
+
+    static func remove(_ leaf: String, from directory: URL, directoryEntry: Bool = false) throws {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        let descriptor = try openDirectory(components: pathComponents(for: directory))
+        defer { close(descriptor) }
+        let flags: Int32 = directoryEntry ? AT_REMOVEDIR : 0
+        guard unlinkat(descriptor, leaf, flags) == 0 else { throw MatchingError.databaseNotFound }
+        try synchronize(directory, directory: true)
+    }
+
+    /// Remove an app-owned directory without following symlinks. Snapshot and
+    /// transaction cleanup use this instead of FileManager recursion so a
+    /// replaced directory entry cannot redirect cleanup outside app storage.
+    static func removePrivateDirectoryTree(_ leaf: String, from directory: URL) throws {
+        guard safeLeaf(leaf) else { throw MatchingError.databaseNotFound }
+        let parent = try openDirectory(components: pathComponents(for: directory))
+        defer { close(parent) }
+        let child = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard child >= 0 else { throw MatchingError.databaseNotFound }
+        do {
+            try removeDirectoryContents(child)
+            guard unlinkat(parent, leaf, AT_REMOVEDIR) == 0 else {
+                throw MatchingError.databaseNotFound
+            }
+            close(child)
+        } catch {
+            close(child)
+            throw error
+        }
+        try synchronize(directory, directory: true)
+    }
+
+    private static func removeDirectoryContents(_ descriptor: Int32) throws {
+        var directoryInfo = stat()
+        guard fstat(descriptor, &directoryInfo) == 0,
+              (directoryInfo.st_mode & S_IFMT) == S_IFDIR,
+              directoryInfo.st_uid == getuid(),
+              (directoryInfo.st_mode & 0o077) == 0 else {
+            throw MatchingError.databaseNotFound
+        }
+        let duplicate = dup(descriptor)
+        guard duplicate >= 0, let stream = fdopendir(duplicate) else {
+            if duplicate >= 0 { close(duplicate) }
+            throw MatchingError.databaseNotFound
+        }
+        defer { closedir(stream) }
+        while let entry = readdir(stream) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: entry.pointee.d_name)) {
+                    String(cString: $0)
+                }
+            }
+            if name == "." || name == ".." { continue }
+            guard safeLeaf(name) else { throw MatchingError.databaseNotFound }
+            var info = stat()
+            guard fstatat(descriptor, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+                throw MatchingError.databaseNotFound
+            }
+            if (info.st_mode & S_IFMT) == S_IFDIR {
+                let child = openat(descriptor, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                guard child >= 0 else { throw MatchingError.databaseNotFound }
+                do {
+                    try removeDirectoryContents(child)
+                    close(child)
+                } catch {
+                    close(child)
+                    throw error
+                }
+                guard unlinkat(descriptor, name, AT_REMOVEDIR) == 0 else {
+                    throw MatchingError.databaseNotFound
+                }
+            } else {
+                guard (info.st_mode & S_IFMT) == S_IFREG,
+                      info.st_nlink == 1,
+                      info.st_uid == getuid(),
+                      (info.st_mode & S_IWOTH) == 0,
+                      unlinkat(descriptor, name, 0) == 0 else {
+                    throw MatchingError.databaseNotFound
+                }
+            }
+        }
+    }
+
+    private static func pathComponents(for url: URL) throws -> [String] {
+        guard url.isFileURL, url.path.hasPrefix("/") else { throw MatchingError.databaseNotFound }
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ safeLeaf($0) }) else {
+            throw MatchingError.databaseNotFound
+        }
+        return components
+    }
+
+    /// Traverses from the root directory using directory descriptors. Every
+    /// component is opened with O_NOFOLLOW, so an attacker cannot swap an
+    /// ancestor between a validation pass and the next path-based open.
+    private static func openDirectory(components: [String]) throws -> Int32 {
+        var descriptor = open("/", O_RDONLY | O_DIRECTORY)
+        guard descriptor >= 0 else { throw MatchingError.databaseNotFound }
+        for component in components {
+            guard safeLeaf(component) else {
+                close(descriptor)
+                throw MatchingError.databaseNotFound
+            }
+            let next = openat(descriptor, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            close(descriptor)
+            guard next >= 0 else { throw MatchingError.databaseNotFound }
+            var info = stat()
+            guard fstat(next, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+                close(next)
+                throw MatchingError.databaseNotFound
+            }
+            descriptor = next
+        }
+        return descriptor
+    }
+}
 
 // MARK: - Food Database Protocol
 
@@ -158,20 +584,30 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     var sampleValues: [String]?   // First 10 text column values for instant preview
     var columnNames: [String]?    // All column names from CSV header
 
+    var hasSafeStorageIdentifier: Bool {
+        Self.isSafeStorageIdentifier(id)
+    }
+
+    static func isSafeStorageIdentifier(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil
+    }
+
+    static func isSafeModelKey(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil
+    }
+
     /// URL for the self-contained CSV copy stored in app support
     var storedCsvURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FoodMapper/CustomDBs/\(id)_data.csv")
+        Self.storageURL(databaseID: id, leaf: "\(id)_data.csv") ?? Self.invalidStorageURL
     }
 
     var csvURL: URL? {
-        // Prefer self-contained copy in app support
         let stored = storedCsvURL
-        if FileManager.default.fileExists(atPath: stored.path) {
-            return stored
+        guard let descriptor = try? SecureFileAccess.openRegularFile(stored, under: cacheDirectory) else {
+            return nil
         }
-        // Fall back to original path (legacy databases before self-contained storage)
-        return URL(fileURLWithPath: csvPath)
+        close(descriptor)
+        return stored
     }
 
     var embeddingsURL: URL? {
@@ -181,22 +617,44 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Directory where embedding cache files are stored
     var cacheDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FoodMapper/CustomDBs")
+        FoodMapperStorage.privateDirectory(["CustomDBs"])
+    }
+
+    private static var invalidStorageURL: URL {
+        cacheDirectoryURL.appendingPathComponent("invalid", isDirectory: false)
+    }
+
+    private static var cacheDirectoryURL: URL {
+        FoodMapperStorage.privateDirectory(["CustomDBs"])
+    }
+
+    /// The sole construction point for custom-database storage paths. Callers
+    /// must validate the identifier before deriving a leaf name.
+    static func storageURL(databaseID: String, leaf: String) -> URL? {
+        guard isSafeStorageIdentifier(databaseID), SecureFileAccess.safeLeaf(leaf),
+              leaf.hasPrefix("\(databaseID)_") else { return nil }
+        return cacheDirectoryURL.appendingPathComponent(leaf, isDirectory: false)
     }
 
     /// Cache file URL for a specific model key (model-versioned path)
     func cacheURL(for modelKey: String) -> URL {
-        cacheDirectory.appendingPathComponent("\(id)_embeddings_\(modelKey).bin")
+        guard Self.isSafeModelKey(modelKey) else { return Self.invalidStorageURL }
+        return Self.storageURL(databaseID: id, leaf: "\(id)_embeddings_\(modelKey).bin") ?? Self.invalidStorageURL
+    }
+
+    func cacheMetadataURL(for modelKey: String) -> URL {
+        guard Self.isSafeModelKey(modelKey) else { return Self.invalidStorageURL }
+        return Self.storageURL(databaseID: id, leaf: "\(id)_embeddings_\(modelKey).json") ?? Self.invalidStorageURL
     }
 
     /// Legacy unversioned cache URL (for migration/cleanup)
     var legacyCacheURL: URL {
-        cacheDirectory.appendingPathComponent("\(id)_embeddings.bin")
+        Self.storageURL(databaseID: id, leaf: "\(id)_embeddings.bin") ?? Self.invalidStorageURL
     }
 
     /// Find all embedding cache files for this database (any model version)
     var allCacheFiles: [URL] {
+        guard hasSafeStorageIdentifier else { return [] }
         let dir = cacheDirectory
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
             return []
@@ -205,9 +663,19 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
         return files.filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "bin" }
     }
 
+    var allCacheMetadataFiles: [URL] {
+        guard hasSafeStorageIdentifier else { return [] }
+        let dir = cacheDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        let prefix = "\(id)_embeddings"
+        return files.filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "json" }
+    }
+
     /// Whether any embeddings exist (any model version)
     var hasEmbeddings: Bool {
-        !allCacheFiles.isEmpty
+        embeddedModelKeys.contains { hasEmbeddings(for: $0) }
     }
 
     /// Total size of all embedding cache files
@@ -231,7 +699,60 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     /// Whether embeddings exist for a specific model key
     func hasEmbeddings(for modelKey: String) -> Bool {
-        FileManager.default.fileExists(atPath: cacheURL(for: modelKey).path)
+        guard hasSafeStorageIdentifier, Self.isSafeModelKey(modelKey),
+              let expectedDimensions = Self.embeddingDimensions(for: modelKey),
+              let sourceURL = csvURL,
+              let validated = try? CustomDatabaseValidator.load(
+                url: sourceURL, textColumn: textColumn, idColumn: idColumn
+              ) else { return false }
+        do {
+            let metadataURL = cacheMetadataURL(for: modelKey)
+            let metadataDescriptor = try SecureFileAccess.openRegularFile(
+                metadataURL, under: cacheDirectory, maximumSize: 1_048_576
+            )
+            defer { close(metadataDescriptor) }
+            let metadataData = try SecureFileAccess.readBounded(descriptor: metadataDescriptor, maximumSize: 1_048_576)
+            let metadata = try JSONDecoder().decode(CustomDatabaseCacheMetadata.self, from: metadataData)
+            guard metadata.version == CustomDatabaseCacheMetadata.currentVersion,
+                  metadata.databaseID == id,
+                  metadata.modelKey == modelKey,
+                  metadata.sourceHash == validated.sourceHash,
+                  metadata.schemaHash == validated.schemaHash,
+                  metadata.rowOrderHash == validated.rowOrderHash,
+                  metadata.textColumn == textColumn.trimmingCharacters(in: .whitespacesAndNewlines),
+                  metadata.idColumn == idColumn?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  metadata.entryCount == validated.entries.count,
+                  metadata.embeddingDimensions == expectedDimensions,
+                  metadata.modelArtifactFingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
+                return false
+            }
+            let expectedSize = try MatchingEngine.expectedEmbeddingByteCount(
+                entries: metadata.entryCount, dimensions: metadata.embeddingDimensions
+            )
+            let cacheDescriptor = try SecureFileAccess.openRegularFile(
+                cacheURL(for: modelKey), under: cacheDirectory, maximumSize: Int64(expectedSize)
+            )
+            defer { close(cacheDescriptor) }
+            let data = try SecureFileAccess.readBounded(descriptor: cacheDescriptor, maximumSize: expectedSize)
+            guard data.count == expectedSize,
+                  SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == metadata.embeddingDigest else {
+                return false
+            }
+            return data.withUnsafeBytes { buffer in
+                buffer.bindMemory(to: Float.self).allSatisfy { $0.isFinite }
+            }
+        } catch {
+            return false
+        }
+    }
+
+    private static func embeddingDimensions(for modelKey: String) -> Int? {
+        switch modelKey {
+        case "gte-large", "qwen3-emb-0.6b-4bit": return 1024
+        case "qwen3-emb-4b-4bit": return 2560
+        case "qwen3-emb-8b-4bit": return 4096
+        default: return nil
+        }
     }
 
     /// Size of the embedding cache file for a specific model
@@ -245,6 +766,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     /// Delete embedding cache for a specific model
     func deleteEmbeddings(for modelKey: String) {
         try? FileManager.default.removeItem(at: cacheURL(for: modelKey))
+        try? FileManager.default.removeItem(at: cacheMetadataURL(for: modelKey))
     }
 
     enum CodingKeys: String, CodingKey {
@@ -280,6 +802,9 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
+        guard Self.isSafeStorageIdentifier(id) else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "Invalid database identifier")
+        }
         displayName = try container.decode(String.self, forKey: .displayName)
         csvPath = try container.decode(String.self, forKey: .csvPath)
         textColumn = try container.decode(String.self, forKey: .textColumn)
@@ -308,11 +833,13 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 enum AnyDatabase: Identifiable, Hashable, Codable {
     case builtIn(BuiltInDatabase)
     case custom(CustomDatabase)
+    case snapshot(TargetSnapshotDatabase)
 
     var id: String {
         switch self {
         case .builtIn(let db): return "builtin_\(db.id)"
         case .custom(let db): return "custom_\(db.id)"
+        case .snapshot(let db): return db.id
         }
     }
 
@@ -320,6 +847,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.displayName
         case .custom(let db): return db.displayName
+        case .snapshot(let db): return db.displayName
         }
     }
 
@@ -327,6 +855,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.itemCount
         case .custom(let db): return db.itemCount
+        case .snapshot(let db): return db.itemCount
         }
     }
 
@@ -334,6 +863,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.csvURL
         case .custom(let db): return db.csvURL
+        case .snapshot(let db): return db.csvURL
         }
     }
 
@@ -341,6 +871,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.textColumn
         case .custom(let db): return db.textColumn
+        case .snapshot(let db): return db.textColumn
         }
     }
 
@@ -348,6 +879,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.idColumn
         case .custom(let db): return db.idColumn
+        case .snapshot(let db): return db.idColumn
         }
     }
 
@@ -355,6 +887,7 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
         switch self {
         case .builtIn(let db): return db.columnNames
         case .custom(let db): return db.columnNames
+        case .snapshot(let db): return db.columnNames
         }
     }
 
@@ -384,11 +917,16 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             }
             // Check versioned cache in app support (covers all models including gte-large
             // when bundle embeddings aren't present)
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let versionedURL = appSupport.appendingPathComponent("FoodMapper/CustomDBs/\(db.id)_embeddings_\(modelKey).bin")
+            guard CustomDatabase.isSafeStorageIdentifier(db.id),
+                  CustomDatabase.isSafeModelKey(modelKey),
+                  let versionedURL = CustomDatabase.storageURL(
+                    databaseID: db.id, leaf: "\(db.id)_embeddings_\(modelKey).bin"
+                  ) else { return false }
             return FileManager.default.fileExists(atPath: versionedURL.path)
         case .custom(let db):
             return db.hasEmbeddings(for: modelKey)
+        case .snapshot:
+            return false
         }
     }
 
@@ -401,15 +939,15 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
                 keys.append("gte-large")
             }
             // Check versioned caches in app support
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let dir = appSupport.appendingPathComponent("FoodMapper/CustomDBs")
+            guard CustomDatabase.isSafeStorageIdentifier(db.id) else { return keys }
+            let dir = FoodMapperStorage.privateDirectory(["CustomDBs"])
             let prefix = "\(db.id)_embeddings_"
             if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
                 for file in files where file.pathExtension == "bin" {
                     let name = file.deletingPathExtension().lastPathComponent
                     if name.hasPrefix(prefix) {
                         let modelKey = String(name.dropFirst(prefix.count))
-                        if !modelKey.isEmpty && modelKey != "gte-large" {
+                        if CustomDatabase.isSafeModelKey(modelKey), modelKey != "gte-large" {
                             keys.append(modelKey)
                         }
                     }
@@ -418,6 +956,8 @@ enum AnyDatabase: Identifiable, Hashable, Codable {
             return keys
         case .custom(let db):
             return db.embeddedModelKeys
+        case .snapshot:
+            return []
         }
     }
 }
@@ -434,10 +974,17 @@ struct DatabaseEntry: Identifiable, Codable {
     let id: String
     let text: String
     let additionalFields: [String: String]
+    let targetRowKey: TargetRowKey?
 
-    init(id: String, text: String, additionalFields: [String: String] = [:]) {
+    init(
+        id: String,
+        text: String,
+        additionalFields: [String: String] = [:],
+        targetRowKey: TargetRowKey? = nil
+    ) {
         self.id = id
         self.text = text
         self.additionalFields = additionalFields
+        self.targetRowKey = targetRowKey
     }
 }

@@ -6,6 +6,13 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "state")
 
 extension AppState {
 
+    /// V1 always uses its selected database. A target snapshot is retained for
+    /// provenance and manual search only, never substituted into the legacy
+    /// embedding/cache path.
+    nonisolated static func v1MatchingDatabase(_ database: AnyDatabase) -> AnyDatabase {
+        database
+    }
+
     // MARK: - File Operations
 
     func openFilePicker() {
@@ -41,6 +48,7 @@ extension AppState {
         selectedColumn = nil
         results = []
         error = nil
+        activeTargetSnapshot = nil
         showMatchSetup = true
         sidebarSelection = .home
     }
@@ -66,11 +74,18 @@ extension AppState {
             return
         }
 
+        let operationID = UUID()
+        guard beginEngineOperation(.matching(operationID)) else {
+            error = AppError.matchingFailed("Another database operation is still running.")
+            return
+        }
+
         isProcessing = true
         userNavigatedAwayDuringMatching = false
         matchingPhase = .loadingDatabase
         results = []
         error = nil
+        activeTargetSnapshot = nil
 
         let inputs = file.values(for: column)
         let totalCount = inputs.count
@@ -81,11 +96,34 @@ extension AppState {
         let pipelineType = selectedPipelineType
         let embeddingKey = embeddingModelKeyForCurrentPipeline
         let rerankerKey = selectedRerankerModelKey
-        let generativeKey = selectedGenerativeModelKey
+        let generativeKey = generativeModelKeyForCurrentPipeline
 
-        matchingTask = Task {
+        matchingTask = Task { [self] in
             do {
+                // Capture immutable target bytes for session provenance and full
+                // target manual search. V1 still receives its original database:
+                // built-in precomputed embeddings, custom cache identities, and
+                // parser/ID behavior remain unchanged.
+                var snapshot: TargetSnapshotDatabase?
+                do {
+                    snapshot = try await TargetSnapshotStore.shared.capture(database: database)
+                    try Task.checkCancellation()
+                    guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
+                    self.activeTargetSnapshot = snapshot?.reference
+                } catch let snapshotError as TargetSnapshotError where snapshotError == .cancelled {
+                    throw CancellationError()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // Snapshot retention is additive. Keep V1 matching and its
+                    // existing cache/parser semantics available if provenance
+                    // storage cannot be prepared.
+                    logger.warning("Target snapshot unavailable; continuing with V1 matching: \(error.localizedDescription)")
+                    snapshot = nil
+                    self.activeTargetSnapshot = nil
+                }
                 let engine = try await getOrCreateEngine()
+                await engine.setTargetSnapshotDigest(snapshot?.reference.digest)
 
                 // Load the correct embedding model via ModelManager (uses selected size)
                 if let embeddingKey = embeddingKey {
@@ -117,7 +155,7 @@ extension AppState {
                     }
                 case .gteLargeHaiku:
                     rerankerInst = self.resolvedHaikuPrompt
-                case .qwen3LLMOnly, .embeddingLLM:
+                case .qwen3LLMOnly, .embeddingLLM, .gemma4LLMOnly, .gemma4TwoStage:
                     rerankerInst = self.resolvedJudgeInstruction
                 default:
                     rerankerInst = self.resolvedRerankerInstruction
@@ -130,19 +168,21 @@ extension AppState {
 
                 let matchResults = try await pipeline.match(
                     inputs: inputs,
-                    database: database,
+                    database: Self.v1MatchingDatabase(database),
                     threshold: threshold,
                     hardwareConfig: hwConfig,
                     instruction: self.resolvedEmbeddingInstruction,
                     rerankerInstruction: rerankerInst,
                     onProgress: { [weak self] completed in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.progress?.completedUnitCount = Int64(completed)
                             self?.matchingCompleted = completed
                         }
                     },
                     onPhaseChange: { [weak self] phase in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.matchingPhase = phase
                             // Track batch start time when entering batch phase
                             if phase.isBatchWaiting && self?.batchStartTime == nil {
@@ -151,11 +191,9 @@ extension AppState {
                             // Persist batchId when batch is submitted
                             if case .batchSubmitted = phase {
                                 if let haikuPipeline = pipeline as? HaikuRerankerPipeline {
-                                    Task {
+                                    Task { [weak self] in
                                         if let batchId = await haikuPipeline.getActiveBatchId() {
-                                            await MainActor.run {
-                                                self?.persistBatchState(batchId: batchId)
-                                            }
+                                            self?.persistBatchState(batchId: batchId)
                                         }
                                     }
                                 }
@@ -169,6 +207,8 @@ extension AppState {
                         }
                     }
                 )
+                try Task.checkCancellation()
+                guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
 
                 // Collect API tier + token usage from Haiku pipeline
                 var apiTokensUsed: Int? = nil
@@ -185,6 +225,7 @@ extension AppState {
 
                 // Capture state needed for branching before modifying @Published properties
                 let userWasAway = await MainActor.run { self.userNavigatedAwayDuringMatching }
+                try Task.checkCancellation()
                 let pipelineType = await MainActor.run { self.selectedPipelineType }
                 let userMatchThresh = await MainActor.run { self.userMatchThreshold }
                 let userRejectThresh = await MainActor.run { self.userRejectThreshold }
@@ -194,7 +235,8 @@ extension AppState {
                 // Clear non-UI matching metadata. Keep isProcessing, progress, and
                 // matchingPhase intact so the progress view stays visible until
                 // results are ready in Block 2.
-                await MainActor.run {
+                try await MainActor.run {
+                    try self.requireCurrentEngineOperation(operationID)
                     self.matchingPhase = .savingResults
                     self.batchStartTime = nil
                     self.activeBatchId = nil
@@ -204,7 +246,8 @@ extension AppState {
 
                 if userWasAway {
                     // User navigated away during matching: stash results, show banner, save to disk
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.isProcessing = false
                         self.progress = nil
                         self.matchingPhase = .idle
@@ -225,6 +268,8 @@ extension AppState {
                             await self.modelManager.unloadGenerativeModel()
                             MLX.Memory.clearCache()
                         }
+                        self.matchingTask = nil
+                        self.finishEngineOperation(operationID)
                     }
                 } else {
                     // Compute triage + filtering + sorting + categories on a background thread.
@@ -258,10 +303,12 @@ extension AppState {
                         }
                         return (triage, filtered, cats)
                     }.value
+                    try Task.checkCancellation()
 
                     // Apply everything atomically on main thread -- single @Published update batch.
                     // Keep this block lean: no file I/O, no expensive loops.
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.suppressFilterUpdates = true
                         self.resultsReady = false
 
@@ -311,7 +358,7 @@ extension AppState {
                         for result in matchResults {
                             guard let candidates = result.candidates else { continue }
                             for candidate in candidates {
-                                let key = candidate.matchText.lowercased()
+                                let key = candidate.deduplicationKey
                                 guard !seen.contains(key) else { continue }
                                 seen.insert(key)
                                 unique.append(candidate)
@@ -321,8 +368,10 @@ extension AppState {
                         let decisionsData = try? JSONEncoder().encode(triageDecisions)
                         return (unique, resultsData, decisionsData)
                     }.value
+                    try Task.checkCancellation()
 
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.allUniqueCandidates = candidateIndex
 
                         // Save session using pre-encoded data (avoids re-encoding on main thread)
@@ -337,10 +386,11 @@ extension AppState {
                     // Ensure a minimum "preparing" display of 0.3s so it doesn't flash
                     let elapsed = ContinuousClock.now - readyStart
                     if elapsed < .milliseconds(300) {
-                        try? await Task.sleep(for: .milliseconds(300) - elapsed)
+                        try await Task.sleep(for: .milliseconds(300) - elapsed)
                     }
 
-                    await MainActor.run {
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
                         self.resultsReady = true
                     }
 
@@ -351,15 +401,23 @@ extension AppState {
                         await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
+                    try await MainActor.run {
+                        try self.requireCurrentEngineOperation(operationID)
+                        self.matchingTask = nil
+                        self.finishEngineOperation(operationID)
+                    }
                 }
             } catch is CancellationError {
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.isProcessing = false
                     self.matchingPhase = .idle
                     self.progress = nil
                     self.batchStartTime = nil
                     self.activeBatchId = nil
                     self.clearPersistedBatchState()
+                    self.activeTargetSnapshot = nil
+                    self.reconcileTargetSnapshots()
 
                     // Unload models to free GPU memory
                     Task {
@@ -368,9 +426,12 @@ extension AppState {
                         await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
+                    self.matchingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             } catch {
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID) else { return }
                     self.error = AppError.matchingFailed(error.localizedDescription)
                     self.isProcessing = false
                     self.matchingPhase = .idle
@@ -378,6 +439,8 @@ extension AppState {
                     self.batchStartTime = nil
                     self.activeBatchId = nil
                     self.clearPersistedBatchState()
+                    self.activeTargetSnapshot = nil
+                    self.reconcileTargetSnapshots()
 
                     // Unload models to free GPU memory
                     Task {
@@ -386,6 +449,8 @@ extension AppState {
                         await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
+                    self.matchingTask = nil
+                    self.finishEngineOperation(operationID)
                 }
             }
         }
@@ -440,13 +505,29 @@ extension AppState {
         case .qwen3LLMOnly:
             let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
             return LLMOnlyPipeline(
+                pipelineType: .qwen3LLMOnly,
+                judge: judge, engine: engine,
+                responseFormat: judgeResponseFormat, allowThinking: allowThinking
+            )
+        case .gemma4LLMOnly:
+            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
+            return LLMOnlyPipeline(
+                pipelineType: .gemma4LLMOnly,
                 judge: judge, engine: engine,
                 responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
         case .embeddingLLM:
             let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
             return EmbeddingLLMPipeline(
+                pipelineType: .embeddingLLM,
                 engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .embeddingLLM),
+                responseFormat: judgeResponseFormat, allowThinking: allowThinking
+            )
+        case .gemma4TwoStage:
+            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
+            return EmbeddingLLMPipeline(
+                pipelineType: .gemma4TwoStage,
+                engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .gemma4TwoStage),
                 responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
         }
@@ -459,12 +540,8 @@ extension AppState {
             MLX.Memory.clearCache()
         }
         matchingTask?.cancel()
-        isProcessing = false
-        matchingPhase = .idle
-        progress = nil
-        batchStartTime = nil
-        activeBatchId = nil
-        clearPersistedBatchState()
+        // Keep the admission lease until the task has observed cancellation. A new
+        // database operation must not reuse the shared engine while it unwinds.
     }
 
     func getOrCreateEngine() async throws -> MatchingEngine {
@@ -472,6 +549,9 @@ extension AppState {
             return engine
         }
         let engine = try await MatchingEngine()
+        if CacheRecoveryState.consumeFailure() {
+            databaseRecoveryIssue = .cache
+        }
         matchingEngine = engine
         return engine
     }
@@ -482,6 +562,9 @@ extension AppState {
             return engine
         }
         let engine = try await MatchingEngine()
+        if CacheRecoveryState.consumeFailure() {
+            databaseRecoveryIssue = .cache
+        }
         tourEngine = engine
         return engine
     }

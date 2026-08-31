@@ -209,15 +209,15 @@ struct SplashConfig {
     static let currentSplashVersion = 1
 
     static var shouldShowSplash: Bool {
-        let lastSeen = UserDefaults.standard.integer(forKey: "lastSeenSplashVersion")
+        let lastSeen = FoodMapperStorage.defaults.integer(forKey: "lastSeenSplashVersion")
         return lastSeen < currentSplashVersion
     }
 
     static func markSeen() {
-        UserDefaults.standard.set(currentSplashVersion, forKey: "lastSeenSplashVersion")
+        FoodMapperStorage.defaults.set(currentSplashVersion, forKey: "lastSeenSplashVersion")
     }
 
     static func resetForTesting() {
-        UserDefaults.standard.set(0, forKey: "lastSeenSplashVersion")
+        FoodMapperStorage.defaults.set(0, forKey: "lastSeenSplashVersion")
     }
 }

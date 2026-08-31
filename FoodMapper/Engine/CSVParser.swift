@@ -15,84 +15,90 @@ enum DataFileFormat: String, Codable, CaseIterable, Sendable {
         self == .csv ? .commaSeparatedText : .tabSeparatedText
     }
 
-    /// All supported UTTypes for file pickers.
     static var allUTTypes: [UTType] {
         [.commaSeparatedText, .tabSeparatedText]
     }
 
-    /// Detect format from file extension.
     static func from(url: URL) -> DataFileFormat {
         url.pathExtension.lowercased() == "tsv" ? .tsv : .csv
     }
 
-    /// Detect format by sniffing the header line content.
-    /// If header has tabs and no commas, it's TSV. Otherwise CSV.
-    static func detect(from headerLine: String) -> DataFileFormat {
-        let tabCount = headerLine.filter { $0 == "\t" }.count
-        let commaCount = headerLine.filter { $0 == "," }.count
-        // If tabs present and more tabs than commas, it's TSV
-        if tabCount > 0 && tabCount >= commaCount {
-            return .tsv
+    /// Detect the delimiter from the first logical record, ignoring quoted text.
+    static func detect(from content: String) -> DataFileFormat {
+        var commaCount = 0
+        var tabCount = 0
+        var inQuotes = false
+        var index = content.startIndex
+
+        while index < content.endIndex {
+            let character = content[index]
+            let nextIndex = content.index(after: index)
+
+            if character == "\"" {
+                if inQuotes, nextIndex < content.endIndex, content[nextIndex] == "\"" {
+                    index = content.index(after: nextIndex)
+                    continue
+                }
+                inQuotes.toggle()
+            } else if !inQuotes {
+                if character == "," {
+                    commaCount += 1
+                } else if character == "\t" {
+                    tabCount += 1
+                } else if character == "\n" || character == "\r" {
+                    break
+                }
+            }
+
+            index = nextIndex
         }
-        return .csv
+
+        return tabCount > 0 && tabCount >= commaCount ? .tsv : .csv
     }
 }
 
-/// CSV/TSV parsing utilities
 enum CSVParser {
-    /// Parse a CSV file at the given URL
     static func parse(url: URL) async throws -> InputFile {
         let content = try String(contentsOf: url, encoding: .utf8)
         return try parse(content: content, url: url)
     }
 
-    /// Quick row count estimate from first N lines + file size. Avoids loading the whole file.
+    /// Estimate rows from a sample. Quoted newlines can make large-file estimates less exact.
     static func estimateRowCount(url: URL, sampleLines: Int = 100) throws -> CSVEstimate {
         let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
         guard let fileSize = fileAttributes[.size] as? Int64, fileSize > 0 else {
             throw CSVParseError.emptyFile
         }
 
-        // Read just the beginning of the file to sample
         let fileHandle = try FileHandle(forReadingFrom: url)
         defer { try? fileHandle.close() }
 
-        // Read up to 64KB for sampling (enough for ~100 typical lines)
-        let sampleData = fileHandle.readData(ofLength: 65536)
-        guard let sampleContent = String(data: sampleData, encoding: .utf8) else {
-            throw CSVParseError.invalidFormat
+        let sampleData = fileHandle.readData(ofLength: 65_536)
+        let sampleContent = try decodeUTF8Sample(sampleData, isCompleteFile: sampleData.count >= fileSize)
+
+        if sampleData.count >= fileSize {
+            let format = DataFileFormat.detect(from: sampleContent)
+            let records = try parseRecords(content: stripBOM(sampleContent), delimiter: format.delimiter)
+            return CSVEstimate(
+                estimatedRowCount: max(0, records.count - 1),
+                fileSize: fileSize,
+                isExact: true
+            )
         }
 
-        let lines = sampleContent.components(separatedBy: .newlines)
+        let physicalLines = sampleContent.components(separatedBy: .newlines)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 
-        guard lines.count > 1 else {
-            // File has header only or is very small
-            return CSVEstimate(
-                estimatedRowCount: max(0, lines.count - 1),
-                fileSize: fileSize,
-                isExact: true
-            )
+        guard physicalLines.count > 1 else {
+            return CSVEstimate(estimatedRowCount: 0, fileSize: fileSize, isExact: false)
         }
 
-        // Calculate average line length from sample (excluding header)
-        let dataLines = Array(lines.dropFirst().prefix(sampleLines))
-        let totalLineLength = dataLines.reduce(0) { $0 + $1.count + 1 }  // +1 for newline
-        let avgLineLength = Double(totalLineLength) / Double(dataLines.count)
-
-        // Check if we read the entire file
-        if sampleData.count >= fileSize {
-            return CSVEstimate(
-                estimatedRowCount: lines.count - 1,  // Subtract header
-                fileSize: fileSize,
-                isExact: true
-            )
-        }
-
-        // Estimate total rows from file size
-        let headerLength = lines[0].count + 1
-        let dataSize = Int64(fileSize) - Int64(headerLength)
-        let estimatedRows = Int(Double(dataSize) / avgLineLength)
+        let dataLines = Array(physicalLines.dropFirst().prefix(sampleLines))
+        let totalLineLength = dataLines.reduce(0) { $0 + $1.utf8.count + 1 }
+        let averageLineLength = Double(totalLineLength) / Double(dataLines.count)
+        let headerLength = physicalLines[0].utf8.count + 1
+        let dataSize = fileSize - Int64(headerLength)
+        let estimatedRows = Int(Double(dataSize) / averageLineLength)
 
         return CSVEstimate(
             estimatedRowCount: max(1, estimatedRows),
@@ -101,41 +107,53 @@ enum CSVParser {
         )
     }
 
-    /// Get file size in bytes
     static func getFileSize(url: URL) -> Int64? {
         let fileAttributes = try? FileManager.default.attributesOfItem(atPath: url.path)
         return fileAttributes?[.size] as? Int64
     }
 
-    /// Parse delimited text content (CSV or TSV, auto-detected from header)
     static func parse(content: String, url: URL) throws -> InputFile {
-        let lines = stripBOM(content).components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        guard !lines.isEmpty else {
+        let strippedContent = stripBOM(content)
+        guard !strippedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CSVParseError.emptyFile
         }
 
-        // Auto-detect format from header line
-        let format = DataFileFormat.detect(from: lines[0])
-        let delimiter = format.delimiter
-
-        // Parse header
-        let columns = parseCSVLine(lines[0], delimiter: delimiter)
-        guard !columns.isEmpty else {
+        let format = DataFileFormat.detect(from: strippedContent)
+        let records = try parseRecords(content: strippedContent, delimiter: format.delimiter)
+        guard let rawColumns = records.first, !rawColumns.isEmpty else {
             throw CSVParseError.noColumns
         }
 
-        // Parse rows
+        let columns = rawColumns.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let emptyIndex = columns.firstIndex(where: { $0.isEmpty }) {
+            throw CSVParseError.emptyColumnName(index: emptyIndex + 1)
+        }
+
+        let groupedColumns = Dictionary(grouping: columns, by: { $0.lowercased() })
+        let duplicates = groupedColumns.values
+            .filter { $0.count > 1 }
+            .compactMap(\.first)
+            .sorted()
+        guard duplicates.isEmpty else {
+            throw CSVParseError.duplicateColumns(duplicates)
+        }
+
         var rows: [[String: String]] = []
-        for i in 1..<lines.count {
-            let values = parseCSVLine(lines[i], delimiter: delimiter)
+        rows.reserveCapacity(max(0, records.count - 1))
+
+        for (offset, values) in records.dropFirst().enumerated() {
+            guard values.count <= columns.count else {
+                throw CSVParseError.tooManyFields(
+                    row: offset + 2,
+                    expected: columns.count,
+                    actual: values.count
+                )
+            }
+
             var row: [String: String] = [:]
+            row.reserveCapacity(columns.count)
             for (index, column) in columns.enumerated() {
-                if index < values.count {
-                    row[column] = values[index]
-                }
+                row[column] = index < values.count ? values[index] : ""
             }
             rows.append(row)
         }
@@ -149,57 +167,158 @@ enum CSVParser {
         )
     }
 
-    /// Strip UTF-8 BOM from the beginning of a string if present
     static func stripBOM(_ content: String) -> String {
-        if content.hasPrefix("\u{FEFF}") {
-            return String(content.dropFirst())
-        }
-        return content
+        content.hasPrefix("\u{FEFF}") ? String(content.dropFirst()) : content
     }
 
-    /// Parse a single delimited line handling quoted fields
-    static func parseCSVLine(_ line: String, delimiter: Character = ",") -> [String] {
-        var result: [String] = []
-        var currentField = ""
-        var inQuotes = false
+    /// Decode a fixed-size sample without rejecting a valid UTF-8 file when the
+    /// byte boundary lands inside the sample's final scalar.
+    static func decodeUTF8Sample(_ data: Data, isCompleteFile: Bool) throws -> String {
+        if let content = String(data: data, encoding: .utf8) {
+            return content
+        }
 
-        for char in line {
-            if char == "\"" {
-                inQuotes.toggle()
-            } else if char == delimiter && !inQuotes {
-                result.append(currentField.trimmingCharacters(in: .whitespaces))
-                currentField = ""
-            } else {
-                currentField.append(char)
+        guard !isCompleteFile else {
+            throw CSVParseError.invalidEncoding
+        }
+
+        var prefix = data
+        for _ in 0..<3 where !prefix.isEmpty {
+            prefix.removeLast()
+            if let content = String(data: prefix, encoding: .utf8) {
+                return content
             }
         }
-        result.append(currentField.trimmingCharacters(in: .whitespaces))
 
-        return result
+        throw CSVParseError.invalidEncoding
+    }
+
+    /// Parse complete logical records, including escaped quotes and quoted newlines.
+    static func parseRecords(content: String, delimiter: Character) throws -> [[String]] {
+        // Swift can expose CRLF as one extended grapheme cluster during Character
+        // iteration. Normalize line endings first so record boundaries are handled
+        // the same for Unix, Windows, and legacy Mac files.
+        let normalizedContent = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var records: [[String]] = []
+        var record: [String] = []
+        var field = ""
+        var inQuotes = false
+        var fieldWasQuoted = false
+        var afterClosingQuote = false
+        var index = normalizedContent.startIndex
+
+        func appendField() {
+            record.append(fieldWasQuoted ? field : field.trimmingCharacters(in: .whitespaces))
+            field = ""
+            fieldWasQuoted = false
+            afterClosingQuote = false
+        }
+
+        func appendRecord() {
+            appendField()
+            if !record.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                records.append(record)
+            }
+            record = []
+        }
+
+        while index < normalizedContent.endIndex {
+            let character = normalizedContent[index]
+            let nextIndex = normalizedContent.index(after: index)
+
+            if inQuotes {
+                if character == "\"" {
+                    if nextIndex < normalizedContent.endIndex, normalizedContent[nextIndex] == "\"" {
+                        field.append("\"")
+                        index = normalizedContent.index(after: nextIndex)
+                        continue
+                    }
+                    inQuotes = false
+                    afterClosingQuote = true
+                    index = nextIndex
+                    continue
+                }
+
+                if character == "\r" {
+                    field.append("\n")
+                    if nextIndex < normalizedContent.endIndex, normalizedContent[nextIndex] == "\n" {
+                        index = normalizedContent.index(after: nextIndex)
+                    } else {
+                        index = nextIndex
+                    }
+                    continue
+                }
+
+                field.append(character)
+                index = nextIndex
+                continue
+            }
+
+            if afterClosingQuote {
+                if character == delimiter {
+                    appendField()
+                } else if character == "\n" || character == "\r" {
+                    appendRecord()
+                    if character == "\r", nextIndex < normalizedContent.endIndex, normalizedContent[nextIndex] == "\n" {
+                        index = normalizedContent.index(after: nextIndex)
+                        continue
+                    }
+                } else if !character.isWhitespace {
+                    throw CSVParseError.unexpectedCharacterAfterClosingQuote(character)
+                }
+                index = nextIndex
+                continue
+            }
+
+            if character == "\"", field.trimmingCharacters(in: .whitespaces).isEmpty {
+                field = ""
+                inQuotes = true
+                fieldWasQuoted = true
+            } else if character == delimiter {
+                appendField()
+            } else if character == "\n" || character == "\r" {
+                appendRecord()
+                if character == "\r", nextIndex < normalizedContent.endIndex, normalizedContent[nextIndex] == "\n" {
+                    index = normalizedContent.index(after: nextIndex)
+                    continue
+                }
+            } else {
+                field.append(character)
+            }
+
+            index = nextIndex
+        }
+
+        guard !inQuotes else {
+            throw CSVParseError.unterminatedQuotedField
+        }
+
+        if !field.isEmpty || fieldWasQuoted || !record.isEmpty {
+            appendRecord()
+        }
+
+        return records
+    }
+
+    /// Compatibility helper for callers that already hold one logical record.
+    static func parseCSVLine(_ line: String, delimiter: Character = ",") -> [String] {
+        (try? parseRecords(content: line, delimiter: delimiter).first) ?? []
     }
 }
 
-// MARK: - CSV Estimate
-
-/// Result of CSV row count estimation
 struct CSVEstimate {
-    /// Estimated number of data rows (excluding header)
     let estimatedRowCount: Int
-
-    /// File size in bytes
     let fileSize: Int64
-
-    /// Whether the count is exact (file was fully read) or estimated
     let isExact: Bool
 
-    /// Format file size for display
     var formattedFileSize: String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: fileSize)
     }
 
-    /// Format row count for display
     var formattedRowCount: String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -208,18 +327,34 @@ struct CSVEstimate {
     }
 }
 
-// MARK: - Errors
-
-enum CSVParseError: LocalizedError {
+enum CSVParseError: LocalizedError, Equatable {
     case emptyFile
     case noColumns
-    case invalidFormat
+    case invalidEncoding
+    case emptyColumnName(index: Int)
+    case duplicateColumns([String])
+    case tooManyFields(row: Int, expected: Int, actual: Int)
+    case unterminatedQuotedField
+    case unexpectedCharacterAfterClosingQuote(Character)
 
     var errorDescription: String? {
         switch self {
-        case .emptyFile: return "File is empty"
-        case .noColumns: return "No columns found in header"
-        case .invalidFormat: return "Invalid file format"
+        case .emptyFile:
+            return "File is empty"
+        case .noColumns:
+            return "No columns found in header"
+        case .invalidEncoding:
+            return "File must use UTF-8 encoding"
+        case .emptyColumnName(let index):
+            return "Column \(index) has no name"
+        case .duplicateColumns(let names):
+            return "Duplicate column names: \(names.joined(separator: ", "))"
+        case .tooManyFields(let row, let expected, let actual):
+            return "Row \(row) has \(actual) fields; the header has \(expected)"
+        case .unterminatedQuotedField:
+            return "A quoted field is missing its closing quote"
+        case let .unexpectedCharacterAfterClosingQuote(character):
+            return "Unexpected character '\(character)' after a closing quote"
         }
     }
 }

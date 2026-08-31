@@ -1,5 +1,5 @@
 ---
-license: apache-2.0
+license: mit
 language:
 - en
 library_name: mlx
@@ -17,13 +17,13 @@ pipeline_tag: sentence-similarity
 
 # FoodMapper GTE-Large (MLX Format)
 
-This is [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) converted to MLX-Swift safetensors format for use with the FoodMapper macOS application.
+This is an MLX-Swift float16 BERT SafeTensors conversion of [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) at revision [`4bef63f39fcc5e2d6b0aae83089f307af4970164`](https://huggingface.co/thenlper/gte-large/tree/4bef63f39fcc5e2d6b0aae83089f307af4970164). FoodMapper pins the six converted payload objects at `0b7a78872ae6fd502fe2db3273b1b3e065a3d9db`. Artifact-card revision `200d1bf79e6a152736fe1517703d0079a0bd16fa` corrects the license metadata to MIT without changing those payload objects.
 
 ## Model Description
 
-GTE-Large is a 335M parameter text embedding model that maps sentences to 1024-dimensional dense vectors. It excels at semantic similarity tasks, making it ideal for matching food names across different databases and nomenclatures.
+GTE-Large is a 335M parameter text embedding model that maps sentences to 1024-dimensional dense vectors. FoodMapper uses it to compare food descriptions across databases and naming systems.
 
-This conversion is optimized for Apple Silicon GPUs via [MLX-Swift](https://github.com/ml-explore/mlx-swift).
+The converted weights run on Apple Silicon through [MLX-Swift](https://github.com/ml-explore/mlx-swift).
 
 ## Intended Use
 
@@ -53,7 +53,7 @@ This conversion is optimized for Apple Silicon GPUs via [MLX-Swift](https://gith
 
 ## Usage with FoodMapper
 
-This model is automatically downloaded by the FoodMapper macOS app when first launched. No manual setup required.
+FoodMapper prompts you to download this model before default matching. The download starts only after approval. FoodMapper checks the files against the bundled manifest before making the model available. Built-in database rows ship with the app; their GTE-Large embeddings are computed and cached on first use.
 
 ## Usage with MLX-Swift
 
@@ -83,8 +83,8 @@ func meanPooling(_ hiddenState: MLXArray, attentionMask: MLXArray) -> MLXArray {
 
 ## Original Model
 
-Based on [thenlper/gte-large](https://huggingface.co/thenlper/gte-large) by Alibaba DAMO Academy.
+Based on [thenlper/gte-large](https://huggingface.co/thenlper/gte-large), revision `4bef63f39fcc5e2d6b0aae83089f307af4970164`.
 
 ## License
 
-Apache 2.0 (same as original GTE-Large)
+The upstream source and pinned artifact card both declare the MIT License. FoodMapper validates the fixed payload manifest independently. Keep the source citation and MIT notice with any redistributed conversion.

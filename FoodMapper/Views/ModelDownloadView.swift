@@ -31,24 +31,75 @@ struct ModelDownloadView: View {
             // Action area
             VStack(spacing: Spacing.md) {
                 if case .downloading(let progress) = appState.modelStatus {
-                    VStack(spacing: Spacing.sm) {
+                    VStack(spacing: Spacing.md) {
                         ProgressView(value: progress)
-                            .frame(width: 280)
+                            .progressViewStyle(.linear)
+                            .tint(Color.accentColor)
+                            .frame(width: 320)
+                            .scaleEffect(x: 1, y: 1.2, anchor: .center)
+                            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: progress)
 
-                        HStack {
-                            Text("Downloading GTE-Large...")
-                                .font(.callout)
-                            Spacer()
-                            Text("\(Int(progress * 100))%")
-                                .font(.system(.callout, design: .monospaced))
+                        VStack(spacing: Spacing.xs) {
+                            HStack {
+                                Text("Downloading GTE-Large...")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text("\(Int(progress * 100))%")
+                                    .font(.system(.body, design: .monospaced).weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+
+                            HStack {
+                                Label(formatDownloadSpeed(appState.downloadSpeedBytesPerSecond), systemImage: "arrow.down.circle")
+                                Spacer()
+                                Label(formatTimeRemaining(appState.downloadTimeRemaining), systemImage: "clock")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                            HStack {
+                                Text("\(formatBytes(appState.downloadBytesWritten)) of \(formatBytes(appState.downloadBytesTotal))")
+                                    .font(.caption.monospacedDigit())
+                                Spacer()
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                         }
-                        .foregroundStyle(.secondary)
-                        .frame(width: 280)
+                        .frame(width: 320)
+
+                        Button(action: {
+                            appState.cancelDownload()
+                        }) {
+                            Text("Cancel Download")
+                                .font(.callout.weight(.medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .padding(.top, Spacing.xs)
                     }
+                    .padding(Spacing.lg)
+                    .background(Color.surfaceSecondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+                } else if case .cancelling = appState.modelStatus {
+                    VStack(spacing: Spacing.sm) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Finishing cancellation...")
+                            .font(.callout.weight(.medium))
+                        Text("You can retry when the active download has stopped.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 320)
                 } else if case .error(let message) = appState.modelStatus {
                     VStack(spacing: Spacing.sm) {
                         Label(message, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color.experimentalAmber)
                             .font(.callout)
 
                         Button("Retry") {
@@ -60,16 +111,22 @@ struct ModelDownloadView: View {
                     VStack(spacing: Spacing.sm) {
                         ProgressView()
                             .controlSize(.large)
-                        Text("Loading model...")
-                            .font(.callout)
+                        Text("Verifying and loading GTE-Large...")
+                            .font(.callout.weight(.medium))
+                        Text("This happens once to compile Metal GPU kernels.")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(width: 320)
                 } else {
                     // Model info row
                     HStack(spacing: Spacing.lg) {
                         Label("GTE-Large", systemImage: "cpu")
                             .font(.callout)
-                        Text("~640 MB")
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: GTELargeModelManifest.current.downloadSize,
+                            countStyle: .file
+                        ))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -97,7 +154,7 @@ struct ModelDownloadView: View {
                             .tint(Color(nsColor: .controlAccentColor))
                         }
                     }
-                    Text("About 2 minutes on a fast connection")
+                    Text("Download time depends on your connection.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -108,6 +165,38 @@ struct ModelDownloadView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(Spacing.xxl)
+    }
+
+    // MARK: - Display Formatters
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private func formatDownloadSpeed(_ bytesPerSecond: Double) -> String {
+        if bytesPerSecond <= 0 { return "Connecting..." }
+        let kb = bytesPerSecond / 1024
+        if kb < 1024 {
+            return String(format: "%.0f KB/s", kb)
+        } else {
+            let mb = kb / 1024
+            return String(format: "%.1f MB/s", mb)
+        }
+    }
+
+    private func formatTimeRemaining(_ seconds: Double?) -> String {
+        guard let seconds = seconds else { return "Calculating..." }
+        let rounded = Int(seconds)
+        if rounded < 60 {
+            return "\(rounded)s remaining"
+        } else {
+            let mins = rounded / 60
+            let secs = rounded % 60
+            return "\(mins)m \(secs)s remaining"
+        }
     }
 }
 

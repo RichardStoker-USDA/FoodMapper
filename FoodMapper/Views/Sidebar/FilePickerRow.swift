@@ -49,7 +49,7 @@ struct FilePickerRow: View {
                     Button {
                         self.file = nil
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        Image(systemName: "xmark.circle")
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)

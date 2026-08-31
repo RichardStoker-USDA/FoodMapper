@@ -7,8 +7,94 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
+/// Model-specific storage adapter. Tests can replace either root without
+/// reading or changing the user's live model files.
+enum FoodMapperModelStorage {
+    #if DEBUG
+    nonisolated(unsafe) static var testingModelsDirectory: URL?
+    nonisolated(unsafe) static var testingURLSessionTemporaryDirectory: URL?
+    #endif
+
+    static func modelsDirectory() -> URL {
+        #if DEBUG
+        if let testingModelsDirectory { return testingModelsDirectory }
+        #endif
+        return FoodMapperStorage.privateDirectory(["Models"])
+    }
+
+    /// URLSession owns the source temporary file passed to its download
+    /// delegate. Keep its root injectable so installer tests never need the
+    /// user's live temporary directory.
+    static func urlSessionTemporaryDirectory() -> URL {
+        #if DEBUG
+        if let testingURLSessionTemporaryDirectory { return testingURLSessionTemporaryDirectory }
+        #endif
+        return FoodMapperStorage.processTemporaryRootURL
+    }
+}
+
+enum GTELargeStartupRecoveryError: LocalizedError, Sendable {
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .failed(let message): return "GTE-Large startup recovery failed: \(message)"
+        }
+    }
+}
+
+private actor GTELargeStartupRecovery {
+    static let shared = GTELargeStartupRecovery()
+    private struct Entry {
+        let id: UUID
+        let task: Task<Result<Void, GTELargeStartupRecoveryError>, Never>
+    }
+
+    private var tasks: [String: Entry] = [:]
+
+    static func awaitCompletion(for root: URL) async throws {
+        try await shared.awaitCompletion(for: root)
+    }
+
+    private func awaitCompletion(for root: URL) async throws {
+        let key = root.path
+        let entry: Entry
+        if let existing = tasks[root.path] {
+            entry = existing
+        } else {
+            let task = Task.detached { () -> Result<Void, GTELargeStartupRecoveryError> in
+                let installer = GTELargeModelInstaller(rootDirectory: root)
+                do {
+                    try Task.checkCancellation()
+                    try await installer.recoverAtStartup()
+                    try Task.checkCancellation()
+                    return .success(())
+                } catch {
+                    return .failure(.failed(error.localizedDescription))
+                }
+            }
+            entry = Entry(id: UUID(), task: task)
+            tasks[key] = entry
+        }
+        let result = await entry.task.value
+        if tasks[key]?.id == entry.id {
+            tasks[key] = nil
+        }
+        try Task.checkCancellation()
+        switch result {
+        case .success: return
+        case .failure(let error): throw error
+        }
+    }
+}
+
 /// Resource bundle helper -- SPM vs .app bundle resolution
 enum ResourceBundle {
+    #if DEBUG
+    /// Test-only override. Production code always uses the user's Application
+    /// Support location; tests must never inspect or repair a live install.
+    nonisolated(unsafe) static var testingApplicationSupportModelDir: URL?
+    #endif
     /// Checks multiple locations for the resource bundle
     static var bundle: Bundle {
         #if SWIFT_PACKAGE
@@ -38,30 +124,31 @@ enum ResourceBundle {
 
     /// Application Support directory for downloaded models
     static var applicationSupportModelDir: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        #if DEBUG
+        if let testingApplicationSupportModelDir {
+            return testingApplicationSupportModelDir
+        }
+        #endif
+        return FoodMapperStorage.privateDirectory(["Models"])
     }
 
-    /// Models directory - checks Application Support first (downloaded), then bundle
+    /// Verified GTE-Large model directory. A downloaded model must pass the
+    /// immutable manifest check before the loader can use it.
     static var modelsDirectory: URL? {
-        // 1. Check Application Support (downloaded models)
-        let downloadedWeights = applicationSupportModelDir.appendingPathComponent("gte-large.safetensors")
-        if FileManager.default.fileExists(atPath: downloadedWeights.path) {
-            return applicationSupportModelDir
+        let downloaded = GTELargeModelInstaller(rootDirectory: applicationSupportModelDir)
+        if let directory = downloaded.availableDirectory() {
+            return directory
         }
 
-        // 2. Check for bundled safetensors (development)
+        // Development builds may include a complete, byte-identical model in
+        // the app resources. It uses the same verification path as a download.
         if let bundled = bundledModelsDirectory {
-            let bundledWeights = bundled.appendingPathComponent("gte-large.safetensors")
-            if FileManager.default.fileExists(atPath: bundledWeights.path) {
+            let bundledInstall = GTELargeModelInstaller(rootDirectory: bundled)
+            if bundledInstall.verifyBundledFiles(in: bundled) {
                 return bundled
             }
         }
-
-        // 3. Return bundled directory (tokenizer files still there)
-        return bundledModelsDirectory
+        return nil
     }
 
     /// Databases directory in bundle
@@ -99,11 +186,9 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
         ResourceBundle.modelsDirectory
     }
 
-    /// Check if model weights file exists (safetensors format)
+    /// Check whether a complete GTE-Large installation passes verification.
     static var isModelAvailable: Bool {
-        guard let dir = modelDirectory else { return false }
-        let weightsURL = dir.appendingPathComponent("gte-large.safetensors")
-        return FileManager.default.fileExists(atPath: weightsURL.path)
+        modelDirectory != nil
     }
 
     /// Application Support directory for downloaded models
@@ -111,10 +196,17 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
         ResourceBundle.applicationSupportModelDir
     }
 
+    /// Model loads share the same one-time repair as download presentation.
+    /// This covers callers that use MatchingEngine without ModelManager.
+    static func awaitStartupRecovery() async throws {
+        try await GTELargeStartupRecovery.awaitCompletion(for: downloadDirectory)
+    }
+
     // MARK: - Loading
 
     /// Load model and tokenizer from bundle
     func load() async throws {
+        try await Self.awaitStartupRecovery()
         guard let modelDir = Self.modelDirectory else {
             throw EmbeddingError.modelNotFound
         }
@@ -123,12 +215,9 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
             throw EmbeddingError.modelNotFound
         }
 
-        // 1. Load config - try model dir first, then bundled models
-        var configURL = modelDir.appendingPathComponent("config.json")
-        if !FileManager.default.fileExists(atPath: configURL.path),
-           let bundled = ResourceBundle.bundledModelsDirectory {
-            configURL = bundled.appendingPathComponent("config.json")
-        }
+        // The verified install is a complete set. Do not mix downloaded files
+        // with bundled files because that would bypass the manifest boundary.
+        let configURL = modelDir.appendingPathComponent("config.json")
 
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             throw EmbeddingError.configNotFound
@@ -146,15 +235,8 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
         }
         try loadWeights(from: weightsURL)
 
-        // 4. Load tokenizer - try model dir first, then bundled models
-        var tokenizerDir = modelDir
-        let tokenizerFile = modelDir.appendingPathComponent("tokenizer.json")
-        if !FileManager.default.fileExists(atPath: tokenizerFile.path),
-           let bundled = ResourceBundle.bundledModelsDirectory {
-            tokenizerDir = bundled
-        }
-
-        tokenizer = try await BertTokenizer(modelFolder: tokenizerDir)
+        // 4. Load tokenizer from the same verified set.
+        tokenizer = try await BertTokenizer(modelFolder: modelDir)
 
         logger.info("MLX GTE-Large model loaded successfully")
     }

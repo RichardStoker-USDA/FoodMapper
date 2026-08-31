@@ -25,12 +25,22 @@ extension AppState {
         let snapshotDatabase = selectedDatabase
         let snapshotSessionId = currentSessionId
         let snapshotSessions = sessions
+        let snapshotTarget = activeTargetSnapshot
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let _ = self else { return }
 
             // CSV generation + file write off main thread
             Task.detached {
+                let selections = snapshotDecisions.values.compactMap(\.manualTargetSelection)
+                do {
+                    try await TargetSnapshotStore.shared.validate(selections: selections, reference: snapshotTarget)
+                } catch {
+                    await MainActor.run { [weak self] in
+                        self?.error = AppError.exportFailed(error.localizedDescription)
+                    }
+                    return
+                }
                 let csv: String
                 if let inputFile = snapshotInputFile,
                    let _ = snapshotColumn,
@@ -152,6 +162,17 @@ extension AppState {
                 }
 
                 // Generate export in the chosen format
+                do {
+                    try await TargetSnapshotStore.shared.validate(
+                        selections: sessionReviewDecisions.values.compactMap(\.manualTargetSelection),
+                        reference: session.targetSnapshot
+                    )
+                } catch {
+                    await MainActor.run { [weak self] in
+                        self?.error = AppError.exportFailed(error.localizedDescription)
+                    }
+                    return
+                }
                 let output: String
                 if let storedFileId = session.inputFileId,
                    let stored = storedFiles.first(where: { $0.id == storedFileId }),
@@ -214,7 +235,7 @@ extension AppState {
             guard response == .OK, let zipURL = panel.url else { return }
             // All heavy work off main thread
             Task.detached {
-                let exported = Self.exportAllSessionsToZipBackground(
+                let exported = await Self.exportAllSessionsToZipBackground(
                     destination: zipURL,
                     sessions: allSessions,
                     sessionsDirectory: sessionsDir
@@ -270,6 +291,15 @@ extension AppState {
                         }
                     }
 
+                    do {
+                        try await TargetSnapshotStore.shared.validate(
+                            selections: sessionReviewDecisions.values.compactMap(\.manualTargetSelection),
+                            reference: session.targetSnapshot
+                        )
+                    } catch {
+                        continue
+                    }
+
                     let csv = CSVExporter.export(
                         results: sessionResults,
                         pipelineName: session.pipelineName,
@@ -287,11 +317,12 @@ extension AppState {
                     try? csv.write(to: fileURL, atomically: true, encoding: .utf8)
                     exported += 1
                 }
-                logger.info("Exported \(exported) of \(sessionCount) sessions to folder.")
+                let exportedCount = exported
+                logger.info("Exported \(exportedCount) of \(sessionCount) sessions to folder.")
                 await MainActor.run { [weak self] in
-                    if exported > 0 {
+                    if exportedCount > 0 {
                         self?.presentExportToast(
-                            filename: "\(exported) of \(sessionCount) sessions to \(folderURL.lastPathComponent)"
+                            filename: "\(exportedCount) of \(sessionCount) sessions to \(folderURL.lastPathComponent)"
                         )
                     } else {
                         self?.error = AppError.exportFailed("No sessions could be exported. Session data may be corrupted.")
@@ -308,8 +339,8 @@ extension AppState {
         destination: URL,
         sessions: [MatchingSession],
         sessionsDirectory: URL
-    ) -> Int {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    ) async -> Int {
+        let tempDir = FoodMapperStorage.temporaryURL.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         let formatter = DateFormatter()
@@ -329,6 +360,15 @@ extension AppState {
                    let decoded = try? JSONDecoder().decode([UUID: ReviewDecision].self, from: reviewData) {
                     sessionReviewDecisions = decoded
                 }
+            }
+
+            do {
+                try await TargetSnapshotStore.shared.validate(
+                    selections: sessionReviewDecisions.values.compactMap(\.manualTargetSelection),
+                    reference: session.targetSnapshot
+                )
+            } catch {
+                continue
             }
 
             let csv = CSVExporter.export(

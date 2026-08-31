@@ -49,11 +49,6 @@ DerivedData/
 .Spotlight-V100
 .Trashes
 
-# Local
-.archive/
-.local/
-model-converter/
-
 # Playgrounds
 timeline.xctimeline
 playground.xcuserstate

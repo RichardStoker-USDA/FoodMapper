@@ -21,6 +21,9 @@ struct MatchingSession: Identifiable, Codable {
     var targetTextColumn: String?
     var targetIdColumn: String?
     var targetColumnNames: [String]?
+    /// Immutable target bytes used by this run. Nil identifies sessions created
+    /// before target snapshots were introduced.
+    var targetSnapshot: TargetSnapshotReference?
 
     // API usage tracking (for Haiku pipeline)
     var apiTokensUsed: Int?
@@ -28,6 +31,12 @@ struct MatchingSession: Identifiable, Codable {
     // Review workflow
     var reviewDecisionsFilename: String?
     var hasReviewData: Bool { reviewDecisionsFilename != nil }
+
+    static func isSafePersistedFilename(_ value: String) -> Bool {
+        SecureFileAccess.safeLeaf(value) &&
+            URL(fileURLWithPath: value).pathExtension.lowercased() == "json" &&
+            URL(fileURLWithPath: value).lastPathComponent == value
+    }
 
     var matchRate: Double {
         guard totalCount > 0 else { return 0 }
@@ -49,7 +58,8 @@ struct MatchingSession: Identifiable, Codable {
         selectedColumn: String? = nil,
         targetTextColumn: String? = nil,
         targetIdColumn: String? = nil,
-        targetColumnNames: [String]? = nil
+        targetColumnNames: [String]? = nil,
+        targetSnapshot: TargetSnapshotReference? = nil
     ) {
         self.id = id
         self.inputFileName = inputFileName
@@ -66,6 +76,7 @@ struct MatchingSession: Identifiable, Codable {
         self.targetTextColumn = targetTextColumn
         self.targetIdColumn = targetIdColumn
         self.targetColumnNames = targetColumnNames
+        self.targetSnapshot = targetSnapshot
     }
 
     // Coding keys for backwards compatibility (new fields may not exist in old sessions)
@@ -73,7 +84,7 @@ struct MatchingSession: Identifiable, Codable {
         case id, inputFileName, databaseName, threshold, totalCount
         case matchedCount, resultsFilename, date, pipelineName, inputFileId
         case matchingInstruction
-        case selectedColumn, targetTextColumn, targetIdColumn, targetColumnNames
+        case selectedColumn, targetTextColumn, targetIdColumn, targetColumnNames, targetSnapshot
         case apiTokensUsed
         case reviewDecisionsFilename
     }
@@ -86,7 +97,13 @@ struct MatchingSession: Identifiable, Codable {
         threshold = try container.decode(Double.self, forKey: .threshold)
         totalCount = try container.decode(Int.self, forKey: .totalCount)
         matchedCount = try container.decode(Int.self, forKey: .matchedCount)
-        resultsFilename = try container.decode(String.self, forKey: .resultsFilename)
+        let decodedResultsFilename = try container.decode(String.self, forKey: .resultsFilename)
+        guard Self.isSafePersistedFilename(decodedResultsFilename) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .resultsFilename, in: container, debugDescription: "Invalid session results filename"
+            )
+        }
+        resultsFilename = decodedResultsFilename
         date = try container.decode(Date.self, forKey: .date)
         pipelineName = try container.decodeIfPresent(String.self, forKey: .pipelineName) ?? "GTE-Large Embedding"
         inputFileId = try container.decodeIfPresent(UUID.self, forKey: .inputFileId)
@@ -95,7 +112,14 @@ struct MatchingSession: Identifiable, Codable {
         targetTextColumn = try container.decodeIfPresent(String.self, forKey: .targetTextColumn)
         targetIdColumn = try container.decodeIfPresent(String.self, forKey: .targetIdColumn)
         targetColumnNames = try container.decodeIfPresent([String].self, forKey: .targetColumnNames)
+        targetSnapshot = try container.decodeIfPresent(TargetSnapshotReference.self, forKey: .targetSnapshot)
         apiTokensUsed = try container.decodeIfPresent(Int.self, forKey: .apiTokensUsed)
-        reviewDecisionsFilename = try container.decodeIfPresent(String.self, forKey: .reviewDecisionsFilename)
+        let decodedReviewFilename = try container.decodeIfPresent(String.self, forKey: .reviewDecisionsFilename)
+        if let decodedReviewFilename, !Self.isSafePersistedFilename(decodedReviewFilename) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .reviewDecisionsFilename, in: container, debugDescription: "Invalid session review filename"
+            )
+        }
+        reviewDecisionsFilename = decodedReviewFilename
     }
 }

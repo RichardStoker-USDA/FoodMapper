@@ -38,7 +38,7 @@ Nutrition researchers collect food descriptions from study participants through 
 4. **Walk through the tutorial.** It runs automatically on first launch. You can restart it later from the Help menu.
 5. **Load a CSV or TSV** with food descriptions. Drag and drop or use the file picker. A template is available on the match setup page if you need to format your data.
 6. **Pick your description column**, choose a target database, click Match.
-7. **Review results.** Confirm correct matches, select another retained candidate when needed, add notes, and export.
+7. **Review results.** Confirm correct matches, select another target row when needed, add notes, and export.
 
 ## System Requirements
 
@@ -73,7 +73,7 @@ FoodMapper adds a review workflow that a batch script does not provide. After ma
 
 For each item, you see the input text, a selected target when one is available, a score when one is available, and retrieved candidate database entries when the session stored them. Press **Return** to confirm a match, **Delete** to reject it, or click an alternative candidate to override. Press **N**/**P** to skip forward or back. Number keys **1-5** select from the candidate list. **R** (pressed twice) resets a decision. **Cmd+Z** undoes.
 
-Manual Override searches the deduplicated union of candidate database entries retained for the current session. It does not search the full target database.
+Manual Override searches every row in the target database saved with a new session. Results include the target ID and source-row details when available. Sessions created by an older FoodMapper version fall back to their retained candidate entries.
 
 **Bulk actions:** **Cmd+A** selects all visible rows. Multi-select with **Cmd+Click** (toggle individual), **Shift+Click** (range), or click and drag to select a continuous block. The inspector shows bulk actions when multiple rows are selected: Match All, No Match All, Reset All, and a shared notes field. Filter by category with **Cmd+1** through **Cmd+4** to narrow down what you're working with before selecting.
 
@@ -90,7 +90,7 @@ A current session export includes original input columns when that input remains
 | `fm_pipeline` | Pipeline label when stored |
 | `fm_note` | Your review notes, if any |
 
-Target columns are included when target metadata is stored. For targets with unique configured IDs, an override's extra fields come from its retained candidate row. Bulk History exports use reduced saved mapping rows and do not restore original input columns.
+Target columns are included when target metadata is stored. A full-target manual selection keeps the selected row's target fields and has no similarity score because the matching pipeline did not score that row. Older candidate-only overrides use the metadata retained with that candidate. Bulk History exports use reduced saved mapping rows and do not restore original input columns.
 
 Export from the toolbar (Cmd+E for CSV, Shift+Cmd+E for TSV), or right-click a session in History to export without loading it first.
 

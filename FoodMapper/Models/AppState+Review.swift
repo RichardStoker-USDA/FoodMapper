@@ -274,7 +274,9 @@ extension AppState {
     func setReviewDecision(_ status: ReviewStatus, for resultId: UUID, note: String? = nil,
                            overrideText: String? = nil, overrideID: String? = nil,
                            overrideScore: Double? = nil,
-                           candidateIndex: Int? = nil) {
+                           candidateIndex: Int? = nil,
+                           manualTargetSelection: TargetSnapshotSelection? = nil,
+                           targetRowKey: TargetRowKey? = nil) {
         // Push previous state to undo stack
         let previous = reviewDecisions[resultId]
         reviewUndoStack.append((resultId, previous))
@@ -289,6 +291,8 @@ extension AppState {
         let finalOverrideScore: Double?
         let finalNote: String?
         let finalCandidateIndex: Int?
+        let finalManualTargetSelection: TargetSnapshotSelection?
+        let finalSelectedTargetRowKey: TargetRowKey?
 
         if overrideText == nil, overrideID == nil, let existing = previous {
             if status == .accepted {
@@ -297,21 +301,27 @@ extension AppState {
                 finalOverrideID = nil
                 finalOverrideScore = nil
                 finalNote = note ?? existing.note
-                finalCandidateIndex = candidateIndex ?? existing.selectedCandidateIndex
+                finalCandidateIndex = targetRowKey == nil ? candidateIndex : nil
+                finalManualTargetSelection = nil
+                finalSelectedTargetRowKey = targetRowKey ?? (candidateIndex == nil ? resultsByID[resultId]?.targetRowKey : nil)
             } else {
                 // Non-accept statuses (rejected, skipped) -- carry forward existing overrides
                 finalOverrideText = existing.overrideMatchText
                 finalOverrideID = existing.overrideMatchID
                 finalOverrideScore = overrideScore ?? existing.overrideScore
                 finalNote = note ?? existing.note
-                finalCandidateIndex = candidateIndex ?? existing.selectedCandidateIndex
+                finalCandidateIndex = targetRowKey == nil ? (candidateIndex ?? existing.selectedCandidateIndex) : nil
+                finalManualTargetSelection = existing.manualTargetSelection
+                finalSelectedTargetRowKey = targetRowKey ?? existing.selectedTargetRowKey
             }
         } else {
             finalOverrideText = overrideText
             finalOverrideID = overrideID
             finalOverrideScore = overrideScore
             finalNote = note
-            finalCandidateIndex = candidateIndex
+            finalCandidateIndex = targetRowKey == nil ? candidateIndex : nil
+            finalManualTargetSelection = manualTargetSelection
+            finalSelectedTargetRowKey = targetRowKey ?? manualTargetSelection?.targetRowKey
         }
 
         let newDecision = ReviewDecision(
@@ -321,7 +331,9 @@ extension AppState {
             overrideScore: finalOverrideScore,
             note: finalNote,
             reviewedAt: Date(),
-            selectedCandidateIndex: finalCandidateIndex
+            selectedCandidateIndex: finalCandidateIndex,
+            manualTargetSelection: finalManualTargetSelection,
+            selectedTargetRowKey: finalSelectedTargetRowKey
         )
         reviewDecisions[resultId] = newDecision
         reviewDecisionVersion += 1
@@ -335,6 +347,43 @@ extension AppState {
         }
 
         saveReviewDecisions()
+    }
+
+    /// Apply a target-row selection from TargetSnapshotStore. The row is
+    /// reopened and checked against the active immutable snapshot before it is
+    /// written to review storage. It was not scored by the pipeline, so no
+    /// override score is persisted.
+    func setManualTargetSelection(
+        _ selection: TargetSnapshotSelection,
+        for resultId: UUID,
+        onSuccess: (() -> Void)? = nil
+    ) {
+        guard let snapshot = activeTargetSnapshot,
+              selection.snapshotDigest == snapshot.digest else {
+            error = AppError.fileLoadFailed(TargetSnapshotError.invalidSelection.localizedDescription)
+            return
+        }
+        Task { [weak self] in
+            do {
+                try await TargetSnapshotStore.shared.validate(selection: selection, reference: snapshot)
+                guard let self,
+                      self.activeTargetSnapshot == snapshot,
+                      self.resultsByID[resultId] != nil else { return }
+                self.setReviewDecision(
+                    .overridden,
+                    for: resultId,
+                    overrideText: selection.matchText,
+                    overrideID: selection.matchID,
+                    overrideScore: nil,
+                    manualTargetSelection: selection,
+                    targetRowKey: selection.targetRowKey
+                )
+                onSuccess?()
+            } catch {
+                guard let self else { return }
+                self.error = AppError.fileLoadFailed(error.localizedDescription)
+            }
+        }
     }
 
     /// Undo the last review decision. Returns the result ID that was undone (for selection).
@@ -455,7 +504,9 @@ extension AppState {
                 overrideScore: finalOverrideScore,
                 note: finalNote,
                 reviewedAt: Date(),
-                selectedCandidateIndex: finalCandidateIndex
+                selectedCandidateIndex: finalCandidateIndex,
+                manualTargetSelection: previous?.manualTargetSelection,
+                selectedTargetRowKey: previous?.selectedTargetRowKey
             )
             reviewDecisions[id] = newDecision
             if let result = resultsByID[id] {
@@ -485,7 +536,9 @@ extension AppState {
                 overrideMatchID: previous?.overrideMatchID,
                 note: previous?.note,
                 reviewedAt: Date(),
-                selectedCandidateIndex: previous?.selectedCandidateIndex
+                selectedCandidateIndex: previous?.selectedCandidateIndex,
+                manualTargetSelection: previous?.manualTargetSelection,
+                selectedTargetRowKey: previous?.selectedTargetRowKey
             )
             reviewDecisions[id] = newDecision
             if let result = resultsByID[id] {
@@ -535,7 +588,7 @@ extension AppState {
                 decision.note = note.isEmpty ? nil : note
                 reviewDecisions[id] = decision
             } else {
-                // Create a pending decision just to hold the note
+                // Create a pending decision to hold the note
                 reviewDecisions[id] = ReviewDecision(
                     status: .pending,
                     note: note.isEmpty ? nil : note

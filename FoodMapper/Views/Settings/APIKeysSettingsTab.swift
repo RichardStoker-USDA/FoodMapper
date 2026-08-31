@@ -41,7 +41,7 @@ struct APIKeysSettingsTab: View {
                 apiKeyStatusBadge
             }
 
-            Text("Stored locally on your Mac. Only sent to Anthropic when verifying matches.")
+            Text("Stored in your Mac's Keychain. Only sent to Anthropic when verifying matches.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -128,10 +128,13 @@ struct APIKeysSettingsTab: View {
             .controlSize(.small)
 
             Button {
-                APIKeyStorage.deleteAnthropicAPIKey()
-                apiKeyInput = ""
-                apiKeyStatus = .unknown
-                showAPIKey = false
+                if APIKeyStorage.deleteAnthropicAPIKey() {
+                    apiKeyInput = ""
+                    apiKeyStatus = .unknown
+                    showAPIKey = false
+                } else {
+                    apiKeyStatus = .invalid("Couldn't remove key")
+                }
                 appState.refreshAPIKeyState()
             } label: {
                 Image(systemName: "trash")
@@ -241,7 +244,13 @@ struct APIKeysSettingsTab: View {
         apiKeyStatus = .saving
 
         Task {
-            APIKeyStorage.setAnthropicAPIKey(key)
+            guard APIKeyStorage.setAnthropicAPIKey(key) else {
+                await MainActor.run {
+                    isValidating = false
+                    apiKeyStatus = .invalid("Couldn't store key")
+                }
+                return
+            }
             appState.refreshAPIKeyState()
 
             do {
@@ -254,8 +263,10 @@ struct APIKeysSettingsTab: View {
                         apiKeyStatus = .valid
                         apiKeyInput = ""
                     } else {
-                        apiKeyStatus = .invalid("Invalid key")
-                        APIKeyStorage.deleteAnthropicAPIKey()
+                        let removed = APIKeyStorage.deleteAnthropicAPIKey()
+                        apiKeyStatus = .invalid(
+                            removed ? "Invalid key" : "Invalid key; couldn't remove it"
+                        )
                         appState.refreshAPIKeyState()
                     }
                 }

@@ -77,11 +77,11 @@ struct StatisticsPanel: View {
             .padding(.horizontal, Spacing.md)
         }
         .padding(.vertical, Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 }
 
-/// Individual stat row with premium technical styling
+/// Individual stat row with technical styling
 struct StatRow: View {
     let label: String
     let value: String

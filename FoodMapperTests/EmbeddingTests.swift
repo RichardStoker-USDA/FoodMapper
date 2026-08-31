@@ -7,6 +7,30 @@ import MLXNN
 /// Had to switch from CLS token to mean pooling -- was getting all rando
 /// scores until that clicked. # ml-explore examples saved me here
 final class EmbeddingTests: XCTestCase {
+    private var modelRoot: URL!
+
+    override func setUp() async throws {
+        modelRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("foodmapper-embedding-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: modelRoot.path)
+        ResourceBundle.testingApplicationSupportModelDir = modelRoot
+        guard let bundled = ResourceBundle.bundledModelsDirectory,
+              GTELargeModelInstaller(rootDirectory: bundled).verifyBundledFiles(in: bundled) else {
+            throw XCTSkip("The signed GTE-Large fixture is not bundled with this test target")
+        }
+        let installer = GTELargeModelInstaller(rootDirectory: modelRoot)
+        try await installer.recoverAtStartup()
+    }
+
+    override func tearDown() {
+        ResourceBundle.testingApplicationSupportModelDir = nil
+        if let modelRoot {
+            try? FileManager.default.removeItem(at: modelRoot)
+        }
+        modelRoot = nil
+        super.tearDown()
+    }
 
     /// 1024-dim vector, L2-normalized. If this breaks, model load or
     /// pooling step is wrong.

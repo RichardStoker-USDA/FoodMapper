@@ -17,7 +17,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "llm-only-pip
 /// 3. If multiple batches, run a final round with batch winners
 /// 4. Top result becomes the match
 final class LLMOnlyPipeline: MatchingPipelineProtocol {
-    let pipelineType: PipelineType = .qwen3LLMOnly
+    let pipelineType: PipelineType
     var name: String { pipelineType.displayName }
 
     private let judge: GenerativeJudgeModel
@@ -36,11 +36,13 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
 
     /// Engine is used only for loading database entries (not for embedding)
     init(
+        pipelineType: PipelineType = .qwen3LLMOnly,
         judge: GenerativeJudgeModel,
         engine: MatchingEngine,
         responseFormat: JudgeResponseFormat = .letter,
         allowThinking: Bool = false
     ) {
+        self.pipelineType = pipelineType
         self.judge = judge
         self.engine = engine
         self.responseFormat = responseFormat
@@ -188,7 +190,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                     matchText: w.entry.text,
                     matchID: w.entry.id,
                     score: Double(w.confidence),
-                    additionalFields: w.entry.additionalFields
+                    additionalFields: w.entry.additionalFields,
+                    targetRowKey: w.entry.targetRowKey
                 )
             }
 
@@ -201,7 +204,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                 status: status,
                 scoreType: .generativeSelection,
                 matchAdditionalFields: winner.entry.additionalFields,
-                candidates: candidates
+                candidates: candidates,
+                targetRowKey: winner.entry.targetRowKey
             )
         }
 
@@ -235,7 +239,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                 matchText: w.entry.text,
                 matchID: w.entry.id,
                 score: Double(prob),
-                additionalFields: w.entry.additionalFields
+                additionalFields: w.entry.additionalFields,
+                targetRowKey: w.entry.targetRowKey
             )
         }.sorted { $0.score > $1.score }
 
@@ -254,7 +259,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                 status: status,
                 scoreType: .generativeSelection,
                 matchAdditionalFields: winner.entry.additionalFields,
-                candidates: candidateList
+                candidates: candidateList,
+                targetRowKey: winner.entry.targetRowKey
             )
         }
 

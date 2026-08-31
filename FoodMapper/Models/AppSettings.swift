@@ -1,5 +1,13 @@
 import Foundation
 
+enum AppLinks {
+    static let website = URL(string: "https://foodmapper.app")!
+    static let repository = URL(string: "https://github.com/RichardStoker-USDA/FoodMapper")!
+    static let researchRepository = URL(string: "https://github.com/dglemay/USDA-Food-Mapping")!
+    static let publication = URL(string: "https://doi.org/10.1016/j.tjnut.2026.101678")!
+    static let pubMed = URL(string: "https://pubmed.ncbi.nlm.nih.gov/42309308/")!
+}
+
 /// Persisted application settings
 struct AppSettings: Codable {
     var defaultThreshold: Double

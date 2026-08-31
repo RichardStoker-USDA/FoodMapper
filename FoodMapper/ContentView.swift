@@ -3,18 +3,24 @@ import SwiftUI
 /// Main content view with navigation
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject private var helpRequests: HelpRequestCoordinator
     @Environment(\.openWindow) private var openWindow
     @State private var showExportFormatPicker = false
 
     var body: some View {
-        if appState.isInResearchShowcase {
-            ResearchShowcaseView()
-                .environmentObject(appState)
-                // Lock window to the default app size (sidebar + toolbar included).
-                // Content was designed for this exact size.
-                .frame(minWidth: 1357, maxWidth: 1357, minHeight: 812, maxHeight: 812)
-        } else {
-            mainNavigationView
+        Group {
+            if appState.isInResearchShowcase {
+                ResearchShowcaseView()
+                    .environmentObject(appState)
+                    // Lock window to the default app size (sidebar + toolbar included).
+                    // Content was designed for this exact size.
+                    .frame(minWidth: 1357, maxWidth: 1357, minHeight: 812, maxHeight: 812)
+            } else {
+                mainNavigationView
+            }
+        }
+        .onChange(of: helpRequests.requestID) { _, _ in
+            openWindow(id: "help")
         }
     }
 
@@ -310,10 +316,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .restartTutorial)) { _ in
             appState.restartTutorial()
         }
-        // Listen for help window notification (from menu commands)
-        .onReceive(NotificationCenter.default.publisher(for: .showHelp)) { _ in
-            openWindow(id: "help")
-        }
         .sheet(isPresented: $appState.showSplashScreen) {
             SplashScreenView(isPresented: $appState.showSplashScreen)
                 .environmentObject(appState)
@@ -475,8 +477,7 @@ struct MainContent: View {
 /// Progress indicator in toolbar
 struct ProgressToolbarItem: View {
     @EnvironmentObject var appState: AppState
-    @State private var isHovering = false
-    @State private var hoverPoint: CGPoint = .zero
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     private var progressText: String {
         let phase = appState.matchingPhase
@@ -494,7 +495,7 @@ struct ProgressToolbarItem: View {
             HStack(spacing: Spacing.xs) {
                 if #available(macOS 15.0, *) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .symbolEffect(.rotate, isActive: true)
+                        .symbolEffect(.rotate, isActive: !accessibilityReduceMotion)
                         .font(.title3)
                         .foregroundStyle(Color.accentColor)
                 } else {
@@ -524,77 +525,13 @@ struct ProgressToolbarItem: View {
     }
 
     var body: some View {
-        if #available(macOS 26, *) {
-            // Material-based glass with cursor-tracking glow + rotating shine
-            progressContent
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, 6)
-                .background {
-                    ZStack {
-                        Capsule().fill(.ultraThinMaterial)
-                        Capsule().fill(Color.secondary.opacity(0.08))
-                        // Subtle specular highlight
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.2), .clear, .clear],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .padding(.horizontal, 2)
-                            .padding(.top, 1)
-                        Capsule()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.35), .white.opacity(0.08)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: 0.5
-                            )
-                    }
-                }
-                .shadow(color: .black.opacity(0.1), radius: 1, y: 0.5)
-                .overlay {
-                    GeometryReader { _ in
-                        if isHovering {
-                            Circle()
-                                .fill(RadialGradient(
-                                    colors: [.white.opacity(0.25), .clear],
-                                    center: .center,
-                                    startRadius: 0,
-                                    endRadius: 25
-                                ))
-                                .frame(width: 50, height: 50)
-                                .position(x: hoverPoint.x, y: hoverPoint.y)
-                                .blur(radius: 3)
-                        }
-                    }
-                    .clipShape(Capsule())
-                    .allowsHitTesting(false)
-                }
-                .polishedShine(cornerRadius: 100)
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active(let point):
-                        hoverPoint = point
-                        isHovering = true
-                    case .ended:
-                        isHovering = false
-                    }
-                }
-        } else {
-            // Subtle filled capsule with rotating shine
-            progressContent
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.12))
-                )
-                .polishedShine(cornerRadius: 100)
-        }
+        progressContent
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+            .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 0.66)
+            }
     }
 }
 
@@ -849,14 +786,20 @@ struct ResultsView: View {
 
         if result.isPipelineMatch(candidate) {
             // Same candidate the pipeline chose -- confirmation, not override
-            appState.setReviewDecision(.accepted, for: selectedId, candidateIndex: index)
+            appState.setReviewDecision(
+                .accepted,
+                for: selectedId,
+                candidateIndex: candidate.targetRowKey == nil ? index : nil,
+                targetRowKey: candidate.targetRowKey
+            )
         } else {
             appState.setReviewDecision(
                 .overridden, for: selectedId,
                 overrideText: candidate.matchText,
                 overrideID: candidate.matchID,
                 overrideScore: candidate.score,
-                candidateIndex: index
+                candidateIndex: candidate.targetRowKey == nil ? index : nil,
+                targetRowKey: candidate.targetRowKey
             )
         }
         appState.advanceToNextPending()
@@ -1001,286 +944,34 @@ private struct ForceToolbarSeparator: ViewModifier {
 
 // MARK: - Toolbar Buttons
 
-/// Polished "Match" button.
-/// - Tahoe: Faux-glass capsule (material + accent tint + specular highlight + edge glow
-///   + multi-layer shadow + cursor-tracking glow + polished shine). Uses .ultraThinMaterial
-///   instead of .glassEffect because glass-on-glass (inside the Liquid Glass toolbar) can't
-///   sample through to window content, making it look flat. Material CAN sample through.
-/// - Sequoia/Sonoma: Solid accent capsule with shadow + polished shine border
+/// Primary match action in the toolbar.
 private struct MatchButton: View {
     let action: () -> Void
     let disabled: Bool
 
-    @State private var hasAppeared = false
-    @State private var isHovering = false
-    @State private var hoverPoint: CGPoint = .zero
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var matchLabel: some View {
-        HStack(spacing: Spacing.sm) {
-            Image(systemName: "play")
-                .font(.body.weight(.bold))
-            Text("Match")
+    var body: some View {
+        Button(action: action) {
+            Label("Match", systemImage: "play")
                 .font(.body.weight(.semibold))
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, 8)
-    }
-
-    var body: some View {
-        buttonChrome
-            .scaleEffect(hasAppeared ? (isHovering && !disabled ? 1.02 : 1.0) : 0.7)
-            .opacity(disabled ? 0.5 : (hasAppeared ? 1.0 : 0.0))
-            .animation(.spring(response: 0.4, dampingFraction: 0.55), value: hasAppeared)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovering)
-            .onAppear { hasAppeared = true }
-            .onDisappear { hasAppeared = false }
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let point):
-                    hoverPoint = point
-                    if !disabled { isHovering = true }
-                case .ended:
-                    isHovering = false
-                }
-            }
-    }
-
-    /// Accent color overlay opacity -- light mode needs higher saturation because
-    /// ultraThinMaterial on a white toolbar creates a near-white base that washes out
-    /// lower opacities. Dark mode has natural contrast so less opacity is needed.
-    private var accentOpacity: Double { colorScheme == .dark ? 0.65 : 0.85 }
-    /// Specular highlight strength -- in light mode, white-on-light washes out,
-    /// so dial it back. Dark mode benefits from a brighter specular.
-    private var specularPeak: Double { colorScheme == .dark ? 0.4 : 0.12 }
-    /// Edge glow top opacity -- less visible needed in light mode.
-    private var edgeGlowTop: Double { colorScheme == .dark ? 0.55 : 0.3 }
-    private var edgeGlowBottom: Double { colorScheme == .dark ? 0.12 : 0.05 }
-
-    @ViewBuilder
-    private var buttonChrome: some View {
-        if #available(macOS 26, *) {
-            // Material-based glass: ultraThinMaterial samples actual window content
-            // through the toolbar, giving real translucency. Layered with accent tint,
-            // specular highlight, and edge glow for 3D glass depth.
-            Button(action: action) {
-                matchLabel
-                    .background {
-                        ZStack {
-                            // Layer 0: Colored backlight -- gives the material
-                            // something saturated to blur, preventing wash-out
-                            // on Tahoe's bright Liquid Glass toolbar
-                            Capsule().fill(Color.accentColor.opacity(0.35))
-                            // Layer 1: Translucent base -- samples + blurs the backlight
-                            Capsule().fill(.ultraThinMaterial)
-                            // Layer 2: Accent color tint
-                            Capsule().fill(Color.accentColor.opacity(accentOpacity))
-                            // Layer 3: Specular highlight -- simulates light hitting
-                            // the top of a curved glass surface
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(specularPeak),
-                                            .white.opacity(0.06),
-                                            .clear
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                .padding(.horizontal, 2)
-                                .padding(.top, 1)
-                            // Layer 4: Inner edge highlight -- glass refraction at edges
-                            Capsule()
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(edgeGlowTop),
-                                            .white.opacity(edgeGlowBottom)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    ),
-                                    lineWidth: 0.7
-                                )
-                        }
-                    }
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(disabled)
-            // Multi-layer shadows for 3D depth -- light mode gets stronger shadows
-            // since the white toolbar provides less natural contrast
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.18 : 0.25), radius: 1.5, y: 1)
-            .shadow(
-                color: Color.accentColor.opacity(colorScheme == .dark ? 0.35 : 0.35),
-                radius: 8, y: 4
-            )
-            // Cursor-tracking glow: soft light follows the mouse across the surface
-            .overlay {
-                GeometryReader { _ in
-                    if isHovering && !disabled {
-                        Circle()
-                            .fill(RadialGradient(
-                                colors: [.white.opacity(0.35), .clear],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: 30
-                            ))
-                            .frame(width: 60, height: 60)
-                            .position(x: hoverPoint.x, y: hoverPoint.y)
-                            .blur(radius: 4)
-                    }
-                }
-                .clipShape(Capsule())
-                .allowsHitTesting(false)
-            }
-            .polishedShine(cornerRadius: 100, isActive: !disabled, color: .white)
-        } else {
-            // Solid accent capsule with shadow and rotating shine
-            Button(action: action) {
-                ZStack {
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .shadow(
-                            color: Color.accentColor.opacity(colorScheme == .dark ? 0.5 : 0.3),
-                            radius: isHovering ? 8 : 4,
-                            y: isHovering ? 4 : 2
-                        )
-                        .polishedShine(cornerRadius: 100, isActive: !disabled, color: .white)
-                    matchLabel
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(disabled)
-        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+        .disabled(disabled)
     }
 }
 
-/// Polished "Match Complete" button.
-/// - Tahoe: Material-based glass capsule with green tint + specular + edge glow
-///   + cursor-tracking glow + polished shine + scale on appear/hover
-/// - Sequoia/Sonoma: Solid green capsule with shadow + polished shine
+/// Completion action shown after a matching run.
 private struct MatchCompleteButton: View {
     let action: () -> Void
 
-    @State private var hasAppeared = false
-    @State private var isHovering = false
-    @State private var hoverPoint: CGPoint = .zero
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var completeLabel: some View {
-        HStack(spacing: Spacing.sm) {
-            Image(systemName: "checkmark.circle")
-                .font(.body.weight(.bold))
-            Text("Matching Complete")
+    var body: some View {
+        Button(action: action) {
+            Label("Matching Complete", systemImage: "checkmark.circle")
                 .font(.body.weight(.semibold))
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, 8)
-    }
-
-    var body: some View {
-        buttonChrome
-            .scaleEffect(hasAppeared ? (isHovering ? 1.02 : 1.0) : 0.7)
-            .opacity(hasAppeared ? 1.0 : 0.0)
-            .animation(.spring(response: 0.4, dampingFraction: 0.55), value: hasAppeared)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovering)
-            .onAppear { hasAppeared = true }
-            .onDisappear { hasAppeared = false }
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let point):
-                    hoverPoint = point
-                    isHovering = true
-                case .ended:
-                    isHovering = false
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var buttonChrome: some View {
-        if #available(macOS 26, *) {
-            Button(action: action) {
-                completeLabel
-                    .background {
-                        ZStack {
-                            Capsule().fill(Color.green.opacity(0.35))
-                            Capsule().fill(.ultraThinMaterial)
-                            Capsule().fill(Color.green.opacity(colorScheme == .dark ? 0.65 : 0.85))
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(colorScheme == .dark ? 0.3 : 0.1),
-                                            .white.opacity(0.04),
-                                            .clear
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                .padding(.horizontal, 2)
-                                .padding(.top, 1)
-                            Capsule()
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(colorScheme == .dark ? 0.5 : 0.25),
-                                            .white.opacity(colorScheme == .dark ? 0.1 : 0.04)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    ),
-                                    lineWidth: 0.7
-                                )
-                        }
-                    }
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.15 : 0.22), radius: 1.5, y: 1)
-            .shadow(color: Color.green.opacity(0.3), radius: 6, y: 3)
-            // Cursor-tracking glow
-            .overlay {
-                GeometryReader { _ in
-                    if isHovering {
-                        Circle()
-                            .fill(RadialGradient(
-                                colors: [.white.opacity(0.35), .clear],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: 30
-                            ))
-                            .frame(width: 60, height: 60)
-                            .position(x: hoverPoint.x, y: hoverPoint.y)
-                            .blur(radius: 4)
-                    }
-                }
-                .clipShape(Capsule())
-                .allowsHitTesting(false)
-            }
-            .polishedShine(cornerRadius: 100, isActive: true, color: .white)
-        } else {
-            Button(action: action) {
-                ZStack {
-                    Capsule()
-                        .fill(Color.green)
-                        .shadow(
-                            color: Color.green.opacity(colorScheme == .dark ? 0.5 : 0.3),
-                            radius: isHovering ? 8 : 4,
-                            y: isHovering ? 4 : 2
-                        )
-                        .polishedShine(cornerRadius: 100, isActive: true, color: .white)
-                    completeLabel
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        .buttonStyle(.borderedProminent)
+        .tint(.green)
+        .controlSize(.regular)
     }
 }
 
@@ -1293,7 +984,7 @@ private struct GuidedReviewBanner: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            Image(systemName: "play.circle.fill")
+            Image(systemName: "play.circle")
                 .font(.title2)
                 .foregroundStyle(.green)
 
@@ -1326,7 +1017,6 @@ private struct GuidedReviewBanner: View {
         .frame(maxWidth: 540)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .bannerCardStyle()
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         .onTapGesture {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 isShowing = false
@@ -1404,12 +1094,14 @@ private struct ExportFormatRow: View {
 #Preview("Home - Light") {
     ContentView()
         .environmentObject(PreviewHelpers.emptyState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
 }
 
 #Preview("Home - Dark") {
     ContentView()
         .environmentObject(PreviewHelpers.emptyState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
         .preferredColorScheme(.dark)
 }
@@ -1417,11 +1109,13 @@ private struct ExportFormatRow: View {
 #Preview("Results") {
     ContentView()
         .environmentObject(PreviewHelpers.resultsState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
 }
 
 #Preview("Processing") {
     ContentView()
         .environmentObject(PreviewHelpers.processingEmbeddingState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 1200, height: 750)
 }

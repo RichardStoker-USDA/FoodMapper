@@ -11,7 +11,7 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
     case qwen3Reranker = "qwen3-reranker"
     /// Best quality: Qwen3-Embedding top-K + Qwen3-Reranker refinement
     case qwen3TwoStage = "qwen3-two-stage"
-    /// Paper hybrid: GTE-Large embedding + Claude Haiku API verification (future)
+    /// Paper hybrid: GTE-Large embedding + Claude Haiku API verification
     case gteLargeHaiku = "gte-large-haiku"
     /// Review-optimized: Qwen3-Embedding top-10 + Qwen3-Reranker with review triage
     case qwen3SmartTriage = "qwen3-smart-triage"
@@ -21,6 +21,10 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
     case embeddingLLM = "embedding-llm"
     /// GTE-Large + Haiku v2: prompt caching, neutral framing, minimal user message
     case gteLargeHaikuV2 = "gte-large-haiku-v2"
+    /// Single-stage: Gemma 4 generative LLM processes candidates from entire DB
+    case gemma4LLMOnly = "gemma4-llm-only"
+    /// Two-stage: Embedding retrieval + Gemma 4 generative selection
+    case gemma4TwoStage = "gemma4-two-stage"
 
     var id: String { rawValue }
 
@@ -35,6 +39,8 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .qwen3SmartTriage: return "Smart Triage"
         case .qwen3LLMOnly: return "Qwen3 LLM Judge"
         case .embeddingLLM: return "Embedding + LLM"
+        case .gemma4LLMOnly: return "Gemma 4 LLM Judge"
+        case .gemma4TwoStage: return "Gemma 4 Two-Stage"
         }
     }
 
@@ -58,6 +64,10 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
             return "Single-stage generative matching. Best for small databases (under 500 items)."
         case .embeddingLLM:
             return "Embedding retrieval + generative LLM selection. On-device reasoning over top candidates."
+        case .gemma4LLMOnly:
+            return "Single-stage Gemma 4 generative matching. Best for small databases (under 500 items)."
+        case .gemma4TwoStage:
+            return "Embedding retrieval + Gemma 4 generative selection. Run on-device Gemma 4 reasoning over top candidates."
         }
     }
 
@@ -73,6 +83,8 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .qwen3SmartTriage: return ["qwen3-emb-4b-4bit", "qwen3-reranker-0.6b"]
         case .qwen3LLMOnly: return ["qwen3-judge-4b-4bit"]
         case .embeddingLLM: return ["qwen3-emb-4b-4bit", "qwen3-judge-4b-4bit"]
+        case .gemma4LLMOnly: return ["gemma4-e4b-it-4bit"]
+        case .gemma4TwoStage: return ["qwen3-emb-4b-4bit", "gemma4-e4b-it-4bit"]
         }
     }
 
@@ -88,6 +100,8 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .qwen3SmartTriage: return "qwen3-emb-4b-4bit"
         case .qwen3LLMOnly: return nil
         case .embeddingLLM: return "qwen3-emb-4b-4bit"
+        case .gemma4LLMOnly: return nil
+        case .gemma4TwoStage: return "qwen3-emb-4b-4bit"
         }
     }
 
@@ -103,6 +117,8 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .qwen3SmartTriage: return true
         case .qwen3LLMOnly: return true
         case .embeddingLLM: return true
+        case .gemma4LLMOnly: return true
+        case .gemma4TwoStage: return true
         }
     }
 
@@ -118,6 +134,8 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .qwen3SmartTriage: return true
         case .qwen3LLMOnly: return true
         case .embeddingLLM: return true
+        case .gemma4LLMOnly: return true
+        case .gemma4TwoStage: return true
         }
     }
 
@@ -135,7 +153,7 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .gteLargeEmbedding, .qwen3Embedding: return .cosineSimilarity
         case .qwen3Reranker, .qwen3TwoStage, .qwen3SmartTriage: return .rerankerProbability
         case .gteLargeHaiku, .gteLargeHaikuV2: return .llmSelected
-        case .qwen3LLMOnly, .embeddingLLM: return .generativeSelection
+        case .qwen3LLMOnly, .embeddingLLM, .gemma4LLMOnly, .gemma4TwoStage: return .generativeSelection
         }
     }
 
@@ -144,7 +162,7 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .qwen3Reranker:
             return "Runtime scales linearly with database size. Intended for benchmarking small datasets only."
-        case .qwen3LLMOnly:
+        case .qwen3LLMOnly, .gemma4LLMOnly:
             return "Very slow for larger databases. Runtime scales linearly with database size."
         default:
             return nil
@@ -157,7 +175,7 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         case .gteLargeEmbedding, .gteLargeHaiku: return .researchValidation
         case .gteLargeHaikuV2: return .standard
         case .qwen3Embedding, .qwen3Reranker, .qwen3TwoStage, .qwen3SmartTriage,
-             .qwen3LLMOnly, .embeddingLLM: return .standard
+             .qwen3LLMOnly, .embeddingLLM, .gemma4LLMOnly, .gemma4TwoStage: return .standard
         }
     }
 }
@@ -174,7 +192,7 @@ extension PipelineType {
         case .gteLargeHaiku: return 5
         case .gteLargeHaikuV2: return 20
         case .embeddingLLM: return 5
-        case .qwen3Reranker, .qwen3LLMOnly: return 5
+        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly, .gemma4TwoStage: return 5
         }
     }
 
@@ -226,7 +244,7 @@ enum PipelineMode: String, CaseIterable, Identifiable, Codable {
     /// Note: .gteLargeHaiku is NOT in either list. It's controlled by the Haiku verification toggle.
     var availablePipelineTypes: [PipelineType] {
         switch self {
-        case .standard: return [.gteLargeEmbedding, .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .qwen3LLMOnly, .qwen3Reranker, .gteLargeHaikuV2]
+        case .standard: return [.gteLargeEmbedding, .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .qwen3LLMOnly, .qwen3Reranker, .gteLargeHaikuV2, .gemma4TwoStage, .gemma4LLMOnly]
         case .researchValidation: return [.gteLargeEmbedding]
         }
     }
@@ -250,6 +268,7 @@ extension ModelFamily {
         case .qwen3Reranker: return [.small, .medium]
         case .gteLarge: return []
         case .qwen3Generative: return [.small, .medium]
+        case .gemma4Generative: return [.small, .medium]
         }
     }
 
@@ -273,6 +292,12 @@ extension ModelFamily {
             switch size {
             case .small: return "qwen3-judge-0.6b-4bit"
             case .medium: return "qwen3-judge-4b-4bit"
+            case .large: return nil
+            }
+        case .gemma4Generative:
+            switch size {
+            case .small: return "gemma4-e2b-it-4bit"
+            case .medium: return "gemma4-e4b-it-4bit"
             case .large: return nil
             }
         }
@@ -351,7 +376,7 @@ enum InstructionPreset: String, CaseIterable, Identifiable, Codable {
         case .preparation:
             return "You are a food science expert specializing in food preparation methods. Match the survey description to the database entry that best matches the cooking or preparation method described. Key distinctions: raw vs cooked, fresh vs frozen vs canned vs dried, baking vs frying vs grilling vs steaming. The preparation method takes priority over exact food variety."
         case .ingredient:
-            return "You are a food science expert matching raw ingredients and commodities. The survey may describe branded products, recipe components, or colloquial food names. Match to the closest standardized raw ingredient, ignoring brand names, packaging, and preparation details. Focus on what the base food commodity actually is."
+            return "You are a food science expert matching raw ingredients and commodities. The survey may describe branded products, recipe components, or colloquial food names. Match to the closest standardized raw ingredient, ignoring brand names, packaging, and preparation details. Focus on the base food commodity."
         case .nutritional:
             return "You are a nutritionist matching foods by their nutritional composition. Match the survey description to the database entry with the most similar nutritional profile. Consider food group, macronutrient balance (protein, fat, carbohydrate ratios), and caloric density. A nutritionally similar food from the same group is better than an exact name match from a different group."
         case .branded:
@@ -415,6 +440,14 @@ enum InstructionPreset: String, CaseIterable, Identifiable, Codable {
         case .branded: return "Maps branded products to generic database equivalents"
         case .custom: return "Provide your own instruction text"
         }
+    }
+}
+
+/// Decides whether the Haiku pipelines have qualified work to submit.
+/// Inputs with no qualified candidates are finalized before the batch stage.
+enum HaikuBatchSubmission {
+    static func shouldSubmit(taskCount: Int) -> Bool {
+        taskCount > 0
     }
 }
 

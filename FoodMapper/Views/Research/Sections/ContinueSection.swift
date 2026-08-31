@@ -8,9 +8,8 @@ struct ContinueSection: View {
     /// Closure to scroll back to top of the showcase.
     var scrollToTop: (() -> Void)?
 
-    private let paperURL: URL? = nil  // DOI pending publication
-    private let githubURL = URL(string: "https://github.com/dglemay/USDA-Food-Mapping")!
-    private let shinyURL = URL(string: "https://richtext-semantic-food-mapper.hf.space")!
+    private let paperURL = AppLinks.publication
+    private let githubURL = AppLinks.researchRepository
 
     var body: some View {
         VStack(alignment: .center, spacing: 0) {
@@ -23,14 +22,14 @@ struct ContinueSection: View {
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
 
-                Text("The research behind this app studied how LLMs perform at food database mapping, a real bottleneck in nutrition science. The hybrid embedding + LLM pipeline reached 90.7% accuracy on ASA24-to-FooDB and 65.4% on the harder NHANES-to-DFG2 benchmark. The paper covers six model comparisons, twenty prompt strategies, and two public benchmark datasets.")
+                Text("The research behind this app studied how LLMs perform at food database mapping. The hybrid embedding + LLM pipeline reached 90.7% accuracy on ASA24-to-FooDB and 65.4% on the harder NHANES-to-DFG2 benchmark. The paper and public repository cover the methods, prompts, and two benchmark datasets.")
                     .font(.body)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 560)
 
-                Text("This app was built so researchers can quickly and accurately map dietary recall data to official reference databases, such as those hosted on USDA's FoodData Central, without manual lookup.")
+                Text("FoodMapper supports mapping dietary recall data to reference databases such as USDA FoodData Central, with results available for review before export.")
                     .font(.body)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .multilineTextAlignment(.center)
@@ -64,10 +63,9 @@ struct ContinueSection: View {
             actionCardView(
                 icon: "doc.text",
                 title: "Read the Paper",
-                subtitle: "Full paper with methodology, benchmark results, and discussion",
-                disabled: paperURL == nil
+                subtitle: "Full paper with methodology, benchmark results, and discussion"
             ) {
-                if let url = paperURL { openURL(url) }
+                openURL(paperURL)
             }
             .scrollRevealStaggered(index: 0)
 
@@ -106,7 +104,6 @@ struct ContinueSection: View {
         isCustomSymbol: Bool = false,
         title: String,
         subtitle: String,
-        disabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button {
@@ -144,9 +141,7 @@ struct ContinueSection: View {
             .showcaseHover()
         }
         .buttonStyle(.plain)
-        .opacity(disabled ? 0.5 : 1.0)
-        .allowsHitTesting(!disabled)
-        .help(disabled ? "DOI pending publication" : subtitle)
+        .help(subtitle)
     }
 
     // MARK: - Attribution
@@ -180,26 +175,18 @@ struct ContinueSection: View {
                 Spacer()
                     .frame(height: Spacing.xs)
 
-                // Links
-                HStack(spacing: Spacing.lg) {
-                    Link(destination: githubURL) {
-                        HStack(spacing: Spacing.xxs) {
-                            Image("logo.github")
-                                .imageScale(.small)
-                            Text("GitHub")
-                        }
-                        .font(.caption)
-                    }
+                Link("J Nutr. 2026 Aug;156(8):101678", destination: paperURL)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                    Link(destination: shinyURL) {
-                        HStack(spacing: Spacing.xxs) {
-                            Image(systemName: "globe")
-                                .imageScale(.small)
-                            Text("Web Version")
-                        }
-                        .font(.caption)
+                Link(destination: githubURL) {
+                    HStack(spacing: Spacing.xxs) {
+                        Image("logo.github")
+                            .imageScale(.small)
+                        Text("GitHub")
                     }
                 }
+                .font(.caption)
                 .foregroundStyle(.secondary)
 
             }

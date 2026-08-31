@@ -4,6 +4,27 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "model-manager")
 
+private final class GTELargeProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastUpdate = Date.distantPast
+    private let minimumInterval: TimeInterval
+
+    init(minimumInterval: TimeInterval = 0.1) {
+        self.minimumInterval = minimumInterval
+    }
+
+    func shouldPublish(written: Int64, total: Int64) -> Bool {
+        let now = Date()
+        lock.lock()
+        defer { lock.unlock() }
+        guard written >= total || now.timeIntervalSince(lastUpdate) >= minimumInterval else {
+            return false
+        }
+        lastUpdate = now
+        return true
+    }
+}
+
 /// Lifecycle state of a model
 enum ModelState: Equatable {
     case notDownloaded
@@ -25,6 +46,11 @@ enum ModelState: Equatable {
     }
 }
 
+enum ModelDownloadRetryState: Equatable {
+    case ready
+    case cancelling
+}
+
 /// Registration entry for a known model
 struct RegisteredModel: Identifiable {
     let key: String
@@ -33,6 +59,8 @@ struct RegisteredModel: Identifiable {
     let sizeCategory: ModelSizeCategory
     /// HuggingFace repo ID for download (nil for bundled models)
     let repoId: String?
+    /// Immutable Hugging Face commit for models that are downloaded by the app.
+    let revision: String?
     /// Approximate download size in bytes
     let downloadSize: Int64?
     /// Approximate GPU memory usage in bytes
@@ -44,6 +72,28 @@ struct RegisteredModel: Identifiable {
 
     /// Whether this model is bundled with the app (no download needed)
     var isBundled: Bool { repoId == nil }
+
+    init(
+        key: String,
+        displayName: String,
+        modelFamily: ModelFamily,
+        sizeCategory: ModelSizeCategory,
+        repoId: String?,
+        revision: String? = nil,
+        downloadSize: Int64?,
+        gpuMemoryUsage: Int64?,
+        minimumProfile: HardwareProfile
+    ) {
+        self.key = key
+        self.displayName = displayName
+        self.modelFamily = modelFamily
+        self.sizeCategory = sizeCategory
+        self.repoId = repoId
+        self.revision = revision
+        self.downloadSize = downloadSize
+        self.gpuMemoryUsage = gpuMemoryUsage
+        self.minimumProfile = minimumProfile
+    }
 }
 
 /// Model family grouping
@@ -52,6 +102,7 @@ enum ModelFamily: String, CaseIterable {
     case qwen3Embedding = "Qwen3-Embedding"
     case qwen3Reranker = "Qwen3-Reranker"
     case qwen3Generative = "Qwen3-Generative"
+    case gemma4Generative = "Gemma 4 Generative"
 }
 
 /// Model size categories
@@ -70,6 +121,10 @@ final class ModelManager: ObservableObject {
 
     /// Current state of each model (keyed by model key)
     @Published private(set) var modelStates: [String: ModelState] = [:]
+
+    /// Retry state is separate from model availability so UI can wait for the
+    /// in-flight download lease to leave the install path before enabling retry.
+    @Published private(set) var downloadRetryStates: [String: ModelDownloadRetryState] = [:]
 
     /// Currently loaded embedding model (only one at a time)
     private(set) var loadedEmbeddingModel: (any EmbeddingModelProtocol)?
@@ -90,11 +145,38 @@ final class ModelManager: ObservableObject {
     /// Checked at safe boundaries during download work.
     private var cancelledDownloadKeys: Set<String> = []
 
+    /// Model keys currently downloading (prevents concurrent task collisions)
+    private var activeDownloads: Set<String> = []
+
+    /// Callback for detailed GTE-Large progress updates (progress, written, total)
+    var onGTELargeProgress: (@MainActor (_ progress: Double, _ written: Int64, _ total: Int64) -> Void)?
+
+    /// The explicit GTE-Large installation task. Availability checks never
+    /// create this task or make a network request.
+    private var activeGTELargeInstallTask: Task<URL, Error>?
+
+    /// Startup recovery is completed once before any GTE availability, load,
+    /// download, or deletion operation can touch the installation root.
+    private var gteStartupRecoveryTask: Task<Void, Never>?
+    private var gteStartupRecoveryFailure: String?
+    private var gteStartupRecoveryReady = false
+
     init(hardwareConfig: HardwareConfig) {
         self.hardwareConfig = hardwareConfig
         registerKnownModels()
         cleanupLegacyModels()
-        detectInstalledModels()
+        gteStartupRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await MLXEmbeddingModel.awaitStartupRecovery()
+                try Task.checkCancellation()
+                self.gteStartupRecoveryReady = true
+                self.detectInstalledModels()
+            } catch {
+                self.gteStartupRecoveryFailure = error.localizedDescription
+                self.modelStates["gte-large"] = .error(error.localizedDescription)
+            }
+        }
     }
 
     // MARK: - Legacy Cleanup
@@ -117,9 +199,8 @@ final class ModelManager: ObservableObject {
         // Clean up old double-nested "Models/models/" directory from previous downloadBase bug.
         // Hub library appends "models/" to downloadBase; the old code set downloadBase to
         // FoodMapper/Models/, producing FoodMapper/Models/models/{org}/{repo}/.
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let oldNestedModels = appSupport
-            .appendingPathComponent("FoodMapper/Models/models", isDirectory: true)
+        let oldNestedModels = FoodMapperStorage.privateDirectory(["Models"])
+            .appendingPathComponent("models", isDirectory: true)
         if FileManager.default.fileExists(atPath: oldNestedModels.path) {
             try? FileManager.default.removeItem(at: oldNestedModels)
             logger.info("Cleaned up old nested Models/models/ directory")
@@ -136,7 +217,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .gteLarge,
                 sizeCategory: .legacy,
                 repoId: "richtext/foodmapper-gte-large",
-                downloadSize: 640_000_000,
+                downloadSize: GTELargeModelManifest.current.downloadSize,
                 gpuMemoryUsage: 700_000_000,
                 minimumProfile: .base
             ),
@@ -146,6 +227,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Embedding,
                 sizeCategory: .small,
                 repoId: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+                revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a",
                 downloadSize: 351_000_000,
                 gpuMemoryUsage: 500_000_000,
                 minimumProfile: .base
@@ -156,6 +238,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Embedding,
                 sizeCategory: .medium,
                 repoId: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
+                revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72",
                 downloadSize: 2_280_000_000,
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
@@ -166,6 +249,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Embedding,
                 sizeCategory: .large,
                 repoId: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ",
+                revision: "885642d6b98742ea03b77a1673579c92ca961efd",
                 downloadSize: 4_500_000_000,
                 gpuMemoryUsage: 5_000_000_000,
                 minimumProfile: .standard
@@ -176,6 +260,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Reranker,
                 sizeCategory: .small,
                 repoId: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
+                revision: "e8a94247380953b292660c992e41d94ac04df5f8",
                 downloadSize: 1_200_000_000,
                 gpuMemoryUsage: 1_200_000_000,
                 minimumProfile: .base
@@ -186,6 +271,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Reranker,
                 sizeCategory: .medium,
                 repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
+                revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1",
                 downloadSize: 2_300_000_000,
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
@@ -196,6 +282,7 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Generative,
                 sizeCategory: .small,
                 repoId: "mlx-community/Qwen3-0.6B-4bit",
+                revision: "73e3e38d981303bc594367cd910ea6eb48349da8",
                 downloadSize: 351_000_000,
                 gpuMemoryUsage: 500_000_000,
                 minimumProfile: .base
@@ -206,11 +293,85 @@ final class ModelManager: ObservableObject {
                 modelFamily: .qwen3Generative,
                 sizeCategory: .medium,
                 repoId: "mlx-community/Qwen3-4B-4bit",
+                revision: "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
                 downloadSize: 2_280_000_000,
                 gpuMemoryUsage: 2_500_000_000,
                 minimumProfile: .base
             ),
+            RegisteredModel(
+                key: "gemma4-e2b-it-4bit",
+                displayName: "Gemma 4 E2B Instruct 4-bit",
+                modelFamily: .gemma4Generative,
+                sizeCategory: .small,
+                repoId: "mlx-community/gemma-4-e2b-it-4bit",
+                downloadSize: 1_200_000_000,
+                gpuMemoryUsage: 1_500_000_000,
+                minimumProfile: .base
+            ),
+            RegisteredModel(
+                key: "gemma4-e4b-it-4bit",
+                displayName: "Gemma 4 E4B Instruct 4-bit",
+                modelFamily: .gemma4Generative,
+                sizeCategory: .medium,
+                repoId: "mlx-community/gemma-4-e4b-it-4bit",
+                downloadSize: 2_400_000_000,
+                gpuMemoryUsage: 2_800_000_000,
+                minimumProfile: .base
+            ),
         ]
+
+        loadCustomRegisteredModels()
+    }
+
+    /// Loads custom user-registered models dynamically from a local JSON config
+    private func loadCustomRegisteredModels() {
+        let fileManager = FileManager.default
+        let modelsDir = FoodMapperStorage.privateDirectory(["Models"])
+
+        let customModelsURL = modelsDir.appendingPathComponent("custom_models.json")
+
+        guard fileManager.fileExists(atPath: customModelsURL.path) else { return }
+
+        do {
+            let data = try Data(contentsOf: customModelsURL)
+            struct CustomModelDecodable: Decodable {
+                let key: String
+                let displayName: String
+                let modelFamily: String
+                let sizeCategory: String
+                let repoId: String?
+                let downloadSize: Int64?
+                let gpuMemoryUsage: Int64?
+                let minimumProfile: String
+            }
+
+            let decoded = try JSONDecoder().decode([CustomModelDecodable].self, from: data)
+
+            for item in decoded {
+                let family = ModelFamily(rawValue: item.modelFamily) ?? .gemma4Generative
+                let size = ModelSizeCategory(rawValue: item.sizeCategory) ?? .medium
+                let profile = HardwareProfile(rawValue: item.minimumProfile) ?? .base
+
+                let customModel = RegisteredModel(
+                    key: item.key,
+                    displayName: item.displayName,
+                    modelFamily: family,
+                    sizeCategory: size,
+                    repoId: item.repoId,
+                    downloadSize: item.downloadSize,
+                    gpuMemoryUsage: item.gpuMemoryUsage,
+                    minimumProfile: profile
+                )
+
+                // Add to registeredModels if not already present
+                if !registeredModels.contains(where: { $0.key == customModel.key }) {
+                    registeredModels.append(customModel)
+                    logger.info("Loaded custom model registration: \(customModel.key) (\(customModel.displayName))")
+                }
+            }
+        } catch {
+            logger.error("Failed to load custom models JSON: \(error.localizedDescription)")
+        }
     }
 
     /// Check which models are already downloaded/available
@@ -220,7 +381,7 @@ final class ModelManager: ObservableObject {
             case "gte-large":
                 modelStates[model.key] = MLXEmbeddingModel.isModelAvailable ? .downloaded : .notDownloaded
             default:
-                if let repoId = model.repoId, downloader.isDownloaded(repoId: repoId) {
+                if let repoId = model.repoId, downloader.isDownloaded(repoId: repoId, revision: model.revision) {
                     modelStates[model.key] = .downloaded
                 } else {
                     modelStates[model.key] = .notDownloaded
@@ -234,6 +395,10 @@ final class ModelManager: ObservableObject {
     /// Get the state of a specific model
     func state(for key: String) -> ModelState {
         modelStates[key] ?? .notDownloaded
+    }
+
+    func retryState(for key: String) -> ModelDownloadRetryState {
+        downloadRetryStates[key] ?? .ready
     }
 
     /// Whether all models required by a pipeline are available (downloaded or loaded)
@@ -267,26 +432,67 @@ final class ModelManager: ObservableObject {
     /// Mark an in-flight download for cancellation.
     /// The download task should also be cancelled by the caller for fastest stop.
     func cancelDownload(key: String) {
+        guard activeDownloads.contains(key) else { return }
         cancelledDownloadKeys.insert(key)
+        downloadRetryStates[key] = .cancelling
+        if key == "gte-large" {
+            activeGTELargeInstallTask?.cancel()
+        }
+    }
+
+    func cancelDownloadAndWait(key: String) async {
+        cancelDownload(key: key)
+        while activeDownloads.contains(key) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        downloadRetryStates[key] = .ready
+    }
+
+    func awaitStartupRecoveryForUserAction() async throws {
+        await gteStartupRecoveryTask?.value
+        if let gteStartupRecoveryFailure {
+            throw GTELargeStartupRecoveryError.failed(gteStartupRecoveryFailure)
+        }
+        guard gteStartupRecoveryReady else {
+            throw GTELargeStartupRecoveryError.failed("Recovery did not complete")
+        }
     }
 
     /// Download a model by key with progress reporting
     func downloadModel(key: String) async throws {
-        guard let registration = registeredModel(for: key),
-              let repoId = registration.repoId else {
+        try await awaitStartupRecoveryForUserAction()
+        guard let registration = registeredModel(for: key) else {
             throw ModelManagerError.unknownModel(key)
         }
 
+        // Prevent parallel download tasks for the same model key
+        guard !activeDownloads.contains(key) else {
+            logger.warning("Download already in progress for model: \(key)")
+            if retryState(for: key) == .cancelling {
+                throw ModelManagerError.retryAfterCancellation(key)
+            }
+            throw ModelManagerError.downloadInProgress(key)
+        }
+        activeDownloads.insert(key)
+        defer {
+            activeDownloads.remove(key)
+            downloadRetryStates[key] = .ready
+        }
+
+        let repoId = registration.repoId
         cancelledDownloadKeys.remove(key)
         modelStates[key] = .downloading(progress: 0)
 
         do {
             if key == "gte-large" {
-                // GTE-Large uses flat file layout (individual files to Models/)
+                // GTE-Large uses its immutable manifest installer.
                 try await downloadGTELarge(modelKey: key)
             } else {
+                guard let repoId = repoId, let revision = registration.revision else {
+                    throw ModelManagerError.unknownModel(key)
+                }
                 // Other models use Hub snapshot (nested {org}/{repo}/ directories)
-                _ = try await downloader.download(repoId: repoId) { [weak self] progress in
+                _ = try await downloader.download(repoId: repoId, revision: revision) { [weak self] progress in
                     Task { @MainActor in
                         guard let self else { return }
                         guard !self.shouldCancelDownload(for: key) else { return }
@@ -298,22 +504,39 @@ final class ModelManager: ObservableObject {
             cancelledDownloadKeys.remove(key)
             modelStates[key] = .downloaded
             logger.info("Downloaded model: \(key)")
-        } catch is CancellationError {
-            if key != "gte-large" {
-                try? await downloader.deleteModel(repoId: repoId)
-            }
-            cancelledDownloadKeys.remove(key)
-            modelStates[key] = .notDownloaded
-            logger.info("Cancelled model download: \(key)")
         } catch {
-            cancelledDownloadKeys.remove(key)
-            modelStates[key] = .error(error.localizedDescription)
-            throw error
+            let isCancelled = self.shouldCancelDownload(for: key) ||
+                             error is CancellationError ||
+                             (error as? URLError)?.code == .cancelled
+
+            if isCancelled {
+                if key != "gte-large", let repoId = repoId {
+                    try? await downloader.deleteModel(repoId: repoId)
+                }
+                cancelledDownloadKeys.remove(key)
+                if key == "gte-large" {
+                    modelStates[key] = MLXEmbeddingModel.isModelAvailable ? .downloaded : .notDownloaded
+                } else {
+                    modelStates[key] = .notDownloaded
+                }
+                logger.info("Cancelled model download: \(key)")
+                throw error
+            } else {
+                cancelledDownloadKeys.remove(key)
+                if key == "gte-large" {
+                    let message = "GTE-Large download could not be installed"
+                    modelStates[key] = .error(message)
+                    throw ModelManagerError.downloadFailed(message)
+                }
+                modelStates[key] = .error(error.localizedDescription)
+                throw error
+            }
         }
     }
 
     /// Delete a downloaded model
     func deleteModel(key: String) async throws {
+        try await awaitStartupRecoveryForUserAction()
         guard let registration = registeredModel(for: key),
               registration.repoId != nil else {
             throw ModelManagerError.unknownModel(key)
@@ -331,8 +554,8 @@ final class ModelManager: ObservableObject {
         }
 
         if key == "gte-large" {
-            // GTE-Large uses flat files in the Models directory
-            try deleteGTELargeFiles()
+            // GTE-Large keeps its verified files in a versioned private directory.
+            try await deleteGTELargeFiles()
         } else {
             try await downloader.deleteModel(repoId: registration.repoId!)
         }
@@ -340,97 +563,45 @@ final class ModelManager: ObservableObject {
         logger.info("Deleted model: \(key)")
     }
 
-    // MARK: - GTE-Large Flat File Download
+    // MARK: - GTE-Large Verified Download
 
-    /// Files required for GTE-Large model with approximate sizes for progress weighting
-    private static let gteLargeFiles: [(name: String, approximateSize: Int64)] = [
-        ("config.json", 1_000),
-        ("tokenizer.json", 500_000),
-        ("vocab.txt", 250_000),
-        ("tokenizer_config.json", 1_000),
-        ("special_tokens_map.json", 1_000),
-        ("gte-large.safetensors", 640_000_000),  // Large file downloaded last for smoother progress
-    ]
-
-    /// Download GTE-Large model files individually to flat Models/ directory.
-    /// Tracks combined progress weighted by file size across all 6 files.
+    /// Downloads the immutable GTE-Large manifest into a private staging
+    /// directory. The prior verified installation remains available until the
+    /// full replacement is checked and committed.
     private func downloadGTELarge(modelKey: String) async throws {
-        let baseURL = "https://huggingface.co/richtext/foodmapper-gte-large/resolve/main/"
-        let destDir = MLXEmbeddingModel.downloadDirectory
-
-        try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-        // Calculate total weight for progress tracking
-        let totalWeight = Double(Self.gteLargeFiles.reduce(0) { $0 + $1.approximateSize })
-        var completedWeight: Double = 0
-
-        for (filename, approximateSize) in Self.gteLargeFiles {
-            try throwIfDownloadCancelled(for: modelKey)
-            let sourceURL = URL(string: baseURL + filename)!
-            let destURL = destDir.appendingPathComponent(filename)
-
-            // Skip if already exists
-            if FileManager.default.fileExists(atPath: destURL.path) {
-                completedWeight += Double(approximateSize)
-                modelStates[modelKey] = .downloading(progress: completedWeight / totalWeight)
-                continue
+        let root = MLXEmbeddingModel.downloadDirectory
+        let installer = GTELargeModelInstaller(
+            rootDirectory: root,
+            transport: URLSessionGTELargeDownloadTransport()
+        )
+        let progressThrottle = GTELargeProgressThrottle()
+        let updateProgress: @Sendable (Int64, Int64) -> Void = { [weak self] written, total in
+            guard progressThrottle.shouldPublish(written: written, total: total) else { return }
+            Task { @MainActor [weak self] in
+                guard let self, !self.shouldCancelDownload(for: modelKey) else { return }
+                let progress = total == 0 ? 0 : Double(written) / Double(total)
+                self.modelStates[modelKey] = .downloading(progress: progress)
+                self.onGTELargeProgress?(progress, written, total)
             }
-
-            let fileWeight = Double(approximateSize)
-            let isLargeFile = approximateSize > 10_000_000  // >10MB gets per-byte tracking
-
-            if isLargeFile {
-                let baseProgress = completedWeight
-                try await downloadLargeFile(from: sourceURL, to: destURL, modelKey: modelKey) { [weak self] fileProgress in
-                    let overall = (baseProgress + fileProgress * fileWeight) / totalWeight
-                    Task { @MainActor in
-                        guard let self else { return }
-                        guard !self.shouldCancelDownload(for: modelKey) else { return }
-                        self.modelStates[modelKey] = .downloading(progress: overall)
-                    }
-                }
-            } else {
-                let (data, response) = try await URLSession.shared.data(from: sourceURL)
-                guard let httpResponse = response as? HTTPURLResponse,
-                      httpResponse.statusCode == 200 else {
-                    throw ModelManagerError.downloadFailed("Failed to download \(filename)")
-                }
-                try data.write(to: destURL)
+        }
+        let task: Task<URL, Error> = Task.detached {
+            try Task.checkCancellation()
+            let directory = try await installer.install { written, total in
+                updateProgress(written, total)
             }
-
-            try throwIfDownloadCancelled(for: modelKey)
-            completedWeight += fileWeight
-            modelStates[modelKey] = .downloading(progress: completedWeight / totalWeight)
+            try Task.checkCancellation()
+            return directory
         }
-    }
-
-    /// Download large file with progress tracking using URLSession download task.
-    /// Reports per-byte progress (0.0-1.0) for this individual file via the callback.
-    private func downloadLargeFile(
-        from sourceURL: URL,
-        to destURL: URL,
-        modelKey: String,
-        onFileProgress: @escaping (Double) -> Void = { _ in }
-    ) async throws {
-        let delegate = DownloadProgressDelegate { progress in
-            onFileProgress(progress)
-        }
-
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        let (tempURL, response) = try await session.download(from: sourceURL)
+        activeGTELargeInstallTask = task
+        defer { activeGTELargeInstallTask = nil }
+        _ = try await withTaskCancellationHandler(operation: {
+            let value = try await task.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: {
+            task.cancel()
+        })
         try throwIfDownloadCancelled(for: modelKey)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw ModelManagerError.downloadFailed(
-                "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
-            )
-        }
-
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
-        }
-        try FileManager.default.moveItem(at: tempURL, to: destURL)
     }
 
     private func shouldCancelDownload(for key: String) -> Bool {
@@ -443,15 +614,11 @@ final class ModelManager: ObservableObject {
         }
     }
 
-    /// Delete GTE-Large flat model files
-    private func deleteGTELargeFiles() throws {
-        let destDir = MLXEmbeddingModel.downloadDirectory
-        for (filename, _) in Self.gteLargeFiles {
-            let fileURL = destDir.appendingPathComponent(filename)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.removeItem(at: fileURL)
-            }
-        }
+    /// Delete the verified GTE-Large installation and owned recovery artifacts.
+    private func deleteGTELargeFiles() async throws {
+        let root = MLXEmbeddingModel.downloadDirectory
+        let installer = GTELargeModelInstaller(rootDirectory: root)
+        try await installer.deleteInstallArtifacts()
     }
 
     /// List of model keys that are currently missing (not downloaded) for a given set of required keys
@@ -467,6 +634,7 @@ final class ModelManager: ObservableObject {
     /// Load an embedding model by key. Returns the loaded model.
     /// If a different embedding model is loaded, it will be unloaded first.
     func loadEmbeddingModel(key: String) async throws -> any EmbeddingModelProtocol {
+        try await awaitStartupRecoveryForUserAction()
         // Already loaded?
         if let loaded = loadedEmbeddingModel, loaded.info.key == key {
             return loaded
@@ -482,8 +650,6 @@ final class ModelManager: ObservableObject {
         do {
             let model: any EmbeddingModelProtocol
 
-            let hub = downloader.hubApi
-
             switch key {
             case "gte-large":
                 let gteModel = MLXEmbeddingModel()
@@ -497,12 +663,14 @@ final class ModelManager: ObservableObject {
                     modelKey: "qwen3-emb-0.6b-4bit",
                     modelDisplayName: "Qwen3-Embedding 0.6B"
                 )
-                try await qwenModel.load(hub: hub)
+                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a")
+                try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
 
             case "qwen3-emb-4b-4bit":
                 let qwenModel = QwenEmbeddingModel()
-                try await qwenModel.load(hub: hub)
+                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ", revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72")
+                try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
 
             case "qwen3-emb-8b-4bit":
@@ -512,7 +680,8 @@ final class ModelManager: ObservableObject {
                     modelKey: "qwen3-emb-8b-4bit",
                     modelDisplayName: "Qwen3-Embedding 8B"
                 )
-                try await qwenModel.load(hub: hub)
+                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ", revision: "885642d6b98742ea03b77a1673579c92ca961efd")
+                try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
 
             default:
@@ -558,19 +727,23 @@ final class ModelManager: ObservableObject {
         do {
             let model: QwenRerankerModel
 
-            let hub = downloader.hubApi
-
             switch key {
             case "qwen3-reranker-0.6b":
                 model = QwenRerankerModel()
-                try await model.load(hub: hub)
+                try await model.load(snapshot: try await downloader.validatedLocalSnapshot(
+                    for: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
+                    revision: "e8a94247380953b292660c992e41d94ac04df5f8"
+                ))
             case "qwen3-reranker-4b":
                 model = QwenRerankerModel(
                     repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
                     key: "qwen3-reranker-4b",
                     displayName: "Qwen3-Reranker 4B"
                 )
-                try await model.load(hub: hub)
+                try await model.load(snapshot: try await downloader.validatedLocalSnapshot(
+                    for: "richtext/Qwen3-Reranker-4B-mlx-4bit",
+                    revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1"
+                ))
             default:
                 throw ModelManagerError.unknownModel(key)
             }
@@ -623,8 +796,9 @@ final class ModelManager: ObservableObject {
                 displayName: registration.displayName
             )
 
-            let hub = downloader.hubApi
-            try await model.load(hub: hub)
+            guard let revision = registration.revision else { throw ModelManagerError.unknownModel(key) }
+            let snapshot = try await downloader.validatedLocalSnapshot(for: repoId, revision: revision)
+            try await model.load(snapshot: snapshot)
 
             loadedGenerativeModel = model
             modelStates[key] = .loaded
@@ -649,12 +823,23 @@ final class ModelManager: ObservableObject {
 
     /// Refresh model availability (e.g., after download completes)
     func refreshModelStates() {
-        detectInstalledModels()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.awaitStartupRecoveryForUserAction()
+                try Task.checkCancellation()
+                self.detectInstalledModels()
+            } catch {
+                self.gteStartupRecoveryFailure = error.localizedDescription
+                self.modelStates["gte-large"] = .error(error.localizedDescription)
+            }
+        }
     }
 
     /// Disk usage for a downloaded model
     func diskUsage(for key: String) -> Int64? {
         if key == "gte-large" {
+            guard gteStartupRecoveryReady else { return nil }
             return gteLargeDiskUsage()
         }
         guard let registration = registeredModel(for: key),
@@ -664,17 +849,8 @@ final class ModelManager: ObservableObject {
 
     /// Calculate disk usage for GTE-Large flat files
     private func gteLargeDiskUsage() -> Int64? {
-        let destDir = MLXEmbeddingModel.downloadDirectory
-        var totalSize: Int64 = 0
-        var found = false
-        for (filename, _) in Self.gteLargeFiles {
-            let fileURL = destDir.appendingPathComponent(filename)
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-                  let size = attrs[.size] as? Int64 else { continue }
-            totalSize += size
-            found = true
-        }
-        return found ? totalSize : nil
+        let installer = GTELargeModelInstaller(rootDirectory: MLXEmbeddingModel.downloadDirectory)
+        return installer.availableDirectory() == nil ? nil : installer.manifest.downloadSize
     }
 }
 
@@ -685,6 +861,8 @@ enum ModelManagerError: LocalizedError {
     case modelNotAvailable(String)
     case insufficientMemory(required: Int64, available: Int64)
     case downloadFailed(String)
+    case downloadInProgress(String)
+    case retryAfterCancellation(String)
 
     var errorDescription: String? {
         switch self {
@@ -698,6 +876,10 @@ enum ModelManagerError: LocalizedError {
             return "Insufficient GPU memory: \(reqMB)MB required, \(avaMB)MB available"
         case .downloadFailed(let message):
             return "Download failed: \(message)"
+        case .downloadInProgress(let key):
+            return "A download is already in progress for '\(key)'"
+        case .retryAfterCancellation(let key):
+            return "Finishing cancellation for '\(key)'; retry will be available shortly"
         }
     }
 }

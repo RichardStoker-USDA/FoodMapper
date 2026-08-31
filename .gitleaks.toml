@@ -1,0 +1,17 @@
+title = "FoodMapper secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Registered local model identifiers"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^FoodMapper/Engine/ModelManager\.swift$''',
+  '''^FoodMapper/Views/ModelDownloadSheet\.swift$'''
+]
+regexes = [
+  '''^\s*(?:key|modelKey):\s*"(?:gte-large|qwen3-(?:emb|reranker|judge)-[a-z0-9.-]+)",?\s*$'''
+]

@@ -102,7 +102,7 @@ struct MatchSetupView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.xl)
-            .premiumMaterialStyle(cornerRadius: 6)
+            .panelMaterialStyle(cornerRadius: 6)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(
@@ -205,7 +205,7 @@ struct MatchSetupView: View {
                 appState.inputFile = nil
                 appState.selectedColumn = nil
             } label: {
-                Image(systemName: "xmark.circle.fill")
+                Image(systemName: "xmark.circle")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -213,7 +213,7 @@ struct MatchSetupView: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Inline Config Bar
@@ -283,7 +283,7 @@ struct MatchSetupView: View {
             .tutorialAnchor("setupDatabaseSection")
         }
         .padding(.vertical, Spacing.sm)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Embedding Mismatch Notice
@@ -346,7 +346,7 @@ struct MatchSetupView: View {
             }
         }
         .padding(Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Simple Matching Options
@@ -502,7 +502,7 @@ struct MatchSetupView: View {
                 if !pipelineUsesQwen3Embedding && !pipelineUsesQwen3Reranker { Divider() }
                 modelSizePicker(
                     label: "Judge Model",
-                    family: .qwen3Generative,
+                    family: pipelineUsesGemma4Generative ? .gemma4Generative : .qwen3Generative,
                     selection: $appState.selectedGenerativeSize
                 )
             }
@@ -595,7 +595,7 @@ struct MatchSetupView: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .polishedBadge(tone: .neutral, cornerRadius: 999)
+                    .appBadgeStyle(tone: .neutral, cornerRadius: 999)
                 }
             }
             .toggleStyle(.switch)
@@ -623,9 +623,9 @@ struct MatchSetupView: View {
                     VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text("**Off** -- On-device semantic matching only. An AI model on your Mac compares food descriptions to the database and returns the closest matches by meaning.")
 
-                        Text("**On** -- Adds a cloud verification step. After on-device matching narrows it down to the top 5, Claude Haiku reviews those candidates and picks the best one.")
+                        Text("**On** -- Adds a cloud verification step. After on-device matching returns up to five candidates, Claude Haiku selects a candidate or no match.")
 
-                        Text("Both approaches are from the research paper. The hybrid method achieved the highest accuracy.")
+                        Text("In the published NHANES-to-DFG2 comparison, Hybrid Haiku (K=5) reported 65.4% overall accuracy.")
                             .foregroundStyle(.secondary)
                     }
                     .font(.callout)
@@ -696,7 +696,7 @@ struct MatchSetupView: View {
                             if appState.selectedClaudeModel.isPaperModel {
                                 Text("Paper model")
                                     .font(.caption2)
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(.primary)
                                     .padding(.horizontal, Spacing.xs)
                                     .padding(.vertical, Spacing.xxxs)
                                     .background(
@@ -783,7 +783,7 @@ struct MatchSetupView: View {
                         .font(.callout)
                 }
 
-                Text("The key starts with sk-ant- and is stored locally on your Mac.")
+                Text("The key starts with sk-ant- and is stored in your Mac's Keychain.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -811,7 +811,13 @@ struct MatchSetupView: View {
         inlineAPIKeyStatus = .validating
 
         Task {
-            APIKeyStorage.setAnthropicAPIKey(key)
+            guard APIKeyStorage.setAnthropicAPIKey(key) else {
+                await MainActor.run {
+                    isValidatingInlineKey = false
+                    inlineAPIKeyStatus = .invalid("Couldn't store key")
+                }
+                return
+            }
             appState.refreshAPIKeyState()
 
             do {
@@ -824,8 +830,10 @@ struct MatchSetupView: View {
                         inlineAPIKeyStatus = .valid
                         inlineAPIKeyInput = ""
                     } else {
-                        inlineAPIKeyStatus = .invalid("Invalid key")
-                        APIKeyStorage.deleteAnthropicAPIKey()
+                        let removed = APIKeyStorage.deleteAnthropicAPIKey()
+                        inlineAPIKeyStatus = .invalid(
+                            removed ? "Invalid key" : "Invalid key; couldn't remove it"
+                        )
                         appState.refreshAPIKeyState()
                     }
                 }
@@ -833,7 +841,6 @@ struct MatchSetupView: View {
                 await MainActor.run {
                     isValidatingInlineKey = false
                     inlineAPIKeyStatus = .invalid("Validation failed")
-                    APIKeyStorage.deleteAnthropicAPIKey()
                     appState.refreshAPIKeyState()
                 }
             }
@@ -845,7 +852,7 @@ struct MatchSetupView: View {
     /// Whether the current pipeline uses a Qwen3 embedding model
     private var pipelineUsesQwen3Embedding: Bool {
         switch basePipelineType {
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM: return true
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage: return true
         default: return false
         }
     }
@@ -860,8 +867,19 @@ struct MatchSetupView: View {
 
     /// Whether the current pipeline uses a generative judge model
     private var pipelineUsesGenerative: Bool {
+        pipelineUsesQwen3Generative || pipelineUsesGemma4Generative
+    }
+
+    private var pipelineUsesQwen3Generative: Bool {
         switch basePipelineType {
         case .qwen3LLMOnly, .embeddingLLM: return true
+        default: return false
+        }
+    }
+
+    private var pipelineUsesGemma4Generative: Bool {
+        switch basePipelineType {
+        case .gemma4LLMOnly, .gemma4TwoStage: return true
         default: return false
         }
     }
@@ -1124,7 +1142,7 @@ struct MatchSetupView: View {
                 instructionTierRow(icon: "cloud", label: "Claude API", active: appState.selectedPipelineType == .gteLargeHaiku || appState.selectedPipelineType == .gteLargeHaikuV2)
             }
 
-            Text("The default \"Best Match\" preset works well for most food matching tasks.")
+            Text("Choose Best Match when no special matching priority applies.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1269,7 +1287,7 @@ struct MatchSetupView: View {
             }
         }
         .padding(Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
     }
 
     // MARK: - Preview Table (both columns populated)
@@ -1297,7 +1315,7 @@ struct MatchSetupView: View {
                     )
                 }
             }
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1)
@@ -1358,7 +1376,7 @@ struct MatchSetupView: View {
                     )
                 }
             }
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: 1)
@@ -1551,7 +1569,7 @@ private struct InlineModelStatusView: View {
             .help("Download model")
 
         case .loading:
-            // Indeterminate polished bar
+            // Indeterminate progress bar
             VStack(alignment: .leading, spacing: 4) {
                 Text("Preparing...")
                     .font(.caption2.weight(.medium))

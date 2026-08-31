@@ -20,6 +20,7 @@ extension AppState {
 
     /// Exit the showcase and return to the unified home screen.
     func exitResearchShowcase() {
+        cancelTourOperations()
         isInResearchShowcase = false
         tourDepth = nil
         tourEmbeddingResults = nil
@@ -28,8 +29,6 @@ extension AppState {
         tourHybridProgress = 0
         tourHybridPhase = .idle
         tourHybridError = nil
-        tourHybridTask?.cancel()
-        tourHybridTask = nil
         tourHybridApiClient = nil
         tourEngine = nil
         sidebarVisibility = .all
@@ -38,6 +37,7 @@ extension AppState {
 
     /// Exit the showcase and switch to Food Matching mode.
     func exitShowcaseToFoodMatching() {
+        cancelTourOperations()
         isInResearchShowcase = false
         tourDepth = nil
         tourEmbeddingResults = nil
@@ -46,8 +46,6 @@ extension AppState {
         tourHybridProgress = 0
         tourHybridPhase = .idle
         tourHybridError = nil
-        tourHybridTask?.cancel()
-        tourHybridTask = nil
         tourHybridApiClient = nil
         tourEngine = nil
         sidebarVisibility = .all
@@ -56,11 +54,22 @@ extension AppState {
 
     /// Run the showcase embedding match (full 1,304 NHANES vs DFG2 using GTE-Large).
     func runTourEmbeddingMatch() {
+        let operationID = UUID()
+        guard beginEngineOperation(.researchTour(operationID)) else {
+            tourEmbeddingError = "Wait for the current operation to finish."
+            return
+        }
         tourEmbeddingResults = nil
         tourEmbeddingProgress = 0
         tourEmbeddingError = nil
 
-        Task {
+        tourEmbeddingTask = Task { [self] in
+            defer {
+                if self.isCurrentEngineOperation(operationID) {
+                    self.tourEmbeddingTask = nil
+                    self.finishEngineOperation(operationID)
+                }
+            }
             do {
                 // Check model availability before attempting to load
                 let modelState = self.modelManager.state(for: "gte-large")
@@ -91,6 +100,7 @@ extension AppState {
                     rerankerInstruction: nil,
                     onProgress: { [weak self] completed in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.tourEmbeddingProgress = Double(completed) / Double(totalCount)
                         }
                     },
@@ -98,10 +108,12 @@ extension AppState {
                 )
 
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID), !Task.isCancelled else { return }
                     self.tourEmbeddingResults = results
                     self.tourEmbeddingProgress = 1.0
                 }
             } catch {
+                guard self.isCurrentEngineOperation(operationID) else { return }
                 logger.error("Tour embedding match failed: \(error.localizedDescription)")
                 await MainActor.run {
                     let desc = error.localizedDescription.lowercased()
@@ -121,12 +133,23 @@ extension AppState {
 
     /// Run the showcase hybrid match (full NHANES vs DFG2 using GTE-Large + Claude verification).
     func runTourHybridMatch(modelVersion: ClaudeModelVersion = .haiku3) {
+        let operationID = UUID()
+        guard beginEngineOperation(.researchTour(operationID)) else {
+            tourHybridError = "Wait for the current operation to finish."
+            return
+        }
         tourHybridResults = nil
         tourHybridProgress = 0
         tourHybridPhase = .idle
         tourHybridError = nil
 
-        tourHybridTask = Task {
+        tourHybridTask = Task { [self] in
+            defer {
+                if self.isCurrentEngineOperation(operationID) {
+                    self.tourHybridTask = nil
+                    self.finishEngineOperation(operationID)
+                }
+            }
             do {
                 // Load tour items
                 let tourItems = try await TourDataLoader.shared.loadFullBenchmarkItems()
@@ -170,29 +193,34 @@ extension AppState {
                     rerankerInstruction: nil,
                     onProgress: { [weak self] completed in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.tourHybridProgress = Double(completed) / Double(totalCount)
                         }
                     },
                     onPhaseChange: { [weak self] phase in
                         Task { @MainActor in
+                            guard self?.isCurrentEngineOperation(operationID) == true else { return }
                             self?.tourHybridPhase = phase
                         }
                     }
                 )
 
                 await MainActor.run {
+                    guard self.isCurrentEngineOperation(operationID), !Task.isCancelled else { return }
                     self.tourHybridResults = results
                     self.tourHybridProgress = 1.0
                     self.tourHybridPhase = .idle
                     self.tourHybridApiClient = nil
                 }
             } catch is CancellationError {
+                guard self.isCurrentEngineOperation(operationID) else { return }
                 await MainActor.run {
                     self.tourHybridPhase = .idle
                     self.tourHybridProgress = 0
                     self.tourHybridApiClient = nil
                 }
             } catch {
+                guard self.isCurrentEngineOperation(operationID) else { return }
                 logger.error("Tour hybrid match failed: \(error.localizedDescription)")
                 await MainActor.run {
                     let message: String
@@ -236,6 +264,12 @@ extension AppState {
         tourHybridResults = nil
     }
 
+    private func cancelTourOperations() {
+        tourEmbeddingTask?.cancel()
+        tourHybridTask?.cancel()
+        Task { [tourEngine] in await tourEngine?.cancel() }
+    }
+
     /// Check and trigger splash screen if needed. Called after model download completes.
     func checkSplashScreen() {
         if SplashConfig.shouldShowSplash {
@@ -247,6 +281,7 @@ extension AppState {
 
     /// Restart the tutorial from the beginning
     func restartTutorial() {
+        cancelTourOperations()
         // Clean up any tutorial-loaded data so we start fresh
         if tutorialState.tutorialDataLoaded {
             inputFile = nil

@@ -36,7 +36,7 @@ struct TutorialOverlay: View {
                         highlightRects: spotlightRects,
                         padding: 12
                     )
-                    .animation(Animate.smooth, value: spotlightRects.map { $0.origin.x + $0.origin.y })
+                    .animation(Animate.smooth, value: spotlightRects.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" })
                 }
 
                 // Coach mark positioned relative to highlight
@@ -212,11 +212,11 @@ struct TutorialOverlay: View {
                     appState.autoSelectFirstNeedsReview()
                 }
             }
-            // Step 9 (Reject): advance to next Needs Review row (skip the one just matched)
+            // Step 9 (Reject): advance to the next Needs Review row (skip the matched row)
             if newStep == 9 && oldStep == 8 {
                 appState.autoSelectFirstNeedsReview()
             }
-            // Step 10 (Pick Alternative): stay on current row (just rejected in step 9)
+            // Step 10 (Pick Alternative): stay on the row rejected in step 9
             // No selection change needed
 
             // Step 11 (Reset): select a row that has a human decision
@@ -426,7 +426,7 @@ struct TutorialOverlay: View {
             if appState.modelStatus.isReady {
                 advanceToNextStep()
             } else if case .downloading = appState.modelStatus {
-                // Already downloading, just wait
+                // The current download will update this state.
             } else {
                 handleDownloadModel()
             }

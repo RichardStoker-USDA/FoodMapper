@@ -35,7 +35,7 @@ struct PipelineOverviewView: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             // Section header
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(mode == .standard ? "STANDARD PIPELINES" : "RESEARCH PIPELINES")
+                Text(mode == .standard ? "MATCHING PIPELINES" : "RESEARCH PIPELINES")
                     .technicalLabel()
 
                 Text(modeDescription(mode))
@@ -69,7 +69,7 @@ struct PipelineOverviewView: View {
     private func modeDescription(_ mode: PipelineMode) -> String {
         switch mode {
         case .standard:
-            return "Production matching pipelines using Qwen3 models. Run entirely on-device via MLX."
+            return "Default GTE-Large matching, an optional GTE-Large + Haiku v2 cloud path, and experimental Qwen3 and Gemma pipelines. Local stages run on-device via MLX."
         case .researchValidation:
             return "Paper validation using GTE-Large embeddings with optional Claude API verification."
         }
@@ -102,6 +102,8 @@ private struct PipelineCard: View {
         case .qwen3SmartTriage: return "checklist"
         case .qwen3LLMOnly: return "brain"
         case .embeddingLLM: return "cpu"
+        case .gemma4LLMOnly: return "brain"
+        case .gemma4TwoStage: return "cpu"
         }
     }
 
@@ -118,14 +120,9 @@ private struct PipelineCard: View {
                     .font(.headline)
 
                 if isSelected {
-                    Text("Active")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, Spacing.xxxs)
-                        .background(Color.badgeBackground(for: colorScheme))
-                        .foregroundStyle(Color.accentColor)
-                        .clipShape(Capsule())
+                    Label("Selected", systemImage: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -133,11 +130,11 @@ private struct PipelineCard: View {
                 // Availability indicator
                 HStack(spacing: Spacing.xs) {
                     Circle()
-                        .fill(isAvailable ? Color.green : Color.orange.opacity(0.6))
+                        .fill(isAvailable ? Color.green : Color.experimentalAmber.opacity(0.6))
                         .frame(width: Size.statusDot, height: Size.statusDot)
                     Text(isAvailable ? "Ready" : "Models needed")
                         .font(.caption)
-                        .foregroundStyle(isAvailable ? Color.secondary : Color.orange)
+                        .foregroundStyle(isAvailable ? Color.secondary : Color.experimentalAmber)
                 }
             }
 
@@ -153,17 +150,15 @@ private struct PipelineCard: View {
                 HStack(alignment: .top, spacing: Spacing.xs) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.experimentalAmber)
                         .frame(width: Size.iconSmall)
                     Text(warning)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
             // Models and metadata container
@@ -183,18 +178,9 @@ private struct PipelineCard: View {
                         }
 
                         if pipeline.requiresAPIKey {
-                            HStack(spacing: Spacing.xxs) {
-                                Image(systemName: "key")
-                                    .font(.caption2)
-                                Text("API Key")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                            }
-                            .padding(.horizontal, Spacing.sm)
-                            .padding(.vertical, Spacing.xxs)
-                            .background(Color.purple.opacity(0.1))
-                            .foregroundStyle(.purple)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            Label("API key", systemImage: "key")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -229,7 +215,7 @@ private struct PipelineCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(Spacing.lg)
-        .premiumMaterialStyle(cornerRadius: 8)
+        .panelMaterialStyle(cornerRadius: 8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(

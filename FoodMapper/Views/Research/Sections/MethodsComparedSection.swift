@@ -16,7 +16,7 @@ struct MethodsComparedSection: View {
                 subtitle: "Four approaches to automated food matching"
             )
 
-            Text("The paper evaluated four categories of matching methods, from simple string comparison to AI-powered hybrid pipelines. Each builds on the limitations of the one before it.")
+            Text("These four cards summarize the NHANES-to-DFG2 comparison. Other experiments in the paper also tested full-context language-model matching.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -27,7 +27,7 @@ struct MethodsComparedSection: View {
                 // Collapsible detailed breakdown (preserves vertical space)
                 TourTechnicalDetail(title: "Detailed Accuracy Breakdown") {
                     VStack(alignment: .leading, spacing: Spacing.md) {
-                        Text("Results from NHANES-to-DFG2 benchmark (1,304 items, 256 targets). Three metrics capture different aspects of matching quality:")
+                        Text("Results from the NHANES-to-DFG2 benchmark (1,304 items, 256 targets). Baseline overall, match, and no-match values use the paper's 0.95 similarity threshold. Top-K retrieval accuracy is reported separately in the showcase.")
                             .font(.body)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -78,16 +78,16 @@ struct MethodsComparedSection: View {
             methodCard(
                 icon: "textformat.abc",
                 title: "Fuzzy Matching",
-                accuracy: "~25%",
-                description: "Measures character-level edit distance. Fails on word reordering and synonyms."
+                accuracy: "9.3%",
+                description: "Measures character-level edit distance without modeling the meaning of a food description."
             )
             .scrollRevealStaggered(index: 0)
 
             methodCard(
                 icon: "function",
                 title: "TF-IDF",
-                accuracy: "~40%",
-                description: "Weights terms by document frequency. Better than fuzzy, but treats words as independent tokens."
+                accuracy: "47.2%",
+                description: "Weights terms by document frequency and treats words as independent tokens."
             )
             .scrollRevealStaggered(index: 1)
 
@@ -95,7 +95,7 @@ struct MethodsComparedSection: View {
                 icon: "cpu",
                 title: "Semantic Embedding",
                 accuracy: "48%",
-                description: "GTE-Large encodes text as 1024-dimensional vectors. 96.4% top-5 accuracy."
+                description: "GTE-Large encodes text as 1024-dimensional vectors. Top-5 retrieval was 96.4% among foods with a DFG2 match."
             )
             .scrollRevealStaggered(index: 2)
 
@@ -103,9 +103,7 @@ struct MethodsComparedSection: View {
                 icon: "arrow.triangle.branch",
                 title: "Hybrid (Embedding + Claude)",
                 accuracy: "65.4%",
-                description: "Embedding retrieval narrows candidates; Claude Haiku selects the best match.",
-                badge: "Best Overall",
-                highlighted: true
+                description: "Embedding retrieval provides up to five candidates; Claude Haiku selects a candidate or no match."
             )
             .scrollRevealStaggered(index: 3)
         }
@@ -115,9 +113,7 @@ struct MethodsComparedSection: View {
         icon: String,
         title: String,
         accuracy: String? = nil,
-        description: String,
-        badge: String? = nil,
-        highlighted: Bool = false
+        description: String
     ) -> some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(spacing: Spacing.sm) {
@@ -127,15 +123,6 @@ struct MethodsComparedSection: View {
                     .frame(width: 24)
 
                 Spacer()
-
-                if let badge {
-                    Text(badge)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, Spacing.xs)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accentColor))
-                }
 
                 if let accuracy {
                     Text(accuracy)
@@ -154,7 +141,7 @@ struct MethodsComparedSection: View {
         }
         .padding(Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .showcaseCard(highlighted: highlighted)
+        .showcaseCard()
     }
 
     // MARK: - Accuracy Breakdown
@@ -200,9 +187,6 @@ struct MethodsComparedSection: View {
                             }
                         ],
                         rows: rows,
-                        highlightRow: { row in
-                            row.method == "Hybrid Haiku K=5" ? .correct : .none
-                        },
                         compact: true
                     )
                 }
@@ -248,19 +232,19 @@ struct MethodsComparedSection: View {
 
     private func overallColor(_ value: Double) -> Color {
         if value >= 60 { return .green }
-        if value >= 40 { return .orange }
+        if value >= 40 { return .experimentalAmber }
         return .red
     }
 
     private func matchColor(_ value: Double) -> Color {
         if value >= 80 { return .green }
-        if value >= 50 { return .orange }
+        if value >= 50 { return .experimentalAmber }
         return .red
     }
 
     private func noMatchColor(_ value: Double) -> Color {
         if value >= 40 { return .green }
-        if value >= 20 { return .orange }
+        if value >= 20 { return .experimentalAmber }
         return .red
     }
 

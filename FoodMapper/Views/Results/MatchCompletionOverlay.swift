@@ -65,7 +65,7 @@ struct MatchCompletionOverlay: View {
                 actionsSection
             }
             .frame(width: 520)
-            .premiumMaterialStyle(cornerRadius: 12)
+            .panelMaterialStyle(cornerRadius: 12)
             .shadow(
                 color: Color.cardShadow(for: colorScheme),
                 radius: colorScheme == .dark ? 24 : 12,

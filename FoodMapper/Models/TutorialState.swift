@@ -19,7 +19,7 @@ struct TutorialState: Codable, Equatable {
     /// Step progress resets to 0 every launch because the tutorial workflow (loaded CSV,
     /// selected column, etc.) doesn't survive app termination.
     static func load() -> TutorialState {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        guard let data = FoodMapperStorage.defaults.data(forKey: storageKey),
               var state = try? JSONDecoder().decode(TutorialState.self, from: data) else {
             return TutorialState()
         }
@@ -39,7 +39,7 @@ struct TutorialState: Codable, Equatable {
     /// Save tutorial state to UserDefaults
     func save() {
         if let data = try? JSONEncoder().encode(self) {
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            FoodMapperStorage.defaults.set(data, forKey: Self.storageKey)
         }
     }
 

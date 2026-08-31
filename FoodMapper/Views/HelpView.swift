@@ -1,18 +1,56 @@
 import SwiftUI
 
-/// In-app help and documentation view with premium card-based design.
+/// Holds a requested Help topic until the Help window is ready to display it.
+@MainActor
+final class HelpRequestCoordinator: ObservableObject {
+    @Published private(set) var requestID = 0
+    private let notificationCenter: NotificationCenter
+    private var notificationObserver: NSObjectProtocol?
+    private var pendingSection: HelpSection?
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+        notificationObserver = notificationCenter.addObserver(
+            forName: .showHelp,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                self?.request(rawValue: notification.object as? String)
+            }
+        }
+    }
+
+    deinit {
+        if let notificationObserver {
+            notificationCenter.removeObserver(notificationObserver)
+        }
+    }
+
+    func request(rawValue: String?) {
+        pendingSection = rawValue.flatMap(HelpSection.init(rawValue:))
+        requestID &+= 1
+    }
+
+    func consumePendingSection(isAdvancedMode: Bool) -> HelpSection? {
+        defer { pendingSection = nil }
+        return pendingSection?.resolved(isAdvancedMode: isAdvancedMode)
+    }
+}
+
+/// In-app help and documentation view with a card-based design.
 /// Uses the same design patterns as the Behind the Research showcase.
 struct HelpView: View {
     @State private var selectedSection: HelpSection? = .gettingStarted
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var helpRequests: HelpRequestCoordinator
 
-    // Navigation history (plain @State, NOT @Published -- per freeze lesson)
-    @State private var history: [HelpSection] = [.gettingStarted]
-    @State private var historyIndex: Int = 0
+    @State private var navigation = HelpNavigationState()
     @State private var isProgrammaticNav = false
 
-    private var canGoBack: Bool { historyIndex > 0 }
-    private var canGoForward: Bool { historyIndex < history.count - 1 }
+    private var canGoBack: Bool { navigation.canGoBack }
+    private var canGoForward: Bool { navigation.canGoForward }
 
     var body: some View {
         NavigationSplitView {
@@ -46,20 +84,21 @@ struct HelpView: View {
         }
         .onChange(of: selectedSection) { _, newValue in
             guard !isProgrammaticNav, let section = newValue else { return }
-            if historyIndex < history.count - 1 {
-                history = Array(history.prefix(historyIndex + 1))
-            }
-            history.append(section)
-            if history.count > 20 {
-                history.removeFirst()
-            } else {
-                historyIndex = history.count - 1
+            let destination = navigation.select(
+                section,
+                isAdvancedMode: appState.isAdvancedMode
+            )
+            if destination != section {
+                setSelectedSection(destination)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .showHelp)) { notification in
-            guard let rawValue = notification.object as? String,
-                  let section = HelpSection(rawValue: rawValue) else { return }
-            selectedSection = section
+        .onChange(of: appState.isAdvancedMode) { _, isAdvancedMode in
+            guard !isAdvancedMode else { return }
+            setSelectedSection(navigation.resetForSimpleMode())
+        }
+        .onAppear(perform: applyPendingHelpRequest)
+        .onChange(of: helpRequests.requestID) { _, _ in
+            applyPendingHelpRequest()
         }
     }
 
@@ -68,8 +107,10 @@ struct HelpView: View {
     private var helpSidebar: some View {
         List(selection: $selectedSection) {
             ForEach(HelpSidebarGroup.allCases, id: \.self) { group in
-                Section {
-                    ForEach(group.sections) { section in
+                let sections = group.sections(isAdvancedMode: appState.isAdvancedMode)
+                if !sections.isEmpty {
+                    Section {
+                        ForEach(sections) { section in
                         HStack(spacing: Spacing.sm) {
                             Image(systemName: section.icon)
                                 .font(.callout)
@@ -78,12 +119,13 @@ struct HelpView: View {
                             Text(section.title)
                         }
                         .tag(section)
+                        }
+                    } header: {
+                        Text(group.title(isAdvancedMode: appState.isAdvancedMode))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .tracking(0.5)
                     }
-                } header: {
-                    Text(group.title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.5)
                 }
             }
         }
@@ -96,10 +138,11 @@ struct HelpView: View {
 
     private var helpDetail: some View {
         Group {
-            if let section = selectedSection {
+            if let section = selectedSection,
+               section.isVisible(isAdvancedMode: appState.isAdvancedMode) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Spacing.xxl) {
-                        section.content
+                        section.content(isAdvancedMode: appState.isAdvancedMode)
                     }
                     .padding(Spacing.xxl)
                     .frame(maxWidth: 640, alignment: .leading)
@@ -125,19 +168,89 @@ struct HelpView: View {
     // MARK: - Navigation
 
     private func goBack() {
-        guard canGoBack else { return }
-        isProgrammaticNav = true
-        historyIndex -= 1
-        selectedSection = history[historyIndex]
-        isProgrammaticNav = false
+        guard let section = navigation.goBack() else { return }
+        setSelectedSection(section)
     }
 
     private func goForward() {
-        guard canGoForward else { return }
+        guard let section = navigation.goForward() else { return }
+        setSelectedSection(section)
+    }
+
+    private func setSelectedSection(_ section: HelpSection) {
         isProgrammaticNav = true
-        historyIndex += 1
-        selectedSection = history[historyIndex]
+        selectedSection = section
         isProgrammaticNav = false
+    }
+
+    private func applyPendingHelpRequest() {
+        guard let section = helpRequests.consumePendingSection(
+            isAdvancedMode: appState.isAdvancedMode
+        ) else { return }
+        setSelectedSection(
+            navigation.select(section, isAdvancedMode: appState.isAdvancedMode)
+        )
+    }
+}
+
+/// Help-topic history detached from SwiftUI state so state transitions can be tested.
+struct HelpNavigationState: Equatable {
+    private(set) var history: [HelpSection]
+    private(set) var historyIndex: Int
+
+    init(initialSection: HelpSection = .gettingStarted) {
+        history = [initialSection]
+        historyIndex = 0
+    }
+
+    var currentSection: HelpSection {
+        history[historyIndex]
+    }
+
+    var canGoBack: Bool {
+        historyIndex > 0
+    }
+
+    var canGoForward: Bool {
+        historyIndex < history.count - 1
+    }
+
+    @discardableResult
+    mutating func select(_ requestedSection: HelpSection, isAdvancedMode: Bool) -> HelpSection {
+        let section = requestedSection.resolved(isAdvancedMode: isAdvancedMode)
+        guard section != currentSection else { return currentSection }
+
+        if historyIndex < history.count - 1 {
+            history = Array(history.prefix(historyIndex + 1))
+        }
+        history.append(section)
+        if history.count > 20 {
+            history.removeFirst()
+        }
+        historyIndex = history.count - 1
+        return currentSection
+    }
+
+    mutating func goBack() -> HelpSection? {
+        guard canGoBack else { return nil }
+        historyIndex -= 1
+        return currentSection
+    }
+
+    mutating func goForward() -> HelpSection? {
+        guard canGoForward else { return nil }
+        historyIndex += 1
+        return currentSection
+    }
+
+    /// Reset navigation when Advanced Mode is disabled so Back and Forward
+    /// cannot reach a hidden topic.
+    @discardableResult
+    mutating func resetForSimpleMode() -> HelpSection {
+        let visibleSection = currentSection.resolved(isAdvancedMode: false)
+        history = [visibleSection]
+        historyIndex = 0
+        return visibleSection
     }
 }
 
@@ -160,6 +273,18 @@ enum HelpSection: String, CaseIterable, Identifiable {
     case troubleshooting
 
     var id: String { rawValue }
+
+    var requiresAdvancedMode: Bool {
+        self == .experimentalFeatures
+    }
+
+    func isVisible(isAdvancedMode: Bool) -> Bool {
+        !requiresAdvancedMode || isAdvancedMode
+    }
+
+    func resolved(isAdvancedMode: Bool) -> HelpSection {
+        isVisible(isAdvancedMode: isAdvancedMode) ? self : .gettingStarted
+    }
 
     var title: String {
         switch self {
@@ -211,7 +336,7 @@ enum HelpSection: String, CaseIterable, Identifiable {
     }
 
     @ViewBuilder
-    var content: some View {
+    func content(isAdvancedMode: Bool) -> some View {
         switch self {
         case .gettingStarted: HelpGettingStartedContent()
         case .howItWorks: HelpHowItWorksContent()
@@ -222,7 +347,12 @@ enum HelpSection: String, CaseIterable, Identifiable {
         case .customDatabases: HelpCustomDatabasesContent()
         case .sessions: HelpSessionsContent()
         case .settings: HelpSettingsContent()
-        case .experimentalFeatures: HelpExperimentalFeaturesContent()
+        case .experimentalFeatures:
+            if isAdvancedMode {
+                HelpExperimentalFeaturesContent()
+            } else {
+                HelpGettingStartedContent()
+            }
         case .underTheHood: HelpUnderTheHoodContent()
         case .research: HelpResearchContent()
         case .keyboardShortcuts: HelpKeyboardShortcutsContent()
@@ -239,18 +369,20 @@ enum HelpSidebarGroup: String, CaseIterable {
     case settingsAdvanced
     case reference
 
-    var title: String {
+    func title(isAdvancedMode: Bool) -> String {
         switch self {
         case .basics: return "BASICS"
         case .matching: return "MATCHING"
         case .data: return "DATA"
-        case .settingsAdvanced: return "SETTINGS & ADVANCED"
+        case .settingsAdvanced: return isAdvancedMode ? "SETTINGS & ADVANCED" : "SETTINGS"
         case .reference: return "REFERENCE"
         }
     }
 
-    var sections: [HelpSection] {
-        HelpSection.allCases.filter { $0.group == self }
+    func sections(isAdvancedMode: Bool) -> [HelpSection] {
+        HelpSection.allCases.filter {
+            $0.group == self && $0.isVisible(isAdvancedMode: isAdvancedMode)
+        }
     }
 }
 
@@ -496,7 +628,7 @@ func parseKeySegments(_ keys: String) -> [String] {
         return [keys]
     }
 
-    // Handle space-separated keys like "\u{2190} \u{2192}" -- just render each as its own keycap
+    // Render each space-separated key, such as "\u{2190} \u{2192}", as its own keycap.
     if keys.contains(" ") && !keys.contains("(") && !keys.contains(" - ") {
         let parts = keys.components(separatedBy: " ").filter { !$0.isEmpty }
         var segments: [String] = []
@@ -587,16 +719,12 @@ private struct HelpWarningCard: View {
     }
 }
 
-/// Capsule pill for experimental features. Warm amber to distinguish from stable features.
-private struct ExperimentalBadge: View {
+/// Secondary label used where advanced-only material needs a short status marker.
+private struct ExperimentalLabel: View {
     var body: some View {
         Text("Experimental")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xxxs)
-            .background(Color.experimentalAmber.opacity(0.85))
-            .clipShape(Capsule())
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -605,11 +733,12 @@ private struct ExperimentalBadge: View {
 private struct HelpGettingStartedContent: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
             "Getting Started",
-            subtitle: "FoodMapper matches food descriptions in your data to standardized reference databases using semantic similarity. Everything runs on your Mac's GPU."
+            subtitle: "FoodMapper matches food descriptions in your data to standardized reference databases using semantic similarity. Standard embedding matching runs on your Mac's GPU."
         )
 
         // Tutorial card
@@ -643,7 +772,7 @@ private struct HelpGettingStartedContent: View {
         // Steps
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                HelpStep(number: 1, title: "Download a model", description: "On first launch, FoodMapper prompts you to download GTE-Large (640 MB). Additional models are available in Settings > Models if you want to use Qwen3 pipelines.")
+                HelpStep(number: 1, title: "Download a model", description: appState.isAdvancedMode ? "FoodMapper prompts you to download GTE-Large (about 640 MiB) before default matching. Advanced mode may show optional experimental model downloads that have not been qualified for research use." : "FoodMapper prompts you to download GTE-Large (about 640 MiB) before default matching.")
 
                 HelpStep(number: 2, title: "Load your data", description: "Drop a CSV or TSV file onto the drop zone, or click to browse. The file needs at least one column with food descriptions.")
 
@@ -651,15 +780,15 @@ private struct HelpGettingStartedContent: View {
 
                 HelpStep(number: 4, title: "Choose a reference database", description: "FooDB has 9,913 individual food entries. DFG2 has 256 commonly consumed foods from the Davis Food Glycopedia 2.0. You can also add your own.")
 
-                HelpStep(number: 5, title: "Run matching", description: "Click Match in the toolbar. FoodMapper embeds your descriptions and finds the closest match in the reference database for each one.")
+                HelpStep(number: 5, title: "Run matching", description: "Click Match in the toolbar. FoodMapper retrieves candidate database entries for each description and selects a target when the leading result meets the eligibility floor.")
 
                 HelpStep(number: 6, title: "Review results", description: "Results are categorized as Match, Needs Review, or No Match. Use the inspector panel to confirm, reject, or override matches.")
 
-                HelpStep(number: 7, title: "Export", description: "Export your results as CSV or TSV with your original data plus match results. All input and target database columns are preserved, with four fm_ columns added for match metadata.")
+                HelpStep(number: 7, title: "Export", description: "Export your current session as CSV or TSV. When the input and target metadata remain available, FoodMapper includes original input columns, target columns, and fm_ match metadata.")
             }
         }
 
-        HelpHint("The interactive tutorial walks you through all of this with real sample data. You can restart it anytime from Help > Restart Tutorial.")
+        HelpHint("The interactive tutorial walks you through all of this with included sample data. You can restart it anytime from Help > Restart Tutorial.")
     }
 }
 
@@ -667,43 +796,29 @@ private struct HelpGettingStartedContent: View {
 
 private struct HelpHowItWorksContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
             "How It Works",
-            subtitle: "FoodMapper uses embedding models to understand the meaning of food descriptions, not just exact text matches."
+            subtitle: "FoodMapper uses embedding models to compare the meaning of food descriptions rather than relying on exact text matches."
         )
 
         HelpCard {
-            HelpItem(title: "Semantic Embeddings", content: "Each food description is converted into a numerical vector (embedding) that captures its meaning. Similar foods have similar embeddings, even if they use different words. \"Grilled chicken breast\" matches \"roasted chicken\" because the model understands they describe similar foods.")
+            HelpItem(title: "Semantic Embeddings", content: "Each food description is converted into a numerical vector called an embedding. Descriptions with similar language or meaning can produce nearby vectors even when their words differ. Review is still needed because semantic similarity does not establish that two foods are equivalent.")
         }
 
         HelpCard {
-            HelpItem(title: "GPU-Accelerated Matching", content: "FoodMapper runs embedding models directly on your Mac's GPU through Apple's MLX framework. Similarity between your inputs and every item in the database is computed as a single matrix multiplication, which is why matching thousands of items takes seconds.")
+            HelpItem(title: "Local Embedding Matching", content: "The default GTE-Large path runs through Apple's MLX framework on Apple Silicon. FoodMapper compares input embeddings with candidate database entries. Runtime depends on the input, target database, and Mac configuration.")
         }
 
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                HStack(spacing: Spacing.sm) {
-                    Text("Multi-Stage Pipelines")
-                        .font(.body.weight(.medium))
-                    ExperimentalBadge()
-                }
-
-                Text("Beyond basic embedding, FoodMapper supports multi-stage matching. A cross-encoder reranker can rescore the top candidates for higher accuracy. A generative LLM can evaluate candidates and pick the best match. These stages refine the initial embedding results.")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HelpWarningCard(text: "Multi-stage pipelines are under active development and require tuning. For scientific research, always review ALL results, including matches and no-matches. False negatives are possible and human review is essential for research-quality data.")
+        if appState.isAdvancedMode {
+            HelpCard {
+                HelpItem(title: "Selected Targets and Candidates", content: "For default embedding matching, the fixed 0.50 eligibility floor decides whether the leading retrieval becomes the selected target. Retrieved candidate database entries remain available for review even when no target is selected. The Smart Auto-Match floor and gap are separate controls for selected GTE-Large results.")
             }
         }
 
-        HelpCard {
-            HelpItem(title: "Pipeline-Based Categorization", content: "Results are categorized by the pipeline's decision, not by a fixed score threshold. Embedding-only pipelines mark everything as Needs Review (since cosine similarity ranks but doesn't confirm). Multi-stage pipelines (reranker, LLM, API) make match/no-match decisions, so their results include confirmed Matches. Multi-stage decisions should still be verified for research use.")
-        }
-
-        HelpHint("\"Grilled chicken breast\" matches well with \"roasted chicken\" because the model understands semantic meaning. But abbreviations like \"grld chkn brst\" will match poorly -- clean input data matters.")
+        HelpHint("Abbreviations, misspellings, and preparation terms can change retrieval order. Review retained candidates before export.")
     }
 }
 
@@ -711,6 +826,7 @@ private struct HelpHowItWorksContent: View {
 
 private struct HelpPipelineModesContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
@@ -728,7 +844,7 @@ private struct HelpPipelineModesContent: View {
                         .font(.headline)
                 }
 
-                Text("Production matching for active research. GTE-Large Embedding is the default pipeline and is production-ready. GTE-Large + Haiku v2 adds Claude API verification and is also validated. Advanced pipelines using Qwen3 models are available but still experimental.")
+                Text("GTE-Large Embedding is the default local pipeline. GTE-Large + Haiku v2 sends the run's input text and candidate entries to Anthropic for optional verification.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -750,7 +866,7 @@ private struct HelpPipelineModesContent: View {
                         .font(.headline)
                 }
 
-                Text("Replicates the exact methods from the research paper. Uses GTE-Large embeddings with optional Claude Haiku API verification. Includes a scrolling showcase explaining the paper's approach with interactive visualizations.")
+                Text("Presents the paper's methods and an NHANES-to-DFG2 demonstration. It uses GTE-Large retrieval with optional Claude Haiku verification when you configure and select that path.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -760,22 +876,23 @@ private struct HelpPipelineModesContent: View {
             }
         }
 
-        // Simple vs Advanced
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("Simple vs. Advanced Mode")
-                    .font(.headline)
+        if appState.isAdvancedMode {
+            HelpCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    Text("Simple and Advanced Mode")
+                        .font(.headline)
 
-                Text("FoodMapper starts in Simple mode: you see the hybrid matching toggle (embedding only vs. embedding + Claude Haiku) and essential options. These are the default, validated pipelines.")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-
-                HStack(alignment: .top, spacing: Spacing.sm) {
-                    ExperimentalBadge()
-                    Text("Enable Advanced mode in Settings > Advanced to access experimental pipelines, Qwen3 model size selection, instruction presets, and detailed export. These features are under active development and may not produce optimal results yet.")
+                    Text("FoodMapper starts in Simple mode with the default local embedding path and the optional Anthropic verification path.")
                         .font(.callout)
-                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+
+                    HStack(alignment: .top, spacing: Spacing.sm) {
+                        ExperimentalLabel()
+                        Text("Advanced mode can show experimental model downloads and related controls. These are not qualified for research use.")
+                            .font(.callout)
+                            .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
@@ -799,10 +916,12 @@ private struct HelpPipelineModesContent: View {
                 }
             }
 
-            Text("Additional experimental pipelines (Qwen3-Embedding, Two-Stage, Smart Triage, LLM Judge) are available in Advanced mode. See Experimental Features for details.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.top, Spacing.xxs)
+            if appState.isAdvancedMode {
+                Text("Experimental pipelines are described in the Experimental Features topic.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, Spacing.xxs)
+            }
         }
     }
 }
@@ -815,7 +934,7 @@ private struct HelpReviewWorkflowContent: View {
     var body: some View {
         HelpSectionTitle(
             "Review Workflow",
-            subtitle: "After matching completes, review results to confirm, reject, or override matches. This is where you turn automated results into verified data."
+            subtitle: "Review results before export. Confirm a selected target, reject it, or choose another retained candidate."
         )
 
         // The completion overlay
@@ -828,7 +947,7 @@ private struct HelpReviewWorkflowContent: View {
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
-                Text("For GTE-Large pipelines, FoodMapper auto-matches high-confidence results where the top score is well above 95% and there's a clear gap to the second candidate. These go directly to Match status instead of Needs Review.")
+                Text("For a GTE-Large result with a selected target, Smart Auto-Match can promote the result when its score meets the configured floor and its gap to the next candidate exceeds the configured minimum. The 0.50 eligibility floor for selecting a target is separate.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
             }
@@ -903,11 +1022,11 @@ private struct HelpReviewWorkflowContent: View {
                 Text("Override Search")
                     .font(.headline)
 
-                Text("If the right match isn't in the top candidates, open the Manual Override section in the inspector and search across all database entries. Type at least 2 characters to search. Click a result to set it as the match.")
+                Text("If the right match is not in the displayed alternatives, open Manual Override and type at least 2 characters. Sessions with a valid saved target snapshot search every row in that frozen database and show the source row and database name. Older sessions, or sessions whose snapshot cannot be opened, search the candidate entries retained for the session. Click a result to set it as the match.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
-                Text("When you override a match, the inspector shows your chosen alternative as the primary display with an updated score. The pipeline's original match appears below as a secondary \"Original:\" pill. Clicking the original pill reverts the override.")
+                Text("When you override a match, the inspector shows the selected alternative as the primary display. The pipeline's original match appears below as a secondary \"Original:\" label. Clicking the original match reverts the override.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
             }
@@ -954,7 +1073,7 @@ private struct HelpReviewWorkflowContent: View {
                     .italic()
                 KeyCapView(key: "\u{2318}")
                 KeyCapView(key: "Z")
-                Text("). If you accidentally confirm the wrong item, just undo. The undo stack tracks every match, no-match, override, and reset action.")
+                Text("). If you accidentally confirm the wrong item, use Undo. The undo stack tracks every match, no-match, override, and reset action.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .italic()
@@ -1014,6 +1133,7 @@ private struct HelpReviewWorkflowContent: View {
 
 private struct HelpUnderstandingScoresContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
@@ -1027,7 +1147,7 @@ private struct HelpUnderstandingScoresContent: View {
                 Text("Score Display")
                     .font(.headline)
 
-                Text("Each result shows a colored dot and percentage in the Score column. The dot color gives a quick visual sense of similarity strength:")
+                Text("A row with an available score shows a colored dot and percentage. Rows without an available score show --:")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1037,45 +1157,49 @@ private struct HelpUnderstandingScoresContent: View {
                     scoreRow(color: Color(nsColor: .secondaryLabelColor), label: "Gray", desc: "Low similarity")
                 }
 
-                Text("GTE-Large tends to produce higher cosine similarity scores overall, so its thresholds are set accordingly. Other models like Qwen3-Embedding produce different score distributions. A 75% from one model can mean the same thing as 85% from another. Compare scores within a single run, not across models.")
+                Text("Compare scores within one run. A score is a retrieval signal, not a measure of scientific equivalence or a probability of a correct match.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Per-pipeline threshold customization is available in Settings > Advanced.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-
-        HelpCard {
-            HelpItem(title: "Scores Are Relative", content: "What counts as a good score depends on your data and reference database. A 90% against FooDB means something different than 90% against DFG2. Compare scores within a single run, not across different datasets or models.")
-        }
-
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                HStack(spacing: Spacing.sm) {
-                    Text("Score Types Vary by Pipeline")
-                        .font(.body.weight(.medium))
-                    ExperimentalBadge()
+                if appState.isAdvancedMode {
+                    Text("The default GTE-Large path uses a separate Smart Auto-Match floor and gap after a target is eligible for selection. Experimental artifacts do not share that qualification.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-
-                Text("Embedding pipelines produce cosine similarity scores. Reranker pipelines produce a probability score from the cross-encoder. Generative LLM pipelines produce a selection confidence score. These scales aren't directly comparable. Score threshold customization is available in advanced pipeline settings.")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
 
         HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "Categorization Is Pipeline-Based", content: "Results aren't filtered by a score threshold. Instead, the pipeline itself decides what's a match, what needs review, and what's a clear miss. Embedding-only pipelines put everything above a 0.50 floor into Needs Review. Multi-stage pipelines use their second stage to make the call.")
+            HelpItem(title: "Fixed Eligibility Floor", content: "For default embedding matching, the leading retrieval must reach 0.50 before FoodMapper selects it as the target. Retrieved candidate database entries can still be present for rows without a selected target.")
+        }
 
-                HelpWarningCard(text: "Multi-stage pipeline decisions are still experimental and should be verified. For scientific research, review both matches and no-matches to catch false negatives.")
+        if appState.isAdvancedMode {
+            HelpCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    HStack(spacing: Spacing.sm) {
+                        Text("Score Types Vary by Pipeline")
+                            .font(.body.weight(.medium))
+                        ExperimentalLabel()
+                    }
+
+                    Text("Experimental artifact scores and default GTE-Large retrieval scores are not interchangeable. Experimental artifacts have not been qualified for research use.")
+                        .font(.callout)
+                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HelpCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    HelpItem(title: "Review Experimental Output", content: "Review experimental output against the default GTE-Large path. Do not use an experimental result as research evidence without a separate qualification run.")
+
+                    HelpWarningCard(text: "Experimental artifacts are not research-qualified. Review selected targets and no-match rows before use.")
+                }
             }
         }
 
-        HelpHint("Focus on the Match/Needs Review/No Match categories rather than raw scores. The pipeline has already done the triage for you -- the scores are there for reference, not for manual filtering.")
+        HelpHint("Use the selected target, retrieved candidate database entries, and your review together. Do not use score color alone to make a scientific decision.")
     }
 
     private func scoreRow(color: Color, label: String, desc: String) -> some View {
@@ -1099,11 +1223,12 @@ private struct HelpUnderstandingScoresContent: View {
 
 private struct HelpExportingContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
             "Exporting Results",
-            subtitle: "Export your match results as CSV or TSV. The export preserves all your original data and adds match metadata."
+            subtitle: "Export your match results as CSV or TSV. Original input columns are available only when the current or stored input file can be read."
         )
 
         HelpCard {
@@ -1111,7 +1236,7 @@ private struct HelpExportingContent: View {
                 Text("Standard Export")
                     .font(.headline)
 
-                Text("Click the Export button in the toolbar and choose Export CSV or Export TSV. You can also use File > Export as CSV (Cmd+E) or Export as TSV (Shift+Cmd+E). The file layout is:")
+                Text("Click the Export button in the toolbar and choose Export CSV or Export TSV. You can also use File > Export as CSV (Cmd+E) or Export as TSV (Shift+Cmd+E). When the current input and target metadata are available, the file layout is:")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1123,7 +1248,7 @@ private struct HelpExportingContent: View {
                     .background(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.03))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                Text("Row order matches your original input file, regardless of how you sorted the results table.")
+                Text("With a readable current input file, row order matches the original input file regardless of table sorting. A reduced export contains saved mapping rows and metadata.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
             }
@@ -1136,21 +1261,23 @@ private struct HelpExportingContent: View {
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     fmColumn("fm_status", "Match outcome: \"Match\", \"No Match\", \"Needs Review\", \"Match (confirmed)\", \"Match (overridden)\", \"No Match (confirmed)\", or \"Match (LLM)\". Parenthetical suffixes indicate how the decision was made: confirmed/overridden = human review, LLM = generative model selection.")
-                    fmColumn("fm_score", "Similarity score as a decimal, e.g. \"0.8723\".")
-                    fmColumn("fm_pipeline", "Which pipeline produced the match, e.g. \"GTE-Large\", \"Qwen3 Two-Stage\".")
+                    fmColumn("fm_score", "Score when available, for example \"0.8723\".")
+                    fmColumn("fm_pipeline", "Pipeline label when it was stored with the result.")
                     fmColumn("fm_note", "Your review note, or empty if none.")
                 }
             }
         }
 
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("Detailed Export (Advanced Mode)")
-                    .font(.headline)
+        if appState.isAdvancedMode {
+            HelpCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    Text("Detailed Export")
+                        .font(.headline)
 
-                Text("When Advanced mode is enabled, the export dropdown in the toolbar adds \"Detailed Export (Pipeline Data)\". This includes additional columns: fm_reasoning (LLM reasoning if applicable), and the top-5 embedding candidates with their scores.")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+                    Text("The export menu can add stored reasoning and retrieved candidate database entries when they are available for the session.")
+                        .font(.callout)
+                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+                }
             }
         }
 
@@ -1159,7 +1286,7 @@ private struct HelpExportingContent: View {
                 Text("Override Handling")
                     .font(.headline)
 
-                Text("When you override a match, all target database columns in the export reflect the override candidate's data, not the original auto-match. No-match rows have empty target columns. If your input and target databases have columns with the same name, the target column gets a \" (target)\" suffix.")
+                Text("The export records override status, selected text, ID, and a score when the selected candidate was scored. A full-target manual selection keeps the complete selected target row and leaves its score empty. Older candidate-only overrides use the target fields retained with that candidate. No-match rows have empty target columns. If input and target databases share a column name, the target column gets a \" (target)\" suffix.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1176,7 +1303,7 @@ private struct HelpExportingContent: View {
             }
         }
 
-        HelpHint("You can also export from History without loading the session first: right-click a session and choose \"Export...\". To export all sessions at once, use the export icon at the top of the History page. Both CSV and TSV formats preserve all your data.")
+        HelpHint("You can export one History session without loading it first. It restores original input columns only when the stored input file is available and readable. Bulk History exports use saved mapping rows and do not restore original input columns.")
     }
 
     private func fmColumn(_ name: String, _ desc: String) -> some View {
@@ -1195,6 +1322,7 @@ private struct HelpExportingContent: View {
 
 private struct HelpCustomDatabasesContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
@@ -1208,27 +1336,24 @@ private struct HelpCustomDatabasesContent: View {
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "How Embedding Works", content: "When you first match against a custom database, FoodMapper runs the selected embedding model on your GPU to generate a vector representation of each item. This is a one-time operation per database per model. After embedding completes, the database loads instantly for all future matches with that model.")
+                HelpItem(title: "How Embedding Works", content: "When you first match against a custom database, FoodMapper runs the selected embedding model on your GPU to generate a vector representation of each item. FoodMapper can reuse the saved cache for later matches with the same database and model.")
 
-                HelpItem(title: "Model-Specific Embeddings", content: "Embeddings are tied to the model that created them. If you switch from GTE-Large to Qwen3-Embedding 4B, the database needs to be re-embedded for the new model. Each model's embeddings are cached separately, so switching back is instant if the cache exists.")
-            }
-        }
-
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "Disk Space by Model", content: "Embedding size depends on the model's output dimensions. For a 100,000-item database:")
-
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    diskRow("GTE-Large (1024-dim)", "~400 MB")
-                    diskRow("Qwen3-Embedding 0.6B (1024-dim)", "~400 MB")
-                    diskRow("Qwen3-Embedding 4B (2560-dim)", "~1 GB")
-                    diskRow("Qwen3-Embedding 8B (4096-dim)", "~1.6 GB")
+                if appState.isAdvancedMode {
+                    HelpItem(title: "Model-Specific Embeddings", content: "Embeddings are tied to the model that created them. If you switch models, the database needs to be re-embedded. Each model cache is stored separately, so switching back uses the existing cache.")
                 }
             }
         }
 
         HelpCard {
-            HelpItem(title: "Size Limits", content: "Recommended database sizes depend on your Mac's memory. Settings > Advanced shows your hardware profile and the recommended limit. Enable \"Allow large databases\" in Settings > Advanced to bypass the warning threshold for larger databases.")
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                HelpItem(title: "Embedding Cache Size", content: "Embedding cache size depends on the target database and model. FoodMapper shows the available cache state for each database.")
+            }
+        }
+
+        if appState.isAdvancedMode {
+            HelpCard {
+                HelpItem(title: "Size Limits", content: "Recommended database sizes depend on your Mac's memory. Settings > Advanced shows the hardware profile and recommended limit. Enable \"Allow large databases\" to bypass the warning threshold for larger databases.")
+            }
         }
 
         HelpCard {
@@ -1239,18 +1364,7 @@ private struct HelpCustomDatabasesContent: View {
             }
         }
 
-        HelpHint("Clean, complete descriptions match better than abbreviations. \"Grilled chicken breast, skinless\" outperforms \"grld chkn brst\".")
-    }
-
-    private func diskRow(_ model: String, _ size: String) -> some View {
-        HStack {
-            Text(model)
-                .font(.callout)
-            Spacer()
-            Text(size)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
+        HelpHint("Abbreviations and omitted preparation terms can change retrieval order. Review retained candidates before export.")
     }
 }
 
@@ -1262,14 +1376,14 @@ private struct HelpSessionsContent: View {
     var body: some View {
         HelpSectionTitle(
             "Sessions & History",
-            subtitle: "Match results and review decisions are automatically saved. Pick up where you left off or re-export anytime."
+            subtitle: "Match results and review decisions are automatically saved. Stored input files are separate from session records."
         )
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HelpItem(title: "Auto-Save", content: "When matching completes, results are automatically saved as a session. As you make review decisions, those are saved incrementally too. No manual save needed.")
 
-                HelpItem(title: "What Gets Saved", content: "All results, review decisions (match, no match, overrides, notes), pipeline configuration, and timestamps. Everything you need to continue reviewing or re-export later.")
+                HelpItem(title: "What Gets Saved", content: "Results, review decisions, pipeline configuration, and timestamps are saved with the session. Retrieved candidate database entries are available only when that session stored them.")
             }
         }
 
@@ -1281,7 +1395,7 @@ private struct HelpSessionsContent: View {
 
                 HelpItem(title: "Deleting Sessions", content: "Right-click a session in History to delete it. The \"Clear All History\" button (with confirmation) removes everything.")
 
-                HelpItem(title: "Exporting Sessions", content: "Right-click any session in History to export it. You can also hover a session row and click the export icon. To export everything at once, click the export icon at the top of the History page and choose \"Export as Zip\" or \"Export to Folder\".")
+                HelpItem(title: "Exporting Sessions", content: "Right-click a session in History to export it. A single-session export can restore original input columns only when the stored input file is readable. Exporting all sessions creates reduced saved mapping rows.")
             }
         }
 
@@ -1294,7 +1408,7 @@ private struct HelpSessionsContent: View {
                 Text("Input Files")
                     .font(.headline)
 
-                Text("The Input Files page in the sidebar shows all files you've loaded into FoodMapper. Files are stored locally so you can reuse them across sessions. Right-click a file to use it for a new match, get info, or remove it. Adding files here doesn't start a match -- it just stores them for later.")
+                Text("The Input Files page in the sidebar shows all files you've loaded into FoodMapper. Files are stored locally so you can reuse them across sessions. Right-click a file to use it for a new match, get info, or remove it. Adding files here doesn't start a match -- it stores them for later.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1306,6 +1420,7 @@ private struct HelpSessionsContent: View {
 
 private struct HelpSettingsContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
@@ -1321,7 +1436,7 @@ private struct HelpSettingsContent: View {
                     Text("General")
                         .font(.headline)
                 }
-                Text("Appearance theme (System, Light, Dark), results per page (200, 500, 1000, 2000), and automatic update preferences. Lower page sizes keep sorting and scrolling responsive with large result sets. The Updates section lets you toggle automatic update checks and downloads via Sparkle. You can also check manually from the FoodMapper menu > Check for Updates.")
+                Text("Appearance theme (System, Light, Dark), results per page (200, 500, 1000, 2000), and automatic update checks. Lower page sizes keep sorting and scrolling responsive with large result sets. The Updates section controls automatic Sparkle update checks. You can also check manually from the FoodMapper menu > Check for Updates.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1335,7 +1450,7 @@ private struct HelpSettingsContent: View {
                     Text("Models")
                         .font(.headline)
                 }
-                Text("Download and manage models. In Simple mode, you see just GTE-Large. In Advanced mode, all 8 models are listed by family (Embedding, Reranker, Generative) with download size, GPU memory estimate, and status.")
+                Text(appState.isAdvancedMode ? "Download and manage models. Advanced mode lists all model families with download size, GPU memory estimate, and status." : "Download and manage the GTE-Large model used by the standard matching pipeline.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1355,20 +1470,22 @@ private struct HelpSettingsContent: View {
             }
         }
 
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                HStack(spacing: Spacing.sm) {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(Color.accentColor)
-                    Text("Advanced")
-                        .font(.headline)
-                }
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HelpItem(title: "Advanced Mode Toggle", content: "Unlocks all pipeline types, model size selection, instruction presets, detailed export, and the Pipelines sidebar section.")
-                    HelpItem(title: "System Info", content: "Shows your Mac's detected hardware profile (Base/Standard/Pro/Max/Ultra), device name, and unified memory.")
-                    HelpItem(title: "Performance Tuning", content: "Override batch sizes and chunk sizes if the defaults aren't right for your workload.")
-                    HelpItem(title: "Database Limits", content: "Toggle to allow databases above the hardware-recommended size.")
-                    HelpItem(title: "Reset", content: "Factory reset: deletes all models, sessions, custom databases, cached embeddings, and preferences. Two confirmations required.")
+        if appState.isAdvancedMode {
+            HelpCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    HStack(spacing: Spacing.sm) {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundStyle(Color.accentColor)
+                        Text("Advanced")
+                            .font(.headline)
+                    }
+                    VStack(alignment: .leading, spacing: Spacing.sm) {
+                        HelpItem(title: "Advanced Mode Toggle", content: "Shows optional experimental downloads and related controls when the app release provides them.")
+                        HelpItem(title: "System Info", content: "Shows your Mac's detected hardware profile (Base/Standard/Pro/Max/Ultra), device name, and unified memory.")
+                        HelpItem(title: "Performance Controls", content: "Available controls depend on the selected path and app release. Record the settings with an experimental comparison.")
+                        HelpItem(title: "Database Limits", content: "Allow databases above the hardware-recommended size.")
+                        HelpItem(title: "Reset", content: "Removes FoodMapper Application Support data and preferences, then restarts the app. It does not remove the Anthropic API key stored in your Mac's Keychain. Two confirmations are required.")
+                    }
                 }
             }
         }
@@ -1383,7 +1500,7 @@ private struct HelpExperimentalFeaturesContent: View {
     var body: some View {
         HelpSectionTitle(
             "Experimental Features",
-            subtitle: "Features under active development. Available for testing but not yet validated for production research use."
+            subtitle: "Optional features that have not been qualified for research use."
         )
 
         HelpCard {
@@ -1391,7 +1508,7 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("What Are Experimental Features?")
                     .font(.headline)
 
-                Text("Experimental features are parts of FoodMapper that are still being tuned and validated. They work, but their accuracy and behavior may change between releases. For published research, stick with the default GTE-Large or GTE-Large + Haiku pipelines unless you're specifically evaluating these methods.")
+                Text("Experimental features are separate from the default GTE-Large path. Their artifacts and outputs have not completed the project's research qualification process.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1403,7 +1520,7 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("How to Enable")
                     .font(.headline)
 
-                Text("Go to Settings > Advanced and turn on \"Show advanced options\". This unlocks the full set of pipelines, model size selection, instruction presets, detailed export columns, and performance tuning controls.")
+                Text("Go to Settings > Advanced and turn on \"Show advanced options\". The available controls and optional downloads depend on the app release.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1411,19 +1528,7 @@ private struct HelpExperimentalFeaturesContent: View {
         }
 
         HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("Experimental Pipelines")
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    expPipelineRow("Qwen3-Embedding", "Instruction-following embedding model in 0.6B, 4B, and 8B sizes. Asymmetric queries with instruction prefix.")
-                    expPipelineRow("Qwen3 Two-Stage", "Embedding retrieval followed by cross-encoder reranker rescoring of top candidates.")
-                    expPipelineRow("Smart Triage", "Top-10 embedding retrieval + batch reranker. Designed for efficient review triage.")
-                    expPipelineRow("Embedding + LLM", "Embedding retrieval + generative LLM selection from top-5 candidates.")
-                    expPipelineRow("Qwen3 LLM Judge", "Single-stage generative matching. Practical only for small databases (under 500 items).")
-                    expPipelineRow("Qwen3-Reranker (Benchmark)", "Cross-encoder scores every database entry. Very slow, for benchmarking only.")
-                }
-            }
+            HelpItem(title: "Experimental Downloads", content: "Advanced mode can show optional Qwen3 and Gemma artifact downloads. They are not part of the default local embedding path. Record the exact artifact, settings, and results before comparing one with GTE-Large.")
         }
 
         HelpCard {
@@ -1432,39 +1537,27 @@ private struct HelpExperimentalFeaturesContent: View {
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HelpItem(title: "Model Size Selection", content: "Choose between 0.6B, 4B, and 8B variants for Qwen3 models. Larger models are more accurate but use more memory and run slower.")
-                    HelpItem(title: "Instruction Presets", content: "Qwen3-Embedding uses instruction prefixes that tell the model what kind of matching to do. Presets optimize for different scenarios.")
-                    HelpItem(title: "Batch Size Tuning", content: "Override the auto-detected batch and chunk sizes for embedding and reranking. Useful if defaults don't match your workload.")
-                    HelpItem(title: "Detailed Export", content: "Adds LLM reasoning and top-5 embedding candidates with scores to your export file.")
+                    HelpItem(title: "Model Selection", content: "Some experimental artifact families have more than one size. Memory and runtime depend on the selected artifact and Mac.")
+                    HelpItem(title: "Run Records", content: "Keep the artifact revision, settings, input and target snapshots, and output with any experimental comparison.")
+                    HelpItem(title: "Detailed Export", content: "Detailed export includes stored fields only when the current session has them.")
                 }
             }
         }
 
         HelpWarningCard(
             icon: "info.circle",
-            title: "Not Production-Ready",
-            text: "These features may produce suboptimal results and their behavior can change between updates. For scientific research, always verify results with human review, regardless of pipeline."
+            title: "Not Research-Qualified",
+            text: "Do not treat experimental output as research evidence without a separate qualification run and review."
         )
     }
 
-    private func expPipelineRow(_ name: String, _ desc: String) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.xxxs) {
-            HStack(spacing: Spacing.xs) {
-                Text(name)
-                    .font(.callout.weight(.medium))
-                ExperimentalBadge()
-            }
-            Text(desc)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
 }
 
 // MARK: - Under the Hood
 
 private struct HelpUnderTheHoodContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle(
@@ -1472,75 +1565,25 @@ private struct HelpUnderTheHoodContent: View {
             subtitle: "A look at the technology behind FoodMapper, from the ML framework to GPU execution."
         )
 
-        // How This App Was Built
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("How This App Was Built")
-                    .font(.headline)
-
-                HelpItem(title: "From Core ML to MLX", content: "FoodMapper was built from the ground up in Xcode over many hours of testing, tinkering, and trial and error. The backend pipeline originally used Core ML, but after discovering the performance gains MLX offers for transformer inference on Apple Silicon, I scrapped Core ML and started over with MLX.")
-
-                HelpItem(title: "LLM-Assisted Development", content: "Once the MLX backend pipeline, model integration, embeddings conversion, and GPU performance tuning were dialed in, the SwiftUI frontend was built with the assistance of several coding-focused large language models, used directly within Xcode. This saved countless hours of development time on the interface you see now, especially on boilerplate code and UI scaffolding.")
-            }
-        }
-
-        // Why Apple MLX
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 Text("Why Apple MLX")
                     .font(.headline)
 
-                HelpItem(title: "Built for Apple Silicon", content: "MLX is Apple's open-source machine learning framework, designed from the ground up for M-series chips. It runs transformer models directly on the Mac's GPU through Metal, with no drivers, no CUDA, and no admin install required.")
+                HelpItem(title: "Built for Apple Silicon", content: "MLX is Apple's open-source machine learning framework for Apple Silicon. It runs transformer models through Metal without separate GPU drivers or CUDA.")
 
-                HelpItem(title: "No Setup Required", content: "Metal is built into macOS. Every Mac with Apple Silicon has GPU compute ready out of the box. FoodMapper is a native .app -- no Python environment, no Docker, no command-line setup.")
+                HelpItem(title: "No Runtime Setup", content: "Metal is built into macOS. FoodMapper is a native app and does not use a Python environment, Docker, or a command-line runtime for normal use.")
 
                 HelpLinkRow(title: "MLX Framework", url: "https://github.com/ml-explore")
             }
         }
 
-        // Models
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 Text("The Model Family")
                     .font(.headline)
 
-                HelpItem(title: "GTE-Large", content: "A 335-million parameter BERT-based model with 24 transformer layers, producing 1024-dimensional embeddings. The paper's original model. Symmetric -- no instruction prefix.")
-
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    HStack(spacing: Spacing.sm) {
-                        Text("Qwen3-Embedding")
-                            .font(.body.weight(.medium))
-                        ExperimentalBadge()
-                    }
-                    Text("Instruction-following embedding models available in 0.6B, 4B, and 8B sizes (4-bit quantized). These are asymmetric: queries get an instruction prefix that positions them in vector space, while database documents are embedded plain. Higher dimensions (1024/2560/4096) capture more nuance.")
-                        .font(.callout)
-                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    HStack(spacing: Spacing.sm) {
-                        Text("Qwen3-Reranker")
-                            .font(.body.weight(.medium))
-                        ExperimentalBadge()
-                    }
-                    Text("Cross-encoder models (0.6B FP16 and 4B 4-bit) that score query-document pairs by extracting yes/no logits. More accurate than embedding similarity alone, but evaluates one pair at a time.")
-                        .font(.callout)
-                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    HStack(spacing: Spacing.sm) {
-                        Text("Qwen3-Judge")
-                            .font(.body.weight(.medium))
-                        ExperimentalBadge()
-                    }
-                    Text("Generative LLM models (0.6B and 4B, 4-bit) that pick the best match from candidates via single-token logit extraction. Candidates are shuffled before each judgment to eliminate positional bias.")
-                        .font(.callout)
-                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                HelpItem(title: "GTE-Large", content: "A 335-million parameter BERT-based model that produces 1024-dimensional embeddings. FoodMapper uses the pinned MIT-licensed MLX conversion for default local matching.")
 
                 HelpLinkRow(title: "MLX Community Model Hub", url: "https://huggingface.co/mlx-community")
             }
@@ -1556,7 +1599,7 @@ private struct HelpUnderTheHoodContent: View {
 
                 HelpItem(title: "Embedding Pipeline", content: "Each input goes through tokenization, transformer layers, pooling, and L2 normalization. The entire pipeline runs on the GPU in a single pass per batch.")
 
-                HelpItem(title: "Similarity Search", content: "Matching is a single matrix multiplication that computes cosine similarity between your inputs and every item in the database at once. This is why matching thousands of items takes seconds, not minutes.")
+                HelpItem(title: "Similarity Search", content: "FoodMapper computes cosine similarity between input embeddings and candidate database embeddings. Runtime depends on database size, input length, batch settings, and the Mac.")
 
                 HelpItem(title: "GPU-Resident Data", content: "All computation stays on the GPU until the final similarity scores are pulled back to the CPU. Intermediate tensors (token embeddings, attention outputs, pooled vectors) never leave GPU memory.")
             }
@@ -1570,9 +1613,9 @@ private struct HelpUnderTheHoodContent: View {
 
                 HelpItem(title: "Detection at Launch", content: "FoodMapper queries Metal at startup to detect your Mac's unified memory, GPU core count, and chip family. Based on this, it assigns a hardware profile (Base through Ultra).")
 
-                HelpItem(title: "Adaptive Batch Sizes", content: "Batch sizes, chunk sizes, and memory limits are tuned to your hardware. An 8GB Mac uses smaller batches and conservative memory limits. A 96GB+ Mac uses large batches with full GPU utilization.")
+                HelpItem(title: "Adaptive Batch Sizes", content: "FoodMapper uses the detected hardware profile to choose initial batch and chunk settings. The selected settings can change with the model and workload.")
 
-                HelpItem(title: "Unified Memory", content: "M-series chips share memory between CPU and GPU. The GPU can access system RAM directly without copying data back and forth. This is a significant advantage for ML workloads compared to discrete GPUs that require explicit memory transfers.")
+                HelpItem(title: "Unified Memory", content: "M-series chips use unified memory, so the CPU and GPU share the same memory pool.")
             }
         }
 
@@ -1582,15 +1625,17 @@ private struct HelpUnderTheHoodContent: View {
                 Text("Large-Scale Embedding")
                     .font(.headline)
 
-                HelpItem(title: "Embed Once, Match Many", content: "Custom databases are embedded once and the results are cached to disk. After that initial cost, the database loads instantly for all future matches. Only your input files need fresh embedding each time.")
+                HelpItem(title: "Embed Once, Match Many", content: "FoodMapper caches custom-database embeddings for the model that created them. Reusing a cache avoids re-embedding that target database.")
 
                 HelpItem(title: "Streaming to Disk", content: "FoodMapper processes embeddings in chunks and writes each chunk to disk immediately. This prevents memory exhaustion on large databases. GPU memory cache is cleared between chunks to prevent buffer accumulation.")
 
-                HelpItem(title: "Scale", content: "The FDC Branded Foods database (nearly 2 million rows in the December 2025 release) is an example of what's possible on high-end Apple Silicon. Embedding a database that size takes time, but it's a one-time operation.")
+                HelpItem(title: "Large Targets", content: "Runtime, memory use, cache size, cancellation behavior, and free disk space must be checked for each large target database and Mac configuration.")
             }
         }
 
-        HelpHint("Settings > Advanced shows your detected hardware profile and lets you override batch sizes if needed.")
+        if appState.isAdvancedMode {
+            HelpHint("Settings > Advanced shows the detected hardware profile. Batch and chunk controls appear only for pipelines with an embedding stage.")
+        }
     }
 }
 
@@ -1607,7 +1652,7 @@ private struct HelpResearchContent: View {
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                HelpItem(title: "Project Overview", content: "FoodMapper was developed at USDA Agricultural Research Service for nutrition research. It maps dietary intake data to standardized reference databases using semantic similarity, replacing manual lookup with GPU-accelerated embedding matching.")
+                HelpItem(title: "Project Overview", content: "FoodMapper was developed at USDA Agricultural Research Service for nutrition research. It supports review of dietary descriptions against reference databases using semantic retrieval.")
 
                 HelpItem(title: "Authors", content: "Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG\nUSDA Agricultural Research Service")
             }
@@ -1618,7 +1663,7 @@ private struct HelpResearchContent: View {
                 Text("Behind the Research")
                     .font(.headline)
 
-                Text("The app includes an in-depth showcase called \"Behind the Research\" that walks through the paper's methodology with interactive visualizations. The showcase specifically covers the GTE-Large embedding model and Claude Haiku as the LLM judge, which are both the app's default pipeline and the exact methods used in the research paper.")
+                Text("The app includes a Behind the Research showcase for the published methods. Food Matching defaults to local GTE-Large embedding. When selected, the optional Anthropic path sends input text and retrieved candidate database entries needed for the run.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1638,10 +1683,15 @@ private struct HelpResearchContent: View {
                 Text("Publication")
                     .font(.headline)
 
-                Text("A link to the published paper will be added here soon.")
+                Text("Lemay DG, Strohmeier MP, Stoker RB, Larke JA, Wilson SMG. Evaluation of Large Language Models for Mapping Dietary Data to Food Databases. J Nutr. 2026 Aug;156(8):101678.")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .italic()
+                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+
+                Link("doi:10.1016/j.tjnut.2026.101678", destination: AppLinks.publication)
+                    .font(.callout)
+
+                Link("PubMed PMID 42309308", destination: AppLinks.pubMed)
+                    .font(.callout)
             }
         }
 
@@ -1767,6 +1817,7 @@ private struct HelpKeyboardShortcutsContent: View {
 
 private struct HelpTroubleshootingContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         HelpSectionTitle("Troubleshooting")
@@ -1775,17 +1826,17 @@ private struct HelpTroubleshootingContent: View {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 HelpTroubleshootItem(
                     problem: "App is slow or unresponsive",
-                    solution: "Large databases can use significant memory. Try reducing batch sizes in Settings > Advanced, or use a smaller database. Input files over 200,000 rows may cause the interface to slow down -- consider splitting into smaller batches."
+                    solution: appState.isAdvancedMode ? "Large databases can use significant memory. Reduce batch sizes in Settings > Advanced, or use a smaller database. Input files over 200,000 rows can slow the interface, so split them into smaller batches." : "Large databases can use significant memory. Use a smaller database or split input files over 200,000 rows into smaller batches."
                 )
 
                 HelpTroubleshootItem(
                     problem: "Poor match quality",
-                    solution: "Check that your input descriptions are clean and complete. Short or abbreviated descriptions match poorly. Try a different pipeline -- Two-Stage or Smart Triage often produce better results than embedding-only. Instruction presets (Advanced mode) can help too."
+                    solution: appState.isAdvancedMode ? "Check that input descriptions are clean and complete. Short or abbreviated descriptions match poorly. Compare an experimental pipeline after you review its output against the standard pipeline." : "Check that input descriptions are clean and complete. Short or abbreviated descriptions match poorly. Review the results before export."
                 )
 
                 HelpTroubleshootItem(
                     problem: "Model download fails",
-                    solution: "Check your internet connection. Model sizes range from 351 MB (Qwen3-Embedding 0.6B) to 4.5 GB (Qwen3-Embedding 8B). GTE-Large is about 640 MB. If the download fails repeatedly, try restarting the app."
+                    solution: appState.isAdvancedMode ? "Check your internet connection and free disk space. If the download fails repeatedly, restart the app and try again." : "Check your internet connection and free disk space. GTE-Large is about 640 MiB. If the download fails repeatedly, restart the app and try again."
                 )
 
                 HelpTroubleshootItem(
@@ -1795,17 +1846,17 @@ private struct HelpTroubleshootingContent: View {
 
                 HelpTroubleshootItem(
                     problem: "Custom database embedding fails",
-                    solution: "The database may be too large for your Mac's memory. Check Settings > Advanced for size limits. Try splitting into smaller databases, or use a model with smaller embedding dimensions."
+                    solution: appState.isAdvancedMode ? "The database may be too large for your Mac's memory. Check Settings > Advanced for size limits. Try splitting it into smaller databases or select a smaller embedding model." : "The database may be too large for your Mac's memory. Try splitting it into smaller databases."
                 )
 
                 HelpTroubleshootItem(
                     problem: "Custom database embedding is slow",
-                    solution: "Embedding is a one-time cost per database per model. Speed depends on your hardware profile, chip generation, and text description length. After embedding completes, the database loads instantly for future matches."
+                    solution: "Embedding is a one-time cost per database per model. Speed depends on your hardware profile, chip generation, and text description length. A reusable cache avoids embedding the same target database again."
                 )
 
                 HelpTroubleshootItem(
                     problem: "\"Database needs re-embedding\" message",
-                    solution: "Embeddings are model-specific. If you switch models, the database needs new embeddings for that model. This happens automatically when you run a match. You can also re-embed manually from the Databases page (right-click > Re-embed)."
+                    solution: appState.isAdvancedMode ? "Embeddings are model-specific. If you switch models, the database needs new embeddings for that model. This happens automatically when you run a match. You can also re-embed from the Databases page (right-click > Re-embed)." : "The database needs new embeddings. This happens automatically when you run a match. You can also re-embed from the Databases page (right-click > Re-embed)."
                 )
 
                 HelpTroubleshootItem(
@@ -1815,16 +1866,18 @@ private struct HelpTroubleshootingContent: View {
             }
         }
 
-        HelpCard {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("Reset the App")
-                    .font(.headline)
+        if appState.isAdvancedMode {
+            HelpCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    Text("Reset the App")
+                        .font(.headline)
 
-                Text("If something is fundamentally broken, you can factory-reset from Settings > Advanced > Reset FoodMapper. This is a last resort, not a routine action.")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
+                    Text("If something is fundamentally broken, you can reset FoodMapper from Settings > Advanced > Reset FoodMapper. The reset removes FoodMapper Application Support data and preferences, then restarts the app. It does not remove the Anthropic API key stored in your Mac's Keychain.")
+                        .font(.callout)
+                        .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
-                HelpWarningCard(text: "Resetting will permanently delete ALL app data: downloaded models, saved sessions, review decisions, custom databases, cached embeddings, and preferences. This cannot be undone. Back up any session exports before resetting. Two confirmation steps are required to prevent accidental data loss.")
+                    HelpWarningCard(text: "Resetting permanently removes downloaded models, saved sessions and review decisions, custom databases and cached embeddings, stored input files, and FoodMapper preferences. It does not remove the Anthropic API key stored in Keychain. This cannot be undone. Back up any session exports before resetting. Two confirmation steps are required to prevent accidental data loss.")
+                }
             }
         }
 
@@ -1858,11 +1911,15 @@ private struct HelpTroubleshootingContent: View {
 
 #Preview("Help - Light") {
     HelpView()
+        .environmentObject(PreviewHelpers.emptyState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 760, height: 620)
 }
 
 #Preview("Help - Dark") {
     HelpView()
+        .environmentObject(PreviewHelpers.emptyAdvancedState())
+        .environmentObject(HelpRequestCoordinator())
         .frame(width: 760, height: 620)
         .preferredColorScheme(.dark)
 }

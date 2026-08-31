@@ -6,7 +6,6 @@ struct WelcomeLandingView: View {
     @EnvironmentObject var appState: AppState
     @State private var hoveredCard: String?
     @State private var hoveredSession: MatchingSession.ID?
-    @State private var showResearchGlow = true
 
     var body: some View {
         GeometryReader { geo in
@@ -91,23 +90,6 @@ struct WelcomeLandingView: View {
                     appState.startResearchShowcase()
                     appState.selectedPipelineMode = .researchValidation
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.accentColor.opacity(0.5),
-                                    Color.purple.opacity(0.3),
-                                    Color.accentColor.opacity(0.4)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
-                        )
-                )
-                .shadow(color: Color.accentColor.opacity(0.12), radius: 8, x: 0, y: 0)
-                .shadow(color: Color.purple.opacity(0.08), radius: 12, x: 0, y: 0)
                 .onHover { hoveredCard = $0 ? "research" : nil }
                 .disabled(appState.showTutorial && appState.tutorialState.currentStep > 1)
             }
@@ -214,28 +196,6 @@ struct ActionCard: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
-    // Shadow depth scales with hover state for the "lift" effect
-    private var shadowRadius: CGFloat {
-        if isHovered {
-            return colorScheme == .dark ? 16 : 10
-        }
-        return colorScheme == .dark ? 6 : 5
-    }
-
-    private var shadowY: CGFloat {
-        if isHovered {
-            return colorScheme == .dark ? 8 : 5
-        }
-        return colorScheme == .dark ? 3 : 2
-    }
-
-    private var shadowOpacity: Double {
-        if isHovered {
-            return colorScheme == .dark ? 0.5 : 0.14
-        }
-        return colorScheme == .dark ? 0.35 : 0.12
-    }
-
     var body: some View {
         Button(action: action) {
             VStack(spacing: Spacing.md) {
@@ -271,19 +231,7 @@ struct ActionCard: View {
                         lineWidth: isHovered ? 1.0 : (colorScheme == .dark ? 0.66 : 1.0)
                     )
             }
-            .shadow(
-                color: Color.black.opacity(shadowOpacity),
-                radius: shadowRadius,
-                y: shadowY
-            )
-            // Accent glow when hovered -- subtle colored halo
-            .shadow(
-                color: isHovered ? Color.accentColor.opacity(0.15) : Color.clear,
-                radius: isHovered ? 12 : 0,
-                y: 0
-            )
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.06), radius: 1, y: 1)
         }
         .buttonStyle(.plain)
     }
@@ -321,7 +269,7 @@ struct CompactSessionRow: View {
                     .padding(.horizontal, Spacing.xs)
                     .padding(.vertical, 2)
                     .lineLimit(1)
-                    .polishedBadge(tone: .accentStrong, cornerRadius: 4)
+                    .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
 
                 // Threshold
                 Text("@ \(session.threshold, format: .percent.precision(.fractionLength(0)))")

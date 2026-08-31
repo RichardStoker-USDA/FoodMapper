@@ -31,6 +31,7 @@ struct DatabaseManagementView: View {
                 }
                 .buttonStyle(HeaderIconButtonStyle())
                 .help("Add a custom database")
+                .disabled(!appState.canModifyDatabases)
             }
             .frame(height: HeaderLayout.height)
             .padding(.horizontal, Spacing.xxl)
@@ -41,6 +42,19 @@ struct DatabaseManagementView: View {
             // Database list
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if let recoveryIssue = appState.databaseRecoveryIssue {
+                        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(Color.experimentalAmber)
+                            Text(recoveryIssue.message)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, Spacing.xxl)
+                        .padding(.vertical, Spacing.md)
+                    }
+
                     // Built-in section header
                     sectionHeader("Built-in")
 
@@ -103,7 +117,7 @@ struct DatabaseManagementView: View {
                                 Divider()
 
                                 // Re-embed option (only when not currently embedding)
-                                if !appState.databaseEmbeddingStatus.isEmbedding {
+                                if appState.canModifyDatabases {
                                     Button {
                                         reembedTarget = db
                                     } label: {
@@ -118,6 +132,7 @@ struct DatabaseManagementView: View {
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
+                                .disabled(!appState.canModifyDatabases)
                             }
                             .onTapGesture {
                                 showingDatabaseInfo = db
@@ -156,10 +171,11 @@ struct DatabaseManagementView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, Spacing.xxl)
                             .padding(.horizontal, Spacing.lg)
-                            .premiumMaterialStyle(cornerRadius: 8)
+                            .panelMaterialStyle(cornerRadius: 8)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(!appState.canModifyDatabases)
                         .padding(.horizontal, Spacing.lg)
                     }
                 }
@@ -313,7 +329,7 @@ struct DatabaseManagementRow: View {
                                 .font(.caption2)
                                 .padding(.horizontal, Spacing.xxs)
                                 .padding(.vertical, 2)
-                                .polishedBadge(tone: .accentStrong, cornerRadius: 4)
+                                .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
                         }
                     }
                 }
@@ -333,7 +349,7 @@ struct DatabaseManagementRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, Spacing.xs)
                 .padding(.vertical, 2)
-                .polishedBadge(tone: badgeTone, cornerRadius: 4)
+                .appBadgeStyle(tone: badgeTone, cornerRadius: 4)
 
             // Type badge
             Text(isCustom ? "Custom" : "Built-in")
@@ -341,7 +357,7 @@ struct DatabaseManagementRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, Spacing.xs)
                 .padding(.vertical, 2)
-                .polishedBadge(tone: isCustom ? .accent : .neutral, cornerRadius: 4)
+                .appBadgeStyle(tone: isCustom ? .accent : .neutral, cornerRadius: 4)
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.sm)

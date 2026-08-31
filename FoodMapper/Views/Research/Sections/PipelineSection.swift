@@ -18,7 +18,7 @@ struct PipelineSection: View {
                 subtitle: "Combining semantic search with LLM judgment"
             )
 
-            Text("The best-performing approach uses two stages: semantic embedding finds the closest candidates, then an LLM evaluates whether any are a true match.")
+            Text("The published Hybrid Haiku (K=5) method uses two stages. Semantic embedding retrieves candidates, then an LLM selects a candidate or no match. It reported 65.4% overall accuracy in the NHANES-to-DFG2 comparison.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
                 .scrollReveal()
@@ -188,7 +188,7 @@ struct LLMStageSection: View {
                     Divider()
                         .padding(.vertical, Spacing.xs)
 
-                    Text("See how it works with real examples from the paper:")
+                    Text("Illustrative walkthroughs based on records in the published benchmark:")
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
@@ -408,7 +408,7 @@ struct LLMStageSection: View {
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .polishedBadge(tone: .accentStrong, cornerRadius: 999)
+                        .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                 } else {
                     Color.clear
                         .frame(width: 58, height: 18)

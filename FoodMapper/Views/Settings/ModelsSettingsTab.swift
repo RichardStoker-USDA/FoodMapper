@@ -21,7 +21,9 @@ struct ModelsSettingsTab: View {
     }
 
     private var generativeModels: [RegisteredModel] {
-        allModels.filter { $0.modelFamily == .qwen3Generative }
+        allModels.filter {
+            $0.modelFamily == .qwen3Generative || $0.modelFamily == .gemma4Generative
+        }
     }
 
     private var gteModel: RegisteredModel? {
@@ -328,7 +330,7 @@ struct ModelRow: View {
 
         case .downloaded:
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark.circle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.green)
                     .frame(width: 20, height: 20)
@@ -348,7 +350,7 @@ struct ModelRow: View {
 
         case .loaded:
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark.circle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.green)
                     .frame(width: 20, height: 20)
@@ -363,7 +365,7 @@ struct ModelRow: View {
 
         case .error(let message):
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.red)
                     .help(message)
@@ -650,10 +652,12 @@ private enum ModelVisuals {
         case "qwen3-emb-0.6b-4bit": return Color.teal
         case "qwen3-emb-4b-4bit": return Color.indigo
         case "qwen3-emb-8b-4bit": return Color.purple
-        case "qwen3-reranker-0.6b": return Color.orange
+        case "qwen3-reranker-0.6b": return Color.experimentalAmber
         case "qwen3-reranker-4b": return Color.red
         case "qwen3-judge-0.6b-4bit": return Color.green
         case "qwen3-judge-4b-4bit": return Color.mint
+        case "gemma4-e2b-it-4bit": return Color.pink
+        case "gemma4-e4b-it-4bit": return Color.pink
         default: return Color.accentColor
         }
     }
@@ -664,7 +668,7 @@ private enum ModelVisuals {
             return "square.stack.3d.up"
         case .qwen3Reranker:
             return "arrow.triangle.swap"
-        case .qwen3Generative:
+        case .qwen3Generative, .gemma4Generative:
             return "sparkles"
         }
     }

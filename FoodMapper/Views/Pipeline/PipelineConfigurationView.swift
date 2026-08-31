@@ -19,6 +19,8 @@ struct PipelineConfigurationView: View {
         case .qwen3SmartTriage: return "checklist"
         case .qwen3LLMOnly: return "brain"
         case .embeddingLLM: return "cpu"
+        case .gemma4LLMOnly: return "brain"
+        case .gemma4TwoStage: return "cpu"
         }
     }
 
@@ -126,7 +128,7 @@ struct PipelineConfigurationView: View {
                         .padding(.horizontal, Spacing.sm)
                         .padding(.vertical, Spacing.xxxs)
                         .background(Color.badgeBackground(for: colorScheme))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.primary)
                         .clipShape(Capsule())
                 }
             }
@@ -140,17 +142,15 @@ struct PipelineConfigurationView: View {
             if let warning = selectedPipeline.performanceWarning {
                 HStack(alignment: .top, spacing: Spacing.xs) {
                     Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.experimentalAmber)
                         .frame(width: Size.iconSmall)
                     Text(warning)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.caption)
-                .padding(Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
         }
     }
@@ -182,7 +182,7 @@ struct PipelineConfigurationView: View {
                 }
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         }
     }
 
@@ -216,11 +216,11 @@ struct PipelineConfigurationView: View {
 
             HStack(spacing: Spacing.xxs) {
                 Circle()
-                    .fill(isAvailable ? Color.green : Color.orange.opacity(0.6))
+                    .fill(isAvailable ? Color.green : Color.experimentalAmber.opacity(0.6))
                     .frame(width: Size.statusDot, height: Size.statusDot)
                 Text(isAvailable ? "Downloaded" : "Not downloaded")
                     .font(.caption)
-                    .foregroundStyle(isAvailable ? Color.secondary : Color.orange)
+                    .foregroundStyle(isAvailable ? Color.secondary : Color.experimentalAmber)
             }
 
             Spacer()
@@ -288,7 +288,7 @@ struct PipelineConfigurationView: View {
                 }
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         }
     }
 
@@ -347,7 +347,7 @@ struct PipelineConfigurationView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 8)
+        .panelMaterialStyle(cornerRadius: 8)
     }
 
     private func thresholdRow(_ label: String, value: Double, color: Color, help: String) -> some View {
@@ -464,7 +464,7 @@ struct PipelineConfigurationView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         } else {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack {
@@ -483,7 +483,7 @@ struct PipelineConfigurationView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(Spacing.md)
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
         }
     }
 
@@ -550,9 +550,9 @@ struct PipelineConfigurationView: View {
     private func resolvedEmbeddingModelKey(for pipeline: PipelineType) -> String? {
         switch pipeline {
         case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM:
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return appState.selectedEmbeddingModelKey
-        case .qwen3Reranker, .qwen3LLMOnly: return nil
+        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
 
@@ -563,7 +563,7 @@ struct PipelineConfigurationView: View {
         var entries: [ModelFamilyEntry] = []
 
         switch pipeline {
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM:
+        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             entries.append(ModelFamilyEntry(
                 family: .qwen3Embedding,
                 sizeBinding: $appState.selectedEmbeddingSize
@@ -586,6 +586,11 @@ struct PipelineConfigurationView: View {
         case .qwen3LLMOnly, .embeddingLLM:
             entries.append(ModelFamilyEntry(
                 family: .qwen3Generative,
+                sizeBinding: $appState.selectedGenerativeSize
+            ))
+        case .gemma4LLMOnly, .gemma4TwoStage:
+            entries.append(ModelFamilyEntry(
+                family: .gemma4Generative,
                 sizeBinding: $appState.selectedGenerativeSize
             ))
         default:
@@ -612,9 +617,9 @@ struct PipelineConfigurationView: View {
             tiers.append(InstructionTier(name: "Reranker", text: preset.rerankerInstruction))
         case .gteLargeHaiku, .gteLargeHaikuV2:
             tiers.append(InstructionTier(name: "Haiku Prompt", text: preset.haikuPrompt))
-        case .qwen3LLMOnly:
+        case .qwen3LLMOnly, .gemma4LLMOnly:
             tiers.append(InstructionTier(name: "Judge", text: preset.judgeInstruction))
-        case .embeddingLLM:
+        case .embeddingLLM, .gemma4TwoStage:
             tiers.append(InstructionTier(name: "Embedding", text: preset.embeddingInstruction))
             tiers.append(InstructionTier(name: "Judge", text: preset.judgeInstruction))
         }

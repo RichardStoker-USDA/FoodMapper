@@ -79,7 +79,8 @@ final class EmbeddingOnlyPipeline: MatchingPipelineProtocol {
                     matchText: candidate.entry.text,
                     matchID: candidate.entry.id,
                     score: Double(candidate.score),
-                    additionalFields: candidate.entry.additionalFields
+                    additionalFields: candidate.entry.additionalFields,
+                    targetRowKey: candidate.entry.targetRowKey
                 )
             }
 
@@ -93,7 +94,8 @@ final class EmbeddingOnlyPipeline: MatchingPipelineProtocol {
                     status: .match,
                     scoreType: .cosineSimilarity,
                     matchAdditionalFields: best.entry.additionalFields,
-                    candidates: matchCandidates
+                    candidates: matchCandidates,
+                    targetRowKey: best.entry.targetRowKey
                 )
             } else {
                 return MatchResult(

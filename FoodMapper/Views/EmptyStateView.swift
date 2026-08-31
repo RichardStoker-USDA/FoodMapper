@@ -55,7 +55,7 @@ struct EmptyStateView: View {
                 case .error(let message):
                     EmptyStateContent(
                         icon: "exclamationmark.triangle",
-                        iconColor: .orange,
+                        iconColor: Color.experimentalAmber,
                         title: "Error",
                         message: message
                     )
@@ -158,7 +158,7 @@ struct EmptyStateView: View {
                 HStack(spacing: Spacing.sm) {
                     if case .batchReconnecting = phase {
                         Image(systemName: "arrow.triangle.2.circlepath")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color.experimentalAmber)
                             .font(.body)
                     } else {
                         ProgressView()
@@ -188,7 +188,7 @@ struct EmptyStateView: View {
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
             }
-            .premiumMaterialStyle(cornerRadius: 8)
+            .panelMaterialStyle(cornerRadius: 8)
 
             // Indeterminate progress bar
             ProgressView()
@@ -458,7 +458,7 @@ struct PreMatchPreviewView: View {
             .padding(.horizontal, Spacing.sm)
         }
         .padding(.vertical, Spacing.sm)
-        .premiumMaterialStyle(cornerRadius: 8)
+        .panelMaterialStyle(cornerRadius: 8)
     }
 
     private var previewTable: some View {

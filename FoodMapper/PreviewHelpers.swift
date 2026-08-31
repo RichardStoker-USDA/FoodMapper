@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Preview Mock State Factories
 // Reusable AppState configurations for SwiftUI #Preview blocks.
-// Stripped from release builds. See Xcode MCP preview workflow in memory.
+// Preview helpers for SwiftUI #Preview blocks.
 
 @MainActor
 enum PreviewHelpers {
@@ -54,7 +54,7 @@ enum PreviewHelpers {
     static var sampleCustomDB: CustomDatabase {
         var db = CustomDatabase(
             displayName: "My Lab Foods",
-            csvPath: "/Users/mock/lab_foods.csv",
+            csvPath: "PreviewData/lab_foods.csv",
             textColumn: "food_name",
             idColumn: "food_id",
             itemCount: 532,

@@ -14,6 +14,7 @@ struct AddDatabaseSheet: View {
     @State private var idColumn = ""
     @State private var itemCount = 0
     @State private var fileSize: Int64 = 0
+    @State private var fileFormat: DataFileFormat = .csv
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isEmbedding = false  // Track if we started embedding
@@ -24,7 +25,9 @@ struct AddDatabaseSheet: View {
         !displayName.trimmingCharacters(in: .whitespaces).isEmpty &&
         selectedFileURL != nil &&
         !textColumn.isEmpty &&
-        itemCount > 0
+        itemCount > 0 &&
+        appState.canModifyDatabases &&
+        !isEmbedding
     }
 
     /// Check if database exceeds recommended size for hardware
@@ -64,6 +67,13 @@ struct AddDatabaseSheet: View {
         return false
     }
 
+    private var registrationCompleted: Bool {
+        if case .registered = appState.databaseEmbeddingStatus, isEmbedding {
+            return true
+        }
+        return false
+    }
+
     private var completionStats: (itemCount: Int, duration: TimeInterval)? {
         if case .completed(_, let itemCount, let duration) = appState.databaseEmbeddingStatus {
             return (itemCount, duration)
@@ -97,7 +107,7 @@ struct AddDatabaseSheet: View {
             Divider()
 
             // Content - either form or embedding progress
-            if showEmbeddingProgress || embeddingCompleted || embeddingError != nil {
+            if showEmbeddingProgress || embeddingCompleted || registrationCompleted || embeddingError != nil {
                 // Embedding progress view
                 embeddingProgressView
             } else {
@@ -182,10 +192,10 @@ struct AddDatabaseSheet: View {
                                 // Allowed but oversized: toggle is ON
                                 HStack(spacing: Spacing.sm) {
                                     Image(systemName: "exclamationmark.triangle")
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(Color.experimentalAmber)
                                     VStack(alignment: .leading, spacing: Spacing.xxxs) {
                                         Text("Very large database")
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(Color.experimentalAmber)
                                         Text("Estimated time: \(estimatedEmbeddingTime). You'll be asked to confirm before embedding.")
                                             .foregroundStyle(.secondary)
                                     }
@@ -195,10 +205,10 @@ struct AddDatabaseSheet: View {
                                 // Exceeds recommended, toggle OFF
                                 HStack(spacing: Spacing.sm) {
                                     Image(systemName: "exclamationmark.triangle")
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(Color.experimentalAmber)
                                     VStack(alignment: .leading, spacing: Spacing.xxxs) {
                                         Text("Large database")
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(Color.experimentalAmber)
                                         Text("Recommended max: \(appState.hardwareConfig.recommendedMaxDatabaseItems.formatted()) items")
                                             .foregroundStyle(.secondary)
                                     }
@@ -245,7 +255,7 @@ struct AddDatabaseSheet: View {
                     if let error = errorMessage {
                         Section {
                             Label(error, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(.red)
                         }
                     }
                 }
@@ -289,7 +299,7 @@ struct AddDatabaseSheet: View {
                         .padding(.trailing, Spacing.sm)
                 }
 
-                if embeddingCompleted {
+                if embeddingCompleted || registrationCompleted {
                     Button("Done") {
                         appState.databaseEmbeddingStatus = .idle
                         dismiss()
@@ -314,6 +324,11 @@ struct AddDatabaseSheet: View {
             .padding(Spacing.lg)
         }
         .frame(width: 480, height: 580)
+        .onDisappear {
+            if isEmbedding && appState.databaseEmbeddingStatus.isEmbedding {
+                appState.cancelEmbedding()
+            }
+        }
         .alert(
             "Embed \(itemCount.formatted()) Items?",
             isPresented: $showLargeDatabaseWarning
@@ -342,7 +357,18 @@ struct AddDatabaseSheet: View {
         VStack(spacing: Spacing.lg) {
             Spacer()
 
-            if embeddingCompleted, let stats = completionStats {
+            if registrationCompleted {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.green)
+                Text("Database Imported")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("The database was added without pre-embedding. Choose Re-embed with Current Model after downloading an embedding model, if needed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if embeddingCompleted, let stats = completionStats {
                 // Success state with statistics
                 Group {
                     if #available(macOS 15.0, *) {
@@ -375,7 +401,7 @@ struct AddDatabaseSheet: View {
                 // Error state
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 48))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.red)
 
                 Text("Embedding Failed")
                     .font(.title2)
@@ -464,6 +490,7 @@ struct AddDatabaseSheet: View {
                 selectedFileURL = url
                 columns = file.columns
                 itemCount = file.rowCount
+                fileFormat = file.format
                 fileSize = CSVParser.getFileSize(url: url) ?? 0
                 displayName = url.deletingPathExtension().lastPathComponent
                 isLoading = false
@@ -482,7 +509,8 @@ struct AddDatabaseSheet: View {
             csvPath: url.path,
             textColumn: textColumn,
             idColumn: idColumn.isEmpty ? nil : idColumn,
-            itemCount: itemCount
+            itemCount: itemCount,
+            fileFormat: fileFormat
         )
 
         // Start embedding - don't dismiss until complete

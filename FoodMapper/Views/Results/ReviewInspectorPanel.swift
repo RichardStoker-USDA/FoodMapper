@@ -8,17 +8,19 @@ struct ReviewInspectorPanel: View {
 
     @State private var overrideSearchText = ""
     @State private var debouncedOverrideSearchText = ""
+    @State private var snapshotSearchResults: [TargetSnapshotSearchResult] = []
+    @State private var snapshotSearchFailed = false
+    @State private var snapshotSearchInFlight = false
     @State private var localNoteText = ""
     @State private var hoveredCandidateId: UUID?
     @State private var hoveredOverrideId: UUID?
+    @State private var hoveredSnapshotId: String?
     @State private var showAllCandidates = false
     @State private var overrideExpanded = false
     @State private var notesExpanded = false
     @State private var reasoningExpanded = true
     @State private var bulkNoteText = ""
     @State private var showGuidedReviewInfo = false
-    @State private var isMatchHovered = false
-    @State private var isNoMatchHovered = false
     @FocusState private var isOverrideFieldFocused: Bool
     @FocusState private var isNoteFieldFocused: Bool
     @FocusState private var isBulkNoteFieldFocused: Bool
@@ -33,8 +35,14 @@ struct ReviewInspectorPanel: View {
 
     /// Search results across all candidates in the session for override (uses pre-built index)
     private var overrideSearchResults: [MatchCandidate] {
-        guard debouncedOverrideSearchText.count >= 2 else { return [] }
+        guard (validSnapshotReference == nil || snapshotSearchFailed),
+              debouncedOverrideSearchText.count >= 2 else { return [] }
         return appState.searchCandidates(query: debouncedOverrideSearchText)
+    }
+
+    private var validSnapshotReference: TargetSnapshotReference? {
+        guard let snapshot = appState.activeTargetSnapshot, snapshot.isValid else { return nil }
+        return snapshot
     }
 
     /// Whether all pending items are resolved (no more needsReview items)
@@ -117,6 +125,27 @@ struct ReviewInspectorPanel: View {
                 try await Task.sleep(for: .milliseconds(150))
             } catch { return }
             debouncedOverrideSearchText = overrideSearchText
+        }
+        .task(id: "\(debouncedOverrideSearchText)-\(validSnapshotReference?.digest ?? "legacy")") {
+            snapshotSearchResults = []
+            snapshotSearchFailed = false
+            snapshotSearchInFlight = false
+            guard let snapshot = validSnapshotReference,
+                  debouncedOverrideSearchText.count >= 2 else { return }
+            snapshotSearchInFlight = true
+            do {
+                let found = try await TargetSnapshotStore.shared.search(
+                    reference: snapshot,
+                    query: debouncedOverrideSearchText,
+                    limit: 50
+                )
+                guard !Task.isCancelled else { return }
+                snapshotSearchResults = found
+            } catch {
+                guard !Task.isCancelled else { return }
+                snapshotSearchFailed = true
+            }
+            snapshotSearchInFlight = false
         }
         .onChange(of: appState.selection) { _, _ in
             // Reset transient state when selection changes
@@ -303,7 +332,7 @@ struct ReviewInspectorPanel: View {
                             Text("Match All (\(count))")
                         }
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.green)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(color: .green)
@@ -318,7 +347,7 @@ struct ReviewInspectorPanel: View {
                             Text("No Match All (\(count))")
                         }
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(color: .secondary)
@@ -409,24 +438,25 @@ struct ReviewInspectorPanel: View {
         if let matchText = result.matchText {
             inspectorCard {
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    // Header: label + score pill + status pill
-                    // When overridden, score pill reflects the override score
-                    let displayScore = decision?.overrideScore ?? result.score
-                    let displayScorePercentage = Int(displayScore * 100)
-
                     HStack {
                         Text("MATCHED TO")
                             .technicalLabel()
                         Spacer()
                         HStack(spacing: Spacing.xxs) {
-                            Text("\(displayScorePercentage)%")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .monospacedDigit()
-                                .foregroundStyle(Color.scoreBadgeForeground(displayScore))
-                                .padding(.horizontal, Spacing.sm)
-                                .padding(.vertical, 2)
-                                .background(Color.scoreColor(displayScore).opacity(colorScheme == .dark ? 0.8 : 1.0))
-                                .clipShape(Capsule())
+                            // A full-target manual selection was not scored by
+                            // the matching pipeline. Keep its score blank.
+                            if decision?.manualTargetSelection == nil {
+                                let displayScore = decision?.overrideScore ?? result.score
+                                let displayScorePercentage = Int(displayScore * 100)
+                                Text("\(displayScorePercentage)%")
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(Color.scoreBadgeForeground(displayScore))
+                                    .padding(.horizontal, Spacing.sm)
+                                    .padding(.vertical, 2)
+                                    .background(Color.scoreColor(displayScore).opacity(colorScheme == .dark ? 0.8 : 1.0))
+                                    .clipShape(Capsule())
+                            }
 
                             UnifiedStatusPill(
                                 category: appState.category(for: result.id)
@@ -541,8 +571,7 @@ struct ReviewInspectorPanel: View {
                         .padding(.leading, Spacing.xxs)
 
                     if isNoMatch {
-                        let profile = ThresholdProfile.defaults(for: result.scoreType)
-                        Text("No match exceeded the \(Int(profile.matchThreshold * 100))% confidence threshold")
+                        Text("No candidate was selected. Retrieved candidate database entries appear below when the session stored them.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.leading, Spacing.xxs)
@@ -648,27 +677,11 @@ struct ReviewInspectorPanel: View {
         colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15)
     }
 
-    private var cardShadowColor: Color {
-        colorScheme == .dark ? Color.black.opacity(0.6) : Color.black.opacity(0.15)
-    }
-
     private var cardBorderWidth: CGFloat { 1.0 }
-
-    private var cardShadowPrimary: (color: Color, radius: CGFloat, y: CGFloat) {
-        colorScheme == .dark
-            ? (Color.black.opacity(0.50), 14, 7)
-            : (Color.black.opacity(0.15), 10, 5)
-    }
-
-    private var cardShadowSecondary: (color: Color, radius: CGFloat) {
-        colorScheme == .dark
-            ? (Color.black.opacity(0.25), 3)
-            : (Color.black.opacity(0.08), 3)
-    }
 
     // MARK: - Inspector Card
 
-    /// Premium container for grouping related inspector content (matches Behind the Research theme).
+    /// Container for grouped inspector content.
     @ViewBuilder
     private func inspectorCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         let cornerRadius: CGFloat = 10
@@ -678,53 +691,41 @@ struct ReviewInspectorPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Spacing.sm)
             .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.cardBackground(for: colorScheme))
-                }
-                .shadow(
-                    color: Color.cardShadow(for: colorScheme),
-                    radius: colorScheme == .dark ? 12 : 9,
-                    y: colorScheme == .dark ? 6 : 4
-                )
-                .shadow(
-                    color: colorScheme == .dark ? Color.black.opacity(0.20) : Color.black.opacity(0.06),
-                    radius: 2,
-                    y: 1
-                )
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.cardBackground(for: colorScheme))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.cardBorder(for: colorScheme), lineWidth: borderWidth)
             }
-            .overlay {
-                if colorScheme == .light {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
-                        .padding(0.5)
-                }
-            }
-            .id(colorScheme) // Fixes lag when switching light/dark mode
+            .id(colorScheme)
     }
 
     // MARK: - Candidate Row
 
     private func candidateRow(_ candidate: MatchCandidate, index: Int, resultId: UUID,
                               decision: ReviewDecision?) -> some View {
-        let isSelected = decision?.selectedCandidateIndex == index
+        let isSelected = decision?.selectedTargetRowKey.map { $0 == candidate.targetRowKey } ??
+            (decision?.selectedCandidateIndex == index)
         let isTopMatch = index == 0
         let isHovered = hoveredCandidateId == candidate.id
 
         return Button {
             if let result = appState.resultsByID[resultId], result.isPipelineMatch(candidate) {
-                appState.setReviewDecision(.accepted, for: resultId, candidateIndex: index)
+                appState.setReviewDecision(
+                    .accepted,
+                    for: resultId,
+                    candidateIndex: candidate.targetRowKey == nil ? index : nil,
+                    targetRowKey: candidate.targetRowKey
+                )
             } else {
                 appState.setReviewDecision(
                     .overridden, for: resultId,
                     overrideText: candidate.matchText,
                     overrideID: candidate.matchID,
                     overrideScore: candidate.score,
-                    candidateIndex: index
+                    candidateIndex: candidate.targetRowKey == nil ? index : nil,
+                    targetRowKey: candidate.targetRowKey
                 )
             }
         } label: {
@@ -777,7 +778,6 @@ struct ReviewInspectorPanel: View {
                             ? Color.green.opacity(0.12)
                             : (isHovered ? Color.primary.opacity(0.08) : Color.clear)
                     )
-                    .animation(Animate.quick, value: hoveredCandidateId)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -835,7 +835,7 @@ struct ReviewInspectorPanel: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 2)
                 .help("Reset to original auto-triage state (R, press twice)")
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: appState.resetPendingConfirmation)
+                .animation(.easeInOut(duration: 0.15), value: appState.resetPendingConfirmation)
                 .reportTutorialFrame("inspectorResetButton", to: appState)
             }
 
@@ -852,22 +852,19 @@ struct ReviewInspectorPanel: View {
                             Text("Match")
                                 .font(.subheadline.weight(.semibold))
                         }
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(.green)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(
                             color: Color.green,
                             cornerRadius: 8,
-                            isActive: isMatchHovered && !matchDisabled
+                            isActive: !matchDisabled
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .disabled(matchDisabled)
                     .opacity(matchDisabled ? 0.5 : 1.0)
-                    .scaleEffect(isMatchHovered && !matchDisabled ? 1.02 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isMatchHovered)
-                    .onHover { isMatchHovered = $0 }
                     .help("Return")
 
                     KeyCapView(key: "Return")
@@ -889,22 +886,19 @@ struct ReviewInspectorPanel: View {
                             Text("No Match")
                                 .font(.subheadline.weight(.semibold))
                         }
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .liquidGlassButtonStyle(
                             color: Color.secondary,
                             cornerRadius: 8,
-                            isActive: isNoMatchHovered && !noMatchDisabled
+                            isActive: !noMatchDisabled
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .disabled(noMatchDisabled)
                     .opacity(noMatchDisabled ? 0.5 : 1.0)
-                    .scaleEffect(isNoMatchHovered && !noMatchDisabled ? 1.02 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isNoMatchHovered)
-                    .onHover { isNoMatchHovered = $0 }
                     .help("Delete")
 
                     KeyCapView(key: "Delete")
@@ -951,7 +945,10 @@ struct ReviewInspectorPanel: View {
 
             if overrideExpanded {
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    TextField("Search database entries...", text: $overrideSearchText)
+                    TextField(
+                        validSnapshotReference == nil ? "Search candidate entries..." : "Search target database entries...",
+                        text: $overrideSearchText
+                    )
                         .textFieldStyle(.plain)
                         .font(.callout)
                         .focused($isOverrideFieldFocused)
@@ -964,16 +961,117 @@ struct ReviewInspectorPanel: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.75)
                         )
+                        .accessibilityLabel("Search target database")
 
-                    if !overrideSearchResults.isEmpty {
+                    if validSnapshotReference != nil && !snapshotSearchFailed {
+                        if !snapshotSearchResults.isEmpty {
+                            VStack(spacing: 0) {
+                                ForEach(snapshotSearchResults) { hit in
+                                    Button {
+                                        appState.setManualTargetSelection(hit.selection, for: result.id) {
+                                            appState.advanceToNextPending()
+                                        }
+                                        overrideSearchText = ""
+                                        debouncedOverrideSearchText = ""
+                                        snapshotSearchResults = []
+                                        overrideExpanded = false
+                                    } label: {
+                                        HStack(alignment: .top, spacing: Spacing.xs) {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(hit.matchText)
+                                                    .font(.caption)
+                                                    .lineLimit(2)
+                                                    .foregroundStyle(.primary)
+                                                Text(hit.snapshot.displayName)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                                Text("Source row \(hit.record.sourceRow) · \(hit.matchID.map { "ID \($0)" } ?? "No ID")")
+                                                    .font(.system(size: 10, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                let distinguishingFields = hit.fields
+                                                    .filter { name, value in
+                                                        name != hit.textColumn && name != hit.idColumn && !value.isEmpty
+                                                    }
+                                                    .sorted { $0.key < $1.key }
+                                                    .prefix(2)
+                                                if !distinguishingFields.isEmpty {
+                                                    Text(distinguishingFields.map { "\($0.key): \($0.value)" }.joined(separator: " · "))
+                                                        .font(.caption2)
+                                                        .lineLimit(2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            Spacer(minLength: 0)
+                                            Text(hit.snapshot.sourceKind == .builtIn ? "Built-in" : "Custom")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .padding(.horizontal, Spacing.sm)
+                                        .padding(.vertical, Spacing.xs)
+                                        .background {
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .fill(hoveredSnapshotId == hit.id ? Color.accentColor.opacity(0.10) : Color.clear)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(
+                                        hit.matchID.map { "Select \(hit.matchText), ID \($0)" }
+                                            ?? "Select \(hit.matchText), no ID"
+                                    )
+                                    .onHover { isHovering in
+                                        hoveredSnapshotId = isHovering ? hit.id : nil
+                                    }
+                                }
+                            }
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.02)))
+                            .padding(.top, 4)
+                        } else if snapshotSearchInFlight {
+                            Text("Searching target database...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                                .padding(.leading, 4)
+                        } else if debouncedOverrideSearchText.count >= 2 {
+                            Text("No matching target database rows")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                                .padding(.leading, 4)
+                        } else {
+                            Text("Type at least 2 characters to search the target database.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                                .padding(.leading, 4)
+                        }
+                    } else {
+                        if validSnapshotReference != nil && snapshotSearchFailed {
+                            Text("Full target search is unavailable. Showing retained candidates.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                                .padding(.leading, 4)
+                        } else if validSnapshotReference == nil {
+                            Text("This session has no saved target database. Search uses retained candidates.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                                .padding(.leading, 4)
+                        }
+
+                        if !overrideSearchResults.isEmpty {
                         VStack(spacing: 0) {
                             ForEach(overrideSearchResults) { candidate in
                                 Button {
+                                    let candidateIndex = result.candidates?.firstIndex(where: { $0.id == candidate.id })
                                     appState.setReviewDecision(
                                         .overridden, for: result.id,
                                         overrideText: candidate.matchText,
                                         overrideID: candidate.matchID,
-                                        overrideScore: candidate.score
+                                        overrideScore: candidate.score,
+                                        candidateIndex: candidate.targetRowKey == nil ? candidateIndex : nil,
+                                        targetRowKey: candidate.targetRowKey
                                     )
                                     overrideSearchText = ""
                                     debouncedOverrideSearchText = ""
@@ -986,6 +1084,22 @@ struct ReviewInspectorPanel: View {
                                                 .font(.caption)
                                                 .lineLimit(2)
                                                 .foregroundStyle(.primary)
+                                            if let matchID = candidate.matchID {
+                                                Text("ID \(matchID)")
+                                                    .font(.system(size: 10, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            if let rowKey = candidate.targetRowKey {
+                                                Text("Source row \(rowKey.sourceRow)")
+                                                    .font(.system(size: 10, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            if let field = candidate.additionalFields?.sorted(by: { $0.key < $1.key }).first {
+                                                Text("\(field.key): \(field.value)")
+                                                    .font(.caption2)
+                                                    .lineLimit(1)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                         Spacer()
                                         HStack(spacing: Spacing.xxs) {
@@ -1013,12 +1127,13 @@ struct ReviewInspectorPanel: View {
                         }
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.02)))
                         .padding(.top, 4)
-                    } else if debouncedOverrideSearchText.count >= 2 {
-                        Text("No matches found in database")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 4)
-                            .padding(.leading, 4)
+                        } else if debouncedOverrideSearchText.count >= 2 {
+                            Text("No matching candidate entries in this session")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                                .padding(.leading, 4)
+                        }
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -1176,16 +1291,6 @@ struct ReviewInspectorPanel: View {
                     .strokeBorder(Color.white.opacity(0.42), lineWidth: 0.66)
             }
         }
-        .shadow(
-            color: cardShadowPrimary.color,
-            radius: cardShadowPrimary.radius,
-            y: cardShadowPrimary.y
-        )
-        .shadow(
-            color: cardShadowSecondary.color,
-            radius: cardShadowSecondary.radius,
-            y: 1
-        )
     }
 
     // MARK: - Helpers

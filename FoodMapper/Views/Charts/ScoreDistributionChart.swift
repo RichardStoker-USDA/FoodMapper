@@ -107,7 +107,7 @@ struct ScoreDistributionChart: View {
             .padding(.horizontal, Spacing.md)
         }
         .padding(.vertical, Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Score distribution chart showing how scores are spread across \(results.count) results")
     }

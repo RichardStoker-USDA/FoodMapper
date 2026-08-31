@@ -126,24 +126,22 @@ actor GenerativeJudgeModel {
     // MARK: - Loading
 
     func load() async throws {
-        try await load(hub: HubApi())
+        throw GenerativeJudgeError.modelNotLoaded
     }
 
-    func load(hub: HubApi) async throws {
-        let configuration = MLXLMCommon.ModelConfiguration(id: repoId)
+    func load(hub _: HubApi) async throws {
+        throw GenerativeJudgeError.modelNotLoaded
+    }
 
-        logger.info("Loading generative judge from \(self.repoId)...")
-
-        container = try await MLXLMCommon.loadModelContainer(
-            hub: hub,
-            configuration: configuration
-        ) { progress in
-            logger.debug("Download progress: \(Int(progress.fractionCompleted * 100))%")
+    func load(snapshot: VerifiedLocalModelSnapshot) async throws {
+        guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
+            throw GenerativeJudgeError.modelNotLoaded
         }
-
+        try snapshot.revalidate()
+        container = try await MLXLMCommon.loadModelContainer(
+            hub: HubApi(), configuration: .init(directory: snapshot.directory)
+        )
         try await resolveTokenIds()
-
-        logger.info("Generative judge loaded (\(self.labelTokenIds.count) label tokens resolved)")
     }
 
     func unload() {
@@ -244,15 +242,13 @@ actor GenerativeJudgeModel {
             allowThinking: allowThinking
         )
 
-        logger.info("[Model] GenerativeJudge | judge() | Format: \(responseFormat.rawValue) | Think: \(allowThinking)")
-        logger.info("[Model] GenerativeJudge | judge() | Query: \(query.prefix(80)) | Candidates: \(candidateCount)")
-        logger.info("[Model] GenerativeJudge | judge() | Additional instruction: \(instruction?.prefix(100) ?? "(none -- using defaultSystemPrompt only)")")
+        logger.info("[Model] GenerativeJudge | judge() | Format: \(responseFormat.rawValue) | Think: \(allowThinking) | Candidates: \(candidateCount) | Custom instruction: \(instruction != nil)")
 
         // Tokenize and run forward pass
         let tokenIdsCaptured = activeTokenIds
         let temp = max(temperature, 0.01)
         let noMatch = noMatchLabel
-        let result: JudgeResult = try await container.perform { context in
+        let result: JudgeResult = await container.perform { context in
             let tokenizer = context.tokenizer
             let model = context.model
             let tokens = tokenizer.encode(text: prompt)
@@ -416,9 +412,7 @@ actor GenerativeJudgeModel {
             allowThinking: allowThinking
         )
 
-        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Format: \(responseFormat.rawValue) | Think: \(allowThinking)")
-        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Query: \(query.prefix(80)) | Candidates: \(candidateCount)")
-        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Additional instruction: \(instruction?.prefix(100) ?? "(none -- using defaultSystemPrompt only)")")
+        logger.info("[Model] GenerativeJudge | judgeViaGeneration() | Format: \(responseFormat.rawValue) | Think: \(allowThinking) | Candidates: \(candidateCount) | Custom instruction: \(instruction != nil)")
 
         // Capture label token IDs before entering the perform closure
         let capturedLabelTokenIds = self.labelTokenIds
@@ -428,7 +422,7 @@ actor GenerativeJudgeModel {
         // Official Qwen3 recommends 512+ for thinking mode reasoning chains
         let maxGenerateTokens = allowThinking ? 512 : 15
 
-        let result: JudgeResult = try await container.perform { context in
+        let result: JudgeResult = await container.perform { context in
             let tokenizer = context.tokenizer
             let model = context.model
             let tokens = tokenizer.encode(text: prompt)
@@ -513,8 +507,6 @@ actor GenerativeJudgeModel {
 
             // Decode generated text
             let generatedText = tokenizer.decode(tokens: generatedTokens).trimmingCharacters(in: .whitespacesAndNewlines)
-            logger.debug("[Model] GenerativeJudge | Generated: \(generatedText.prefix(200))")
-
             // Parse the response based on format
             let parsedIndex: Int?
             switch responseFormat {
@@ -818,7 +810,13 @@ actor GenerativeJudgeModel {
             \(responseInstruction)
             """
 
-        // Build the assistant prefix based on thinking mode
+        // Check if this is a Gemma model
+        if info.key.contains("gemma") {
+            let fullUserMessage = "\(systemPrompt)\n\n\(userMessage)"
+            return "<start_of_turn>user\n\(fullUserMessage)<end_of_turn>\n<start_of_turn>model\n"
+        }
+
+        // Build the assistant prefix based on thinking mode for Qwen
         let assistantPrefix: String
         if allowThinking {
             // Let model think freely before answering

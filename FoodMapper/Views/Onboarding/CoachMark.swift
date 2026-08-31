@@ -20,69 +20,77 @@ struct CoachMark: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            // Header with icon and title
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: step.icon)
-                    .font(.title2)
-                    .foregroundStyle(Color.accentColor)
+            // Dynamic text and content area with custom high-fidelity asymmetric transitions
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                // Header with icon and title
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: step.icon)
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
 
-                Text(step.title)
-                    .font(.headline)
-                    .fontWeight(.semibold)
-            }
+                    Text(step.title)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                }
 
-            // Body text
-            Text(step.body)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                // Body text
+                Text(step.body)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            // Keyboard shortcut hints (keycap styling)
-            if let hints = step.keyboardHints, !hints.isEmpty {
-                VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text("Keyboard Shortcuts")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, Spacing.xs)
+                // Keyboard shortcut hints (keycap styling)
+                if let hints = step.keyboardHints, !hints.isEmpty {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
+                        Text("Keyboard Shortcuts")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, Spacing.xs)
 
-                    ForEach(Array(hints.enumerated()), id: \.offset) { _, hint in
-                        HStack(spacing: Spacing.xs) {
-                            HStack(spacing: Spacing.xxxs) {
-                                ForEach(Array(parseKeySegments(hint.keys).enumerated()), id: \.offset) { _, segment in
-                                    KeyCapView(key: segment)
+                        ForEach(Array(hints.enumerated()), id: \.offset) { _, hint in
+                            HStack(spacing: Spacing.xs) {
+                                HStack(spacing: Spacing.xxxs) {
+                                    ForEach(Array(parseKeySegments(hint.keys).enumerated()), id: \.offset) { _, segment in
+                                        KeyCapView(key: segment)
+                                    }
                                 }
+                                Text(hint.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            Text(hint.label)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
                 }
-            }
 
-            // Load Sample button (Step 1 only)
-            if step.showsLoadSampleButton, let onLoadSample = onLoadSample {
-                Button {
-                    onLoadSample()
-                } label: {
-                    Label("Load Sample Dataset", systemImage: "doc.badge.arrow.down")
+                // Load Sample button (Step 1 only)
+                if step.showsLoadSampleButton, let onLoadSample = onLoadSample {
+                    Button {
+                        onLoadSample()
+                    } label: {
+                        Label("Load Sample Dataset", systemImage: "doc.badge.arrow.down")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, Spacing.xs)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .padding(.top, Spacing.xs)
-            }
 
-            // Toolbar button preview (for steps referencing toolbar buttons)
-            if let preview = step.toolbarButtonPreview {
-                HStack {
-                    Spacer()
-                    ToolbarButtonReplicaView(systemImage: preview.systemImage, label: preview.label)
-                    Spacer()
+                // Toolbar button preview (for steps referencing toolbar buttons)
+                if let preview = step.toolbarButtonPreview {
+                    HStack {
+                        Spacer()
+                        ToolbarButtonReplicaView(systemImage: preview.systemImage, label: preview.label)
+                        Spacer()
+                    }
+                    .padding(.top, Spacing.xs)
                 }
-                .padding(.top, Spacing.xs)
             }
+            .id(currentStepIndex)
+            .transition(.asymmetric(
+                insertion: .opacity.combined(with: .scale(scale: 0.98)).animation(Animate.standard.delay(0.06)),
+                removal: .opacity.animation(Animate.quick)
+            ))
 
-            // Progress bar and navigation
+            // Stable Progress bar and navigation (anchored)
             VStack(spacing: Spacing.sm) {
                 // Progress bar
                 HStack(spacing: Spacing.sm) {
@@ -161,8 +169,16 @@ struct CoachMark: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(
-                        Color(nsColor: .separatorColor).opacity(colorScheme == .dark ? 0.3 : 0.5),
-                        lineWidth: 0.5
+                        LinearGradient(
+                            colors: [
+                                Color.accentColor.opacity(colorScheme == .dark ? 0.3 : 0.25),
+                                Color.accentColor.opacity(0.0),
+                                Color.accentColor.opacity(colorScheme == .dark ? 0.25 : 0.15)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.66
                     )
             }
         }
@@ -173,13 +189,6 @@ struct CoachMark: View {
         .scaleEffect(isAppearing ? 1.0 : 0.95)
         .opacity(isAppearing ? 1.0 : 0)
         .onAppear {
-            withAnimation(Animate.standard) {
-                isAppearing = true
-            }
-        }
-        .onChange(of: currentStepIndex) { _, _ in
-            // Reset animation for step transitions
-            isAppearing = false
             withAnimation(Animate.standard) {
                 isAppearing = true
             }

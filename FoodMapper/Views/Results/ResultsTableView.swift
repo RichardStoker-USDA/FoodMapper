@@ -68,7 +68,7 @@ struct ResultsTableView: View {
                                     .truncationMode(.tail)
                                     .help(text)
                             } else {
-                                Text("No candidates")
+                                Text("No selected candidate")
                                     .foregroundStyle(.tertiary)
                             }
                         }
@@ -79,17 +79,27 @@ struct ResultsTableView: View {
 
                     // Score -- colored dot + plain percentage (shows override score when overridden)
                     TableColumn("Score", value: \.score) { result in
-                        let displayScore: Double = {
-                            if let decision = reviewDecisions[result.id],
-                               decision.status == .overridden,
-                               let overrideScore = decision.overrideScore {
-                                return overrideScore
-                            }
-                            return result.score
-                        }()
-                        ScoreIndicator(score: displayScore)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(rowBackground(for: result.id))
+                        if reviewDecisions[result.id]?.manualTargetSelection != nil {
+                            Text("--")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .help("Manual selection was not scored")
+                                .accessibilityLabel("Manual selection, no score")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(rowBackground(for: result.id))
+                        } else {
+                            let displayScore: Double = {
+                                if let decision = reviewDecisions[result.id],
+                                   decision.status == .overridden,
+                                   let overrideScore = decision.overrideScore {
+                                    return overrideScore
+                                }
+                                return result.score
+                            }()
+                            ScoreIndicator(score: displayScore)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(rowBackground(for: result.id))
+                        }
                     }
                     .width(52)
 
@@ -320,33 +330,19 @@ struct ResultsToolbar: View {
             Text("All")
                 .font(.caption)
                 .fontWeight(isActive ? .semibold : .medium)
-                .foregroundStyle(isActive ? .primary : .secondary)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xxs)
-                .background(
-                    Color.accentColor.opacity(isActive
-                        ? (colorScheme == .light ? 0.12 : 0.14)
-                        : (colorScheme == .light ? 0.04 : 0.03))
-                )
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(
-                            isActive
-                                ? Color.accentColor.opacity(colorScheme == .light ? 0.30 : 0.35)
-                                : Color.accentColor.opacity(colorScheme == .light ? 0.10 : 0.08),
-                            lineWidth: 0.75
-                        )
-                )
-                .shadow(
-                    color: isActive
-                        ? (colorScheme == .light
-                            ? Color.accentColor.opacity(0.18)
-                            : Color.accentColor.opacity(0.25))
-                        : Color.clear,
-                    radius: isActive ? 4 : 0,
-                    y: isActive ? 1.5 : 0
-                )
+            .foregroundStyle(isActive ? .primary : .secondary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+            .background(isActive ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.16) : Color.clear, in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        isActive
+                            ? Color.accentColor.opacity(0.45)
+                            : Color(nsColor: .separatorColor).opacity(0.55),
+                        lineWidth: 0.66
+                    )
+            )
         }
         .buttonStyle(.plain)
     }
@@ -360,11 +356,6 @@ struct ResultsToolbar: View {
         dotColor: Color
     ) -> some View {
         let isActive = appState.resultsFilter == filter
-        // noMatch uses tertiaryLabelColor which is too faint for selected state
-        let selectedColor: Color = (filter == .noMatch)
-            ? Color(nsColor: .secondaryLabelColor)
-            : dotColor
-
         return Button {
             withAnimation(Animate.quick) {
                 if isActive {
@@ -387,29 +378,15 @@ struct ResultsToolbar: View {
             .foregroundStyle(isActive ? .primary : .secondary)
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxs)
-            .background(
-                selectedColor.opacity(isActive
-                    ? (colorScheme == .light ? 0.18 : 0.22)
-                    : (colorScheme == .light ? 0.05 : 0.04))
-            )
-            .clipShape(Capsule())
+            .background(isActive ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.16) : Color.clear, in: Capsule())
             .overlay(
                 Capsule()
                     .strokeBorder(
                         isActive
-                            ? selectedColor.opacity(colorScheme == .light ? 0.45 : 0.55)
-                            : Color.primary.opacity(colorScheme == .light ? 0.06 : 0.06),
-                        lineWidth: 0.75
+                            ? Color.accentColor.opacity(0.45)
+                            : Color(nsColor: .separatorColor).opacity(0.55),
+                        lineWidth: 0.66
                     )
-            )
-            .shadow(
-                color: isActive
-                    ? (colorScheme == .light
-                        ? selectedColor.opacity(0.35)
-                        : selectedColor.opacity(0.30))
-                    : Color.clear,
-                radius: isActive ? 4 : 0,
-                y: isActive ? 1.5 : 0
             )
         }
         .buttonStyle(.plain)

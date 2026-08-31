@@ -49,26 +49,37 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
 
     // MARK: - Loading
 
-    /// Protocol conformance: load with default Hub location.
+    /// Protocol conformance. Qwen snapshots must be downloaded explicitly and
+    /// loaded through `load(snapshot:)` after manifest validation.
     func load() async throws {
-        try await load(hub: HubApi())
+        throw EmbeddingError.modelNotFound
     }
 
     /// Load model using the provided HubApi for download/cache location.
     func load(hub: HubApi) async throws {
-        let configuration = MLXEmbedders.ModelConfiguration(id: self.repoId)
-        logger.info("Loading \(self.modelDisplayName) from \(self.repoId)...")
-        modelContainer = try await loadModelContainer(hub: hub, configuration: configuration)
-        logger.info("\(self.modelDisplayName) loaded successfully")
+        _ = hub
+        throw EmbeddingError.modelNotFound
     }
 
     /// Load with external progress handler (for UI download progress)
     func load(hub: HubApi, onProgress: @Sendable @escaping (Double) -> Void) async throws {
-        let configuration = MLXEmbedders.ModelConfiguration(id: self.repoId)
+        _ = hub
+        _ = onProgress
+        throw EmbeddingError.modelNotFound
+    }
+
+    /// Loads a manifest-validated local snapshot. This path does not ask Hub to
+    /// resolve or download files.
+    func load(snapshot: VerifiedLocalModelSnapshot) async throws {
+        guard snapshot.isIssuedByDownloader, snapshot.repository == repoId else {
+            throw EmbeddingError.modelNotFound
+        }
+        try snapshot.revalidate()
+        let configuration = MLXEmbedders.ModelConfiguration(directory: snapshot.directory)
         modelContainer = try await loadModelContainer(
-            hub: hub, configuration: configuration, onProgress: onProgress
+            hub: HubApi(), configuration: configuration, allowedArtifactPaths: snapshot.artifactPaths
         )
-        logger.info("\(self.modelDisplayName) loaded successfully")
+        logger.info("\(self.modelDisplayName) loaded from local snapshot")
     }
 
     // MARK: - Custom Loader
@@ -80,19 +91,16 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     private nonisolated func loadModelContainer(
         hub: HubApi,
         configuration: MLXEmbedders.ModelConfiguration,
+        allowedArtifactPaths: Set<String>,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> MLXEmbedders.ModelContainer {
+        _ = hub
+        _ = onProgress
         // Download model files
         let modelDirectory: URL
         switch configuration.id {
-        case .id(let id):
-            let repo = Hub.Repo(id: id)
-            let modelFiles = ["*.safetensors", "config.json", "*/config.json"]
-            modelDirectory = try await hub.snapshot(
-                from: repo, matching: modelFiles
-            ) { progress in
-                onProgress?(progress.fractionCompleted)
-            }
+        case .id:
+            throw EmbeddingError.modelNotFound
         case .directory(let directory):
             modelDirectory = directory
         }
@@ -127,14 +135,11 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
 
         // Load weights from safetensors
         var weights = [String: MLXArray]()
-        let enumerator = FileManager.default.enumerator(
-            at: modelDirectory, includingPropertiesForKeys: nil)!
-        for case let url as URL in enumerator {
-            if url.pathExtension == "safetensors" {
-                let w = try loadArrays(url: url)
-                for (key, value) in w {
-                    weights[key] = value
-                }
+        for relativePath in allowedArtifactPaths.sorted() where (relativePath as NSString).pathExtension == "safetensors" {
+            let url = modelDirectory.appendingPathComponent(relativePath)
+            let w = try loadArrays(url: url)
+            for (key, value) in w {
+                weights[key] = value
             }
         }
 
@@ -158,7 +163,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
             let bits = qConfig.bits
             quantize(model: model) { path, module in
                 if weights["\(path).scales"] != nil {
-                    return (groupSize, bits)
+                    return (groupSize, bits, QuantizationMode.affine)
                 } else {
                     return nil
                 }
@@ -275,7 +280,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     ) async throws -> [[Float]] {
         let formattedTexts = texts.map { formatText($0, isQuery: isQuery) }
 
-        return try await container.perform { model, tokenizer, pooling in
+        return await container.perform { model, tokenizer, pooling in
             let embeddings = self.runModel(
                 texts: formattedTexts, model: model, tokenizer: tokenizer, pooling: pooling
             )
@@ -302,7 +307,7 @@ actor QwenEmbeddingModel: EmbeddingModelProtocol {
     ) async throws -> MLXArray {
         let formattedTexts = texts.map { formatText($0, isQuery: isQuery) }
 
-        return try await container.perform { model, tokenizer, pooling in
+        return await container.perform { model, tokenizer, pooling in
             let embeddings = self.runModel(
                 texts: formattedTexts, model: model, tokenizer: tokenizer, pooling: pooling
             )

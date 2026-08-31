@@ -9,7 +9,10 @@ struct ModelDownloadSheet: View {
     let onCancel: () -> Void
 
     @State private var isDownloading = false
+    @State private var isCancelling = false
     @State private var downloadError: String?
+    @State private var downloadTask: Task<Void, Never>?
+    @State private var cancellationTask: Task<Void, Never>?
     @State private var completedKeys: Set<String> = []
 
     private var totalDownloadSize: Int64 {
@@ -74,12 +77,13 @@ struct ModelDownloadSheet: View {
             if let error = downloadError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.experimentalAmber)
             }
 
             // Actions
             HStack(spacing: Spacing.md) {
                 Button("Cancel") {
+                    cancelDownloads()
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -91,11 +95,11 @@ struct ModelDownloadSheet: View {
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                 } else {
-                    Button(isDownloading ? "Downloading..." : "Download & Match") {
+                    Button(isCancelling ? "Finishing cancellation..." : (isDownloading ? "Downloading..." : "Download & Match")) {
                         downloadAll()
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isDownloading)
+                    .disabled(isDownloading || isCancelling)
                     .keyboardShortcut(.defaultAction)
                 }
             }
@@ -107,6 +111,9 @@ struct ModelDownloadSheet: View {
             if allDownloaded {
                 onComplete()
             }
+        }
+        .onDisappear {
+            cancelDownloads()
         }
     }
 
@@ -133,34 +140,69 @@ struct ModelDownloadSheet: View {
             Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(.red)
         case .notDownloaded:
-            Image(systemName: "arrow.down.circle")
-                .foregroundStyle(.secondary)
+            if modelManager.retryState(for: key) == .cancelling {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: "arrow.down.circle")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private func downloadAll() {
+        guard downloadTask == nil, cancellationTask == nil else { return }
         isDownloading = true
         downloadError = nil
 
-        Task {
+        downloadTask = Task {
+            defer {
+                Task { @MainActor in
+                    downloadTask = nil
+                    if !isCancelling {
+                        isDownloading = false
+                    }
+                }
+            }
             for model in models {
+                guard !Task.isCancelled else { return }
                 guard !modelManager.state(for: model.key).isAvailable else { continue }
                 do {
                     try await modelManager.downloadModel(key: model.key)
                 } catch {
+                    guard !Task.isCancelled else { return }
                     await MainActor.run {
                         downloadError = "Failed to download \(model.displayName): \(error.localizedDescription)"
-                        isDownloading = false
                     }
                     return
                 }
             }
 
             await MainActor.run {
-                isDownloading = false
-                if allDownloaded {
+                if !Task.isCancelled, allDownloaded {
                     onComplete()
                 }
+            }
+        }
+    }
+
+    private func cancelDownloads() {
+        guard !isCancelling else { return }
+        guard isDownloading || models.contains(where: { modelManager.retryState(for: $0.key) == .cancelling }) else { return }
+        isCancelling = true
+        for model in models {
+            modelManager.cancelDownload(key: model.key)
+        }
+        downloadTask?.cancel()
+        cancellationTask = Task {
+            for model in models {
+                await modelManager.cancelDownloadAndWait(key: model.key)
+            }
+            await MainActor.run {
+                downloadTask = nil
+                cancellationTask = nil
+                isDownloading = false
+                isCancelling = false
             }
         }
     }

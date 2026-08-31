@@ -189,7 +189,7 @@ struct SessionRow: View {
                             .padding(.horizontal, Spacing.xs)
                             .padding(.vertical, 2)
                             .lineLimit(1)
-                            .polishedBadge(tone: .accentStrong, cornerRadius: 4)
+                            .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
 
                         Text("\(session.totalCount) items")
                             .font(.caption)
@@ -201,7 +201,7 @@ struct SessionRow: View {
                             .padding(.horizontal, Spacing.xs)
                             .padding(.vertical, 2)
                             .lineLimit(1)
-                            .polishedBadge(tone: .neutral, cornerRadius: 4)
+                            .appBadgeStyle(tone: .neutral, cornerRadius: 4)
 
                         Text(session.date.formatted(date: .abbreviated, time: .shortened))
                             .font(.caption)

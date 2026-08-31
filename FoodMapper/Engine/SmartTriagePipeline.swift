@@ -131,7 +131,8 @@ final class SmartTriagePipeline: MatchingPipelineProtocol {
                         matchText: candidate.entry.text,
                         matchID: candidate.entry.id,
                         score: Double(rerankerScore.score),
-                        additionalFields: candidate.entry.additionalFields
+                        additionalFields: candidate.entry.additionalFields,
+                        targetRowKey: candidate.entry.targetRowKey
                     )
                 }
 
@@ -145,7 +146,8 @@ final class SmartTriagePipeline: MatchingPipelineProtocol {
                     status: .match,
                     scoreType: .rerankerProbability,
                     matchAdditionalFields: bestCandidate.entry.additionalFields,
-                    candidates: scoredCandidates
+                    candidates: scoredCandidates,
+                    targetRowKey: bestCandidate.entry.targetRowKey
                 ))
             } else {
                 results.append(MatchResult(

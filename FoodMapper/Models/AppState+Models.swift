@@ -14,6 +14,16 @@ extension AppState {
     }
 
     func downloadModel() async {
+        do {
+            try await modelManager.awaitStartupRecoveryForUserAction()
+        } catch {
+            modelStatus = .error(error.localizedDescription)
+            return
+        }
+        guard modelManager.retryState(for: "gte-large") != .cancelling else {
+            modelStatus = .cancelling
+            return
+        }
         // Check if model already exists
         if MLXEmbeddingModel.isModelAvailable {
             isVerifyingModelAfterDownload = true
@@ -29,11 +39,19 @@ extension AppState {
             return
         }
 
+        beginGTELargeDownloadMetrics(total: GTELargeModelManifest.current.downloadSize)
+
         // Download via ModelManager (unified download path)
         modelStatus = .downloading(progress: 0)
 
         do {
             try await modelManager.downloadModel(key: "gte-large")
+
+            // Check if cancelled before embarking on verification
+            if modelStatus == .notDownloaded {
+                return
+            }
+
             isVerifyingModelAfterDownload = true
             modelStatus = .loading
 
@@ -42,15 +60,39 @@ extension AppState {
             try await engine.loadModelIfNeeded()
             modelStatus = .ready(executionProvider: await engine.getExecutionProvider())
         } catch {
-            modelStatus = .error(error.localizedDescription)
+            let isCancelled = error is CancellationError ||
+                             (error as? URLError)?.code == .cancelled ||
+                             error.localizedDescription.contains("cancelled") ||
+                             error.localizedDescription.contains("Cancelled")
+
+            if isCancelled || modelStatus == .notDownloaded {
+                modelStatus = modelManager.retryState(for: "gte-large") == .cancelling
+                    ? .cancelling
+                    : .notDownloaded
+            } else {
+                modelStatus = .error(error.localizedDescription)
+            }
         }
         isVerifyingModelAfterDownload = false
+    }
+
+    func cancelDownload() {
+        modelStatus = .cancelling
+        Task { [weak self] in
+            guard let self else { return }
+            await modelManager.cancelDownloadAndWait(key: "gte-large")
+            syncModelStatus()
+        }
     }
 
     /// Sync modelStatus from ModelManager's state for GTE-Large.
     /// Called automatically via Combine subscription on modelManager.$modelStates,
     /// and explicitly during checkModelStatus().
     func syncModelStatus() {
+        if modelStatus == .cancelling,
+           modelManager.retryState(for: "gte-large") == .cancelling {
+            return
+        }
         let gteState = modelManager.state(for: "gte-large")
         switch gteState {
         case .downloaded, .loaded:

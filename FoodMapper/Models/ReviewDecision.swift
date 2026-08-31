@@ -47,8 +47,14 @@ struct ReviewDecision: Codable {
     var note: String?
     /// When this decision was made (nil for pending items)
     var reviewedAt: Date?
-    /// Index of the selected candidate (0-based) if the user picked from the candidates list
+    /// Legacy 0-based candidate index used only when the saved decision has no row key.
     var selectedCandidateIndex: Int?
+    /// Full target-row provenance for a manual search selection. This is nil
+    /// for retrieved candidates and for sessions written before snapshots.
+    var manualTargetSelection: TargetSnapshotSelection? = nil
+    /// Stable target row identity for a candidate selection. The candidate
+    /// index remains only as a fallback for sessions written before this key.
+    var selectedTargetRowKey: TargetRowKey? = nil
 }
 
 // MARK: - Unified Results Filter

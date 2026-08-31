@@ -109,7 +109,7 @@ struct MatchRateChart: View {
             .padding(.horizontal, Spacing.md)
         }
         .padding(.vertical, Spacing.md)
-        .premiumMaterialStyle(cornerRadius: 6)
+        .panelMaterialStyle(cornerRadius: 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Match rate chart, \(Int(matchRate * 100)) percent matched")
     }
