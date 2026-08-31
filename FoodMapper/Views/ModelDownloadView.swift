@@ -32,15 +32,13 @@ struct ModelDownloadView: View {
             VStack(spacing: Spacing.md) {
                 if case .downloading(let progress) = appState.modelStatus {
                     VStack(spacing: Spacing.md) {
-                        // Rounded native progress bar
                         ProgressView(value: progress)
                             .progressViewStyle(.linear)
                             .tint(Color.accentColor)
                             .frame(width: 320)
-                            .scaleEffect(x: 1, y: 1.2, anchor: .center) // Add visual weight.
+                            .scaleEffect(x: 1, y: 1.2, anchor: .center)
                             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: progress)
 
-                        // Real-time metadata grid
                         VStack(spacing: Spacing.xs) {
                             HStack {
                                 Text("Downloading GTE-Large...")
@@ -52,7 +50,6 @@ struct ModelDownloadView: View {
                                     .foregroundStyle(.primary)
                             }
 
-                            // Speed and Time remaining
                             HStack {
                                 Label(formatDownloadSpeed(appState.downloadSpeedBytesPerSecond), systemImage: "arrow.down.circle")
                                 Spacer()
@@ -71,7 +68,6 @@ struct ModelDownloadView: View {
                         }
                         .frame(width: 320)
 
-                        // Cancel button for high-end control
                         Button(action: {
                             appState.cancelDownload()
                         }) {
