@@ -493,11 +493,27 @@ enum GTELargeSecurePath {
         }
 
         let temporaryRoot = FoodMapperStorage.processTemporaryRootURL
-        let canonicalSource = source.resolvingSymlinksInPath().standardizedFileURL
-        guard isStrictChild(canonicalSource, of: temporaryRoot) else {
+        guard let canonicalSourcePath = canonicalExistingPath(source.path),
+              let canonicalTemporaryRootPath = canonicalExistingPath(temporaryRoot.path) else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+        let canonicalSource = URL(fileURLWithPath: canonicalSourcePath, isDirectory: false)
+        let canonicalTemporaryRoot = URL(
+            fileURLWithPath: canonicalTemporaryRootPath,
+            isDirectory: true
+        )
+        guard isStrictChild(canonicalSource, of: canonicalTemporaryRoot) else {
             throw GTELargeModelInstallError.unsafePath
         }
         return canonicalSource
+    }
+
+    private static func canonicalExistingPath(_ path: String) -> String? {
+        path.withCString { pointer in
+            var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+            guard realpath(pointer, &buffer) != nil else { return nil }
+            return String(cString: buffer)
+        }
     }
 
     private static func isStrictChild(_ child: URL, of parent: URL) -> Bool {
@@ -1467,22 +1483,15 @@ struct GTELargeModelInstaller: Sendable {
             record: GTELargeModelInstallRecord(manifest: manifest)
         )
         let temporary = rootDirectory.appendingPathComponent(".gte-large-current-\(UUID().uuidString)")
-        var temporaryWritten = false
         do {
             try fileSystem.write(try JSONEncoder().encode(pointer), to: temporary, permissions: 0o600)
-            temporaryWritten = true
             if fileSystem.itemExists(at: currentPointerURL) {
                 try fileSystem.removeItem(at: currentPointerURL)
             }
             try fileSystem.moveItem(at: temporary, to: currentPointerURL)
             try fileSystem.syncDirectory(at: rootDirectory)
         } catch {
-            // A durable valid temporary is recovery input if replacing the
-            // pointer was interrupted. A failed initial write has no record to
-            // recover and is removed when it was created at all.
-            if !temporaryWritten, fileSystem.itemExists(at: temporary) {
-                try? fileSystem.removeItem(at: temporary)
-            }
+            try? fileSystem.removeItem(at: temporary)
             throw error
         }
     }
@@ -1508,16 +1517,12 @@ struct GTELargeModelInstaller: Sendable {
             backupIdentity: backupIdentity
         )
         let temporary = rootDirectory.appendingPathComponent(".gte-large-journal-\(UUID().uuidString)")
-        var temporaryWritten = false
         do {
             try fileSystem.write(try JSONEncoder().encode(journal), to: temporary, permissions: 0o600)
-            temporaryWritten = true
             try fileSystem.moveItem(at: temporary, to: promotionJournalURL)
             try fileSystem.syncDirectory(at: rootDirectory)
         } catch {
-            if !temporaryWritten, fileSystem.itemExists(at: temporary) {
-                try? fileSystem.removeItem(at: temporary)
-            }
+            try? fileSystem.removeItem(at: temporary)
             throw error
         }
     }
