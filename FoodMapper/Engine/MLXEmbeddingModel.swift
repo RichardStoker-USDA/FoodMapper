@@ -7,9 +7,8 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "engine")
 
-/// Narrow Application Support root adapter. It keeps model storage injectable
-/// for tests and can be replaced by the app's broader storage owner without
-/// coupling the installer to unrelated persistence code.
+/// Model-specific storage adapter. Tests can replace either root without
+/// reading or changing the user's live model files.
 enum FoodMapperModelStorage {
     #if DEBUG
     nonisolated(unsafe) static var testingModelsDirectory: URL?
@@ -20,8 +19,7 @@ enum FoodMapperModelStorage {
         #if DEBUG
         if let testingModelsDirectory { return testingModelsDirectory }
         #endif
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FoodMapper/Models", isDirectory: true)
+        return FoodMapperStorage.privateDirectory(["Models"])
     }
 
     /// URLSession owns the source temporary file passed to its download
@@ -31,7 +29,7 @@ enum FoodMapperModelStorage {
         #if DEBUG
         if let testingURLSessionTemporaryDirectory { return testingURLSessionTemporaryDirectory }
         #endif
-        return FileManager.default.temporaryDirectory
+        return FoodMapperStorage.processTemporaryRootURL
     }
 }
 
@@ -47,18 +45,24 @@ enum GTELargeStartupRecoveryError: LocalizedError, Sendable {
 
 private actor GTELargeStartupRecovery {
     static let shared = GTELargeStartupRecovery()
-    private var tasks: [String: Task<Result<Void, GTELargeStartupRecoveryError>, Never>] = [:]
+    private struct Entry {
+        let id: UUID
+        let task: Task<Result<Void, GTELargeStartupRecoveryError>, Never>
+    }
+
+    private var tasks: [String: Entry] = [:]
 
     static func awaitCompletion(for root: URL) async throws {
         try await shared.awaitCompletion(for: root)
     }
 
     private func awaitCompletion(for root: URL) async throws {
-        let task: Task<Result<Void, GTELargeStartupRecoveryError>, Never>
+        let key = root.path
+        let entry: Entry
         if let existing = tasks[root.path] {
-            task = existing
+            entry = existing
         } else {
-            task = Task.detached {
+            let task = Task.detached { () -> Result<Void, GTELargeStartupRecoveryError> in
                 let installer = GTELargeModelInstaller(rootDirectory: root)
                 do {
                     try Task.checkCancellation()
@@ -69,9 +73,15 @@ private actor GTELargeStartupRecovery {
                     return .failure(.failed(error.localizedDescription))
                 }
             }
-            tasks[root.path] = task
+            entry = Entry(id: UUID(), task: task)
+            tasks[key] = entry
         }
-        switch await task.value {
+        let result = await entry.task.value
+        if tasks[key]?.id == entry.id {
+            tasks[key] = nil
+        }
+        try Task.checkCancellation()
+        switch result {
         case .success: return
         case .failure(let error): throw error
         }

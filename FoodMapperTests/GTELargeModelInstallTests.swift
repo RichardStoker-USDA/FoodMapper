@@ -523,6 +523,33 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
     }
 
+    func testRecoveryCleansVerifiedRollbackDirectoryAndLeavesUnknownContents() async throws {
+        let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
+        _ = try await installer.install()
+        let verified = root.appendingPathComponent(
+            ".gte-large-unverified-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.copyItem(at: installer.installedDirectory, to: verified)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: verified.path)
+
+        let unknown = root.appendingPathComponent(
+            ".gte-large-unverified-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: unknown, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: unknown.path)
+        let unknownPayload = unknown.appendingPathComponent("unknown")
+        try Data("keep".utf8).write(to: unknownPayload)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: unknownPayload.path)
+
+        try await installer.recoverAtStartup()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: verified.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unknown.path))
+        XCTAssertEqual(installer.availableDirectory(), installer.installedDirectory)
+    }
+
     func testRecoveryRemovesEveryBoundedOwnedStagingOrphan() async throws {
         let installer = makeInstaller(transport: FixtureTransport(files: fixtureFiles))
         _ = try await installer.install()
@@ -947,14 +974,48 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertEqual((mode?.intValue ?? 0) & 0o777, 0o600)
     }
 
-    func testURLSessionTemporaryPathAcceptsProductionVarSpelling() throws {
-        let source = FileManager.default.temporaryDirectory
+    func testURLSessionPayloadCopyRemovesPartialFileAfterCancellation() throws {
+        let source = FoodMapperStorage.processTemporaryRootURL
+            .appendingPathComponent("foodmapper-urlsession-cancel-\(UUID().uuidString)")
+        let destination = root.appendingPathComponent("cancelled-payload")
+        let data = Data(repeating: 7, count: 2_097_152)
+        try data.write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        var checks = 0
+
+        XCTAssertThrowsError(try GTELargeSecurePath.copyURLSessionDownloadPayload(
+            from: source,
+            to: destination,
+            expectedSize: Int64(data.count),
+            cancellationCheck: {
+                checks += 1
+                if checks == 2 { throw CancellationError() }
+            }
+        )) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testURLSessionTemporaryPathAcceptsSystemAliasSpelling() throws {
+        let canonicalRoot = FoodMapperStorage.processTemporaryRootURL
+        let components = canonicalRoot.pathComponents
+        let aliasableDirectoryNames: Set<String> = ["tmp", "var"]
+        let aliasPath: String
+        if components.count >= 3,
+           components[1] == "private",
+           aliasableDirectoryNames.contains(components[2]) {
+            aliasPath = String(canonicalRoot.path.dropFirst("/private".count))
+        } else {
+            aliasPath = canonicalRoot.path
+        }
+        let source = URL(fileURLWithPath: aliasPath, isDirectory: true)
             .appendingPathComponent("foodmapper-urlsession-root-\(UUID().uuidString)")
         try Data("payload".utf8).write(to: source)
         defer { try? FileManager.default.removeItem(at: source) }
 
         let validated = try GTELargeSecurePath.validatedURLSessionTemporaryFile(source)
-        XCTAssertTrue(validated.path.hasPrefix("/private/var/") || !source.path.hasPrefix("/var/"))
+        XCTAssertEqual(validated.deletingLastPathComponent(), canonicalRoot)
         XCTAssertEqual(try Data(contentsOf: validated), Data("payload".utf8))
     }
 

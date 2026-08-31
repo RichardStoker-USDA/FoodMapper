@@ -648,7 +648,7 @@ enum GTELargeSecurePath {
         while true {
             try Task.checkCancellation()
             errno = 0
-            guard let entry = readdir(stream) else {
+            guard let entry = read(stream) else {
                 guard errno == 0 else { throw GTELargeModelInstallError.unreadableInstall }
                 break
             }
@@ -657,8 +657,8 @@ enum GTELargeSecurePath {
                     String(cString: $0)
                 }
             }
-            guard name != ".", name != "..",
-                  !name.contains("/"), !name.contains("\\") else {
+            guard name != ".", name != ".." else { continue }
+            guard isSafePathComponent(name) else {
                 throw GTELargeModelInstallError.unsafePath
             }
             guard names.count < maximumEntries,
@@ -898,7 +898,13 @@ enum GTELargeSecurePath {
     /// URLSession owns its download temporary directory. Canonicalize the
     /// delegate location to the process temporary root before opening it, then
     /// copy only from the checked regular-file descriptor.
-    static func copyURLSessionDownloadPayload(from source: URL, to destination: URL, expectedSize: Int64) throws {
+    static func copyURLSessionDownloadPayload(
+        from source: URL,
+        to destination: URL,
+        expectedSize: Int64,
+        cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
+    ) throws {
+        try cancellationCheck()
         let canonicalSource = try validatedURLSessionTemporaryFile(source)
         try withParentDescriptor(of: canonicalSource) { parent, name in
             let sourceDescriptor = name.withCString { openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
@@ -911,7 +917,13 @@ enum GTELargeSecurePath {
                 throw GTELargeModelInstallError.unsafePath
             }
             guard sourceStatus.st_size == expectedSize else { throw GTELargeModelInstallError.downloadTooLarge }
-            try copyOpenFileDescriptor(sourceDescriptor, sourceStatus: sourceStatus, to: destination, maximumSize: expectedSize)
+            try copyOpenFileDescriptor(
+                sourceDescriptor,
+                sourceStatus: sourceStatus,
+                to: destination,
+                maximumSize: expectedSize,
+                cancellationCheck: cancellationCheck
+            )
         }
     }
 
@@ -922,10 +934,10 @@ enum GTELargeSecurePath {
         }
         try validateURLSessionPathSpelling(source)
 
-        // `/var` is a system-managed spelling of `/private/var` on macOS.
-        // Rewrite only that known prefix before descriptor traversal. Do not
-        // resolve arbitrary symlinks, which would turn an in-root leaf link
-        // into an apparently safe regular file.
+        // `/var` and `/tmp` are system-managed spellings of their `/private`
+        // paths on macOS. Rewrite only those known prefixes before descriptor
+        // traversal. Resolving arbitrary symlinks would turn an in-root leaf
+        // link into an apparently safe regular file.
         let canonicalSource = try canonicalURLSessionTemporaryPath(source)
         let temporaryRoot = try canonicalURLSessionTemporaryPath(
             FoodMapperModelStorage.urlSessionTemporaryDirectory()
@@ -989,6 +1001,12 @@ enum GTELargeSecurePath {
         if path.hasPrefix("/var/") {
             return URL(fileURLWithPath: "/private" + path, isDirectory: url.hasDirectoryPath)
         }
+        if path == "/tmp" {
+            return URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        }
+        if path.hasPrefix("/tmp/") {
+            return URL(fileURLWithPath: "/private" + path, isDirectory: url.hasDirectoryPath)
+        }
         return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
     }
 
@@ -997,41 +1015,66 @@ enum GTELargeSecurePath {
         return child.path.hasPrefix(parentPath)
     }
 
-    private static func copyOpenFileDescriptor(_ sourceDescriptor: Int32, sourceStatus: stat, to destination: URL, maximumSize: Int64 = .max) throws {
+    private static func copyOpenFileDescriptor(
+        _ sourceDescriptor: Int32,
+        sourceStatus: stat,
+        to destination: URL,
+        maximumSize: Int64 = .max,
+        cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
+    ) throws {
         try withParentDescriptor(of: destination) { destinationParent, destinationName in
             let destinationDescriptor = destinationName.withCString {
                 openat(destinationParent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, privateFileMode)
             }
             guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
             defer { close(destinationDescriptor) }
-            var buffer = [UInt8](repeating: 0, count: 1_048_576)
-            var copied: Int64 = 0
-            while true {
-                let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
-                if count == 0 { break }
-                guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                let (next, overflow) = copied.addingReportingOverflow(Int64(count))
-                guard !overflow, next <= maximumSize else { throw GTELargeModelInstallError.downloadTooLarge }
-                copied = next
-                var offset = 0
-                while offset < count {
-                    let written = Darwin.write(destinationDescriptor, buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) }, count - offset)
-                    guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                    offset += written
+            do {
+                var buffer = [UInt8](repeating: 0, count: 1_048_576)
+                var copied: Int64 = 0
+                while true {
+                    try cancellationCheck()
+                    let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
+                    if count == 0 { break }
+                    guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                    let (next, overflow) = copied.addingReportingOverflow(Int64(count))
+                    guard !overflow, next <= maximumSize else { throw GTELargeModelInstallError.downloadTooLarge }
+                    copied = next
+                    var offset = 0
+                    while offset < count {
+                        try cancellationCheck()
+                        let written = Darwin.write(
+                            destinationDescriptor,
+                            buffer.withUnsafeBytes { $0.baseAddress!.advanced(by: offset) },
+                            count - offset
+                        )
+                        guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                        offset += written
+                    }
                 }
-            }
-            var sourceAfter = stat()
-            var destinationStatus = stat()
-            guard copied == maximumSize,
-                  fstat(sourceDescriptor, &sourceAfter) == 0,
-                  sameIdentity(identity(from: sourceStatus), identity(from: sourceAfter)),
-                  fstat(destinationDescriptor, &destinationStatus) == 0,
-                  (destinationStatus.st_mode & S_IFMT) == S_IFREG,
-                  destinationStatus.st_uid == getuid(), destinationStatus.st_nlink == 1,
-                  fchmod(destinationDescriptor, privateFileMode) == 0,
-                  fsync(destinationDescriptor) == 0,
-                  fsync(destinationParent) == 0 else {
-                throw GTELargeModelInstallError.unreadableInstall
+                var sourceAfter = stat()
+                var destinationStatus = stat()
+                guard copied == maximumSize,
+                      fstat(sourceDescriptor, &sourceAfter) == 0,
+                      sameIdentity(identity(from: sourceStatus), identity(from: sourceAfter)),
+                      fstat(destinationDescriptor, &destinationStatus) == 0,
+                      (destinationStatus.st_mode & S_IFMT) == S_IFREG,
+                      destinationStatus.st_uid == getuid(), destinationStatus.st_nlink == 1,
+                      fchmod(destinationDescriptor, privateFileMode) == 0,
+                      fsync(destinationDescriptor) == 0,
+                      fsync(destinationParent) == 0 else {
+                    throw GTELargeModelInstallError.unreadableInstall
+                }
+            } catch {
+                var failed = stat()
+                if fstat(destinationDescriptor, &failed) == 0,
+                   (failed.st_mode & S_IFMT) == S_IFREG,
+                   failed.st_uid == getuid(), failed.st_nlink == 1 {
+                    try? removePrivateItem(
+                        at: destination,
+                        expectedFileIdentity: identity(from: failed)
+                    )
+                }
+                throw error
             }
         }
     }
@@ -1401,22 +1444,39 @@ struct LocalGTELargeFileSystem: GTELargeFileSystem {
             }
             guard descriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
             defer { close(descriptor) }
-            try data.withUnsafeBytes { bytes in
-                var offset = 0
-                while offset < bytes.count {
-                    let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
-                    guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
-                    offset += count
+            do {
+                try data.withUnsafeBytes { bytes in
+                    var offset = 0
+                    while offset < bytes.count {
+                        let count = Darwin.write(
+                            descriptor,
+                            bytes.baseAddress!.advanced(by: offset),
+                            bytes.count - offset
+                        )
+                        guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                        offset += count
+                    }
                 }
-            }
-            var status = stat()
-            guard fstat(descriptor, &status) == 0,
-                  (status.st_mode & S_IFMT) == S_IFREG,
-                  status.st_uid == getuid(), status.st_nlink == 1,
-                  fchmod(descriptor, mode_t(permissions)) == 0,
-                  fsync(descriptor) == 0,
-                  fsync(parent) == 0 else {
-                throw GTELargeModelInstallError.unreadableInstall
+                var status = stat()
+                guard fstat(descriptor, &status) == 0,
+                      (status.st_mode & S_IFMT) == S_IFREG,
+                      status.st_uid == getuid(), status.st_nlink == 1,
+                      fchmod(descriptor, mode_t(permissions)) == 0,
+                      fsync(descriptor) == 0,
+                      fsync(parent) == 0 else {
+                    throw GTELargeModelInstallError.unreadableInstall
+                }
+            } catch {
+                var failed = stat()
+                if fstat(descriptor, &failed) == 0,
+                   (failed.st_mode & S_IFMT) == S_IFREG,
+                   failed.st_uid == getuid(), failed.st_nlink == 1 {
+                    try? GTELargeSecurePath.removePrivateItem(
+                        at: url,
+                        expectedFileIdentity: GTELargeSecurePath.identity(from: failed)
+                    )
+                }
+                throw error
             }
         }
     }
@@ -1546,6 +1606,7 @@ struct URLSessionGTELargeDownloadTransport: GTELargeDownloadTransport {
                 let delegate = GTELargeURLSessionDownloadDelegate(
                     destination: destination,
                     expectedSize: expectedSize,
+                    state: state,
                     continuation: continuation,
                     onProgress: onProgress
                 )
@@ -1583,6 +1644,19 @@ private final class GTELargeURLSessionDownloadState: @unchecked Sendable {
         lock.unlock()
         task?.cancel()
     }
+
+    func checkCancellation() throws {
+        lock.lock()
+        let isCancelled = cancelled
+        lock.unlock()
+        if isCancelled { throw CancellationError() }
+    }
+
+    func clearTask() {
+        lock.lock()
+        task = nil
+        lock.unlock()
+    }
 }
 
 enum GTELargeDownloadURLPolicy {
@@ -1617,6 +1691,7 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
     private static let maximumRedirects = 4
     private let destination: URL
     private let expectedSize: Int64
+    private let state: GTELargeURLSessionDownloadState
     private let continuation: CheckedContinuation<Void, Error>
     private let onProgress: @Sendable (Int64) -> Void
     private let lock = NSLock()
@@ -1627,11 +1702,13 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
     init(
         destination: URL,
         expectedSize: Int64,
+        state: GTELargeURLSessionDownloadState,
         continuation: CheckedContinuation<Void, Error>,
         onProgress: @escaping @Sendable (Int64) -> Void
     ) {
         self.destination = destination
         self.expectedSize = expectedSize
+        self.state = state
         self.continuation = continuation
         self.onProgress = onProgress
     }
@@ -1694,7 +1771,12 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
 
         guard reservePayloadCopy() else { return }
         do {
-            try GTELargeSecurePath.copyURLSessionDownloadPayload(from: location, to: destination, expectedSize: expectedSize)
+            try GTELargeSecurePath.copyURLSessionDownloadPayload(
+                from: location,
+                to: destination,
+                expectedSize: expectedSize,
+                cancellationCheck: state.checkCancellation
+            )
             finish(session: session, result: .success(()))
         } catch {
             finish(session: session, result: .failure(error))
@@ -1715,6 +1797,7 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
         }
         completionState = .completed
         lock.unlock()
+        state.clearTask()
         session.invalidateAndCancel()
         continuation.resume(with: result)
     }
@@ -1773,6 +1856,7 @@ private final class GTELargeVerificationCache: @unchecked Sendable {
 private final class GTELargeInstallOperation: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
+    private var promotionStarted = false
 
     func cancel() {
         lock.lock()
@@ -1789,8 +1873,10 @@ private final class GTELargeInstallOperation: @unchecked Sendable {
 
     func promote(_ body: () throws -> Void) throws {
         lock.lock()
-        defer { lock.unlock() }
-        if cancelled || Task.isCancelled { throw CancellationError() }
+        let mayStart = !cancelled && !Task.isCancelled && !promotionStarted
+        if mayStart { promotionStarted = true }
+        lock.unlock()
+        guard mayStart else { throw CancellationError() }
         try body()
     }
 }
@@ -2004,12 +2090,16 @@ struct GTELargeModelInstaller: Sendable {
             GTELargeVerificationCache.shared.removeAll(in: rootDirectory)
             return installedDirectory
         } catch is CancellationError {
-            if fileSystem.itemExists(at: staging), !fileSystem.itemExists(at: promotionJournalURL) {
+            if fileSystem.itemExists(at: staging),
+               !fileSystem.itemExists(at: promotionJournalURL),
+               !hasRecoverableJournalTemporary(for: staging) {
                 try removeVerifiedPrivateDirectory(at: staging)
             }
             throw CancellationError()
         } catch {
-            if fileSystem.itemExists(at: staging), !fileSystem.itemExists(at: promotionJournalURL) {
+            if fileSystem.itemExists(at: staging),
+               !fileSystem.itemExists(at: promotionJournalURL),
+               !hasRecoverableJournalTemporary(for: staging) {
                 try removeVerifiedPrivateDirectory(at: staging)
             }
             if verifyFiles(in: rootDirectory) {
@@ -2100,7 +2190,9 @@ struct GTELargeModelInstaller: Sendable {
             // Once a durable journal exists, its staging identity is recovery
             // input. Removing it after a failed first promotion would strand
             // the journal and block a later explicit install.
-            if fileSystem.itemExists(at: staging), !fileSystem.itemExists(at: promotionJournalURL) {
+            if fileSystem.itemExists(at: staging),
+               !fileSystem.itemExists(at: promotionJournalURL),
+               !hasRecoverableJournalTemporary(for: staging) {
                 try removeVerifiedPrivateDirectory(at: staging)
             }
             throw error
@@ -2321,10 +2413,35 @@ struct GTELargeModelInstaller: Sendable {
             try fileSystem.moveItem(at: temporary, to: promotionJournalURL, expectedSourceIdentity: temporaryIdentity)
             try fileSystem.syncDirectory(at: rootDirectory)
         } catch {
-            if let identity = try? fileSystem.fileIdentity(at: temporary) {
-                try? fileSystem.removeItem(at: temporary, expectedFileIdentity: identity)
-            }
+            // A complete temporary is recovery input if publishing the
+            // canonical journal was interrupted. Startup validates its bytes
+            // and its recorded staging identity before using it.
             throw error
+        }
+    }
+
+    private func hasRecoverableJournalTemporary(for staging: URL) -> Bool {
+        guard let stagingIdentity = try? fileSystem.directoryIdentity(
+            at: staging,
+            requiredPermissions: 0o700
+        ), verifyRecord(in: staging), verifyFiles(in: staging, useCache: false) else {
+            return false
+        }
+        guard let entries = try? fileSystem.contentsOfDirectory(
+            at: rootDirectory,
+            maximumEntries: 128
+        ) else { return true }
+        let temporaries = entries.filter { isOwnedJournalTemporaryName($0.lastPathComponent) }
+        guard temporaries.count <= 32 else { return true }
+        return temporaries.contains { temporary in
+            guard let data = try? readSmallFile(at: temporary),
+                  let journal = try? JSONDecoder().decode(GTELargePromotionJournal.self, from: data),
+                  isValidJournalPayload(journal),
+                  journal.stagingDirectoryName == staging.lastPathComponent,
+                  let recordedIdentity = journal.stagingIdentity else {
+                return false
+            }
+            return GTELargeSecurePath.sameDirectoryIdentity(recordedIdentity, stagingIdentity)
         }
     }
 
@@ -2478,7 +2595,7 @@ struct GTELargeModelInstaller: Sendable {
         try recoverJournalTemporaries()
         guard fileSystem.itemExists(at: promotionJournalURL) else {
             try recoverCurrentPointerTemporaries()
-            try removeOwnedOrphanStagingDirectories()
+            try removeOwnedOrphanModelDirectories()
             return
         }
         guard let data = try? readSmallFile(at: promotionJournalURL),
@@ -2492,7 +2609,7 @@ struct GTELargeModelInstaller: Sendable {
               let staging = safeChild(named: journal.stagingDirectoryName) else {
             try quarantineInvalidRecoveryArtifacts()
             try recoverCurrentPointerTemporaries()
-            try removeOwnedOrphanStagingDirectories()
+            try removeOwnedOrphanModelDirectories()
             return
         }
         let backup = journal.backupDirectoryName.flatMap(safeChild(named:))
@@ -2780,6 +2897,11 @@ struct GTELargeModelInstaller: Sendable {
         return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
     }
 
+    private func isOwnedUnverifiedName(_ name: String) -> Bool {
+        let prefix = ".gte-large-unverified-"
+        return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+    }
+
     private func isOwnedCurrentTemporaryName(_ name: String) -> Bool {
         let prefix = ".gte-large-current-"
         return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
@@ -2959,13 +3081,15 @@ struct GTELargeModelInstaller: Sendable {
         }
     }
 
-    private func removeOwnedOrphanStagingDirectories() throws {
-        // A complete staged install binds itself to the fixed manifest even if
-        // a crash happened before the journal rename. The count and total-byte
-        // limits bound recovery work. Hitting either limit fails closed rather
-        // than silently leaving a suffix of otherwise owned objects behind.
+    private func removeOwnedOrphanModelDirectories() throws {
+        // A complete staging or rollback directory binds itself to the fixed
+        // manifest. The count and byte limits bound recovery work. Hitting a
+        // limit fails closed instead of cleaning only part of the candidate set.
         let candidates = try fileSystem.contentsOfDirectory(at: rootDirectory, maximumEntries: 128)
-            .filter { isOwnedStagingName($0.lastPathComponent) }
+            .filter {
+                isOwnedStagingName($0.lastPathComponent) ||
+                    isOwnedUnverifiedName($0.lastPathComponent)
+            }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         let maximumCandidates = 32
         guard candidates.count <= maximumCandidates else {
@@ -2985,7 +3109,7 @@ struct GTELargeModelInstaller: Sendable {
         var totalBytes: Int64 = 0
         for candidate in candidates {
             try Task.checkCancellation()
-            guard let orphan = verifiedOrphanStagingDirectory(candidate) else {
+            guard let orphan = verifiedOrphanModelDirectory(candidate) else {
                 continue
             }
             let (nextTotal, overflow) = totalBytes.addingReportingOverflow(orphan.bytes)
@@ -2998,7 +3122,7 @@ struct GTELargeModelInstaller: Sendable {
         try fileSystem.syncDirectory(at: rootDirectory)
     }
 
-    private func verifiedOrphanStagingDirectory(_ directory: URL) -> (identity: GTELargeFileIdentity, bytes: Int64)? {
+    private func verifiedOrphanModelDirectory(_ directory: URL) -> (identity: GTELargeFileIdentity, bytes: Int64)? {
         guard let directoryIdentity = try? fileSystem.directoryIdentity(at: directory, requiredPermissions: 0o700),
               let entries = try? fileSystem.contentsOfDirectory(at: directory, maximumEntries: manifest.files.count + 1) else {
             return nil
