@@ -1322,6 +1322,103 @@ final class GTELargeModelInstallTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
     }
 
+    func testParallelByteRangesCoverFileWithoutGapsOrOverlap() {
+        let ranges = URLSessionGTELargeDownloadTransport.byteRanges(for: 671_270_295)
+
+        XCTAssertEqual(ranges.count, 4)
+        XCTAssertEqual(ranges.first?.start, 0)
+        XCTAssertEqual(ranges.last?.end, 671_270_294)
+        XCTAssertEqual(ranges.reduce(0) { $0 + $1.length }, 671_270_295)
+        for pair in zip(ranges, ranges.dropFirst()) {
+            XCTAssertEqual(pair.0.end + 1, pair.1.start)
+        }
+    }
+
+    func testParallelByteRangePlannerHandlesShortFilesAndInvalidCounts() {
+        XCTAssertEqual(
+            URLSessionGTELargeDownloadTransport.byteRanges(for: 3, count: 4),
+            [
+                GTELargeByteRange(start: 0, end: 0),
+                GTELargeByteRange(start: 1, end: 1),
+                GTELargeByteRange(start: 2, end: 2),
+            ]
+        )
+        XCTAssertTrue(URLSessionGTELargeDownloadTransport.byteRanges(for: 0).isEmpty)
+        XCTAssertTrue(URLSessionGTELargeDownloadTransport.byteRanges(for: 10, count: 1).isEmpty)
+        XCTAssertTrue(URLSessionGTELargeDownloadTransport.byteRanges(for: 10, count: 9).isEmpty)
+    }
+
+    func testContentRangeValidationRequiresExactBoundsAndCompleteSize() throws {
+        let range = GTELargeByteRange(start: 100, end: 199)
+        let accepted = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "https://us.aws.cdn.hf.co/model")!,
+            statusCode: 206,
+            httpVersion: "HTTP/2",
+            headerFields: ["Content-Range": "bytes 100-199/1000", "Content-Length": "100"]
+        ))
+        let wrongBounds = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "https://us.aws.cdn.hf.co/model")!,
+            statusCode: 206,
+            httpVersion: "HTTP/2",
+            headerFields: ["Content-Range": "bytes 0-99/1000", "Content-Length": "100"]
+        ))
+        let wrongTotal = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "https://us.aws.cdn.hf.co/model")!,
+            statusCode: 206,
+            httpVersion: "HTTP/2",
+            headerFields: ["Content-Range": "bytes 100-199/999", "Content-Length": "100"]
+        ))
+
+        XCTAssertTrue(GTELargeDownloadResponsePolicy.matchesContentRange(
+            accepted,
+            expected: range,
+            completeSize: 1000
+        ))
+        XCTAssertFalse(GTELargeDownloadResponsePolicy.matchesContentRange(
+            wrongBounds,
+            expected: range,
+            completeSize: 1000
+        ))
+        XCTAssertFalse(GTELargeDownloadResponsePolicy.matchesContentRange(
+            wrongTotal,
+            expected: range,
+            completeSize: 1000
+        ))
+    }
+
+    func testDownloadedRangesAreJoinedInSourceOrder() throws {
+        let first = root.appendingPathComponent("first-range")
+        let second = root.appendingPathComponent("second-range")
+        let destination = root.appendingPathComponent("joined-model")
+        try Data("first".utf8).write(to: first)
+        try Data("second".utf8).write(to: second)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: first.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: second.path)
+
+        try GTELargeSecurePath.concatenateDownloadedRanges(
+            [(first, 5), (second, 6)],
+            to: destination,
+            expectedSize: 11
+        )
+
+        XCTAssertEqual(try Data(contentsOf: destination), Data("firstsecond".utf8))
+        XCTAssertEqual(try GTELargeSecurePath.fileIdentity(at: destination).mode & 0o777, 0o600)
+    }
+
+    func testDownloadedRangeJoinRemovesPartialDestinationAfterSizeMismatch() throws {
+        let first = root.appendingPathComponent("range")
+        let destination = root.appendingPathComponent("partial-model")
+        try Data("first".utf8).write(to: first)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: first.path)
+
+        XCTAssertThrowsError(try GTELargeSecurePath.concatenateDownloadedRanges(
+            [(first, 5), (first, 4)],
+            to: destination,
+            expectedSize: 9
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
     func testURLSessionTemporaryPathUsesInjectedStorageRoot() throws {
         #if DEBUG
         let temporaryRoot = root.appendingPathComponent("urlsession-temp", isDirectory: true)

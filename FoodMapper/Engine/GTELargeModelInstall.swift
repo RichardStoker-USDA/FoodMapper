@@ -927,6 +927,125 @@ enum GTELargeSecurePath {
         }
     }
 
+    /// Joins verified private range files into one private destination without
+    /// loading the model weights into memory. Each source stays bound to the
+    /// descriptor identity observed before it is copied.
+    static func concatenateDownloadedRanges(
+        _ ranges: [(url: URL, expectedSize: Int64)],
+        to destination: URL,
+        expectedSize: Int64,
+        cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
+    ) throws {
+        guard ranges.count >= 2, ranges.count <= 8, expectedSize > 0 else {
+            throw GTELargeModelInstallError.unsafePath
+        }
+
+        try withParentDescriptor(of: destination) { destinationParent, destinationName in
+            let destinationDescriptor = destinationName.withCString {
+                openat(destinationParent, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, privateFileMode)
+            }
+            guard destinationDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
+            defer { close(destinationDescriptor) }
+
+            do {
+                var buffer = [UInt8](repeating: 0, count: 1_048_576)
+                var totalCopied: Int64 = 0
+
+                for range in ranges {
+                    try cancellationCheck()
+                    guard range.expectedSize > 0 else { throw GTELargeModelInstallError.unsafePath }
+
+                    try withParentDescriptor(of: range.url) { sourceParent, sourceName in
+                        var sourceBefore = stat()
+                        guard sourceName.withCString({
+                            fstatat(sourceParent, $0, &sourceBefore, AT_SYMLINK_NOFOLLOW)
+                        }) == 0,
+                        (sourceBefore.st_mode & S_IFMT) == S_IFREG,
+                        sourceBefore.st_uid == getuid(), sourceBefore.st_nlink == 1,
+                        (sourceBefore.st_mode & 0o777) == privateFileMode,
+                        sourceBefore.st_size == range.expectedSize else {
+                            throw GTELargeModelInstallError.unsafePath
+                        }
+
+                        let sourceDescriptor = sourceName.withCString {
+                            openat(sourceParent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+                        }
+                        guard sourceDescriptor >= 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                        defer { close(sourceDescriptor) }
+
+                        var sourceOpened = stat()
+                        guard fstat(sourceDescriptor, &sourceOpened) == 0,
+                              sameIdentity(identity(from: sourceBefore), identity(from: sourceOpened)) else {
+                            throw GTELargeModelInstallError.unsafePath
+                        }
+
+                        var rangeCopied: Int64 = 0
+                        while true {
+                            try cancellationCheck()
+                            let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
+                            if count == 0 { break }
+                            guard count > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+
+                            let (nextRange, rangeOverflow) = rangeCopied.addingReportingOverflow(Int64(count))
+                            let (nextTotal, totalOverflow) = totalCopied.addingReportingOverflow(Int64(count))
+                            guard !rangeOverflow, !totalOverflow,
+                                  nextRange <= range.expectedSize,
+                                  nextTotal <= expectedSize else {
+                                throw GTELargeModelInstallError.downloadTooLarge
+                            }
+                            rangeCopied = nextRange
+                            totalCopied = nextTotal
+
+                            var offset = 0
+                            while offset < count {
+                                try cancellationCheck()
+                                let written = buffer.withUnsafeBytes { bytes in
+                                    Darwin.write(
+                                        destinationDescriptor,
+                                        bytes.baseAddress!.advanced(by: offset),
+                                        count - offset
+                                    )
+                                }
+                                guard written > 0 else { throw GTELargeModelInstallError.unreadableInstall }
+                                offset += written
+                            }
+                        }
+
+                        var sourceAfter = stat()
+                        guard rangeCopied == range.expectedSize,
+                              fstat(sourceDescriptor, &sourceAfter) == 0,
+                              sameIdentity(identity(from: sourceOpened), identity(from: sourceAfter)) else {
+                            throw GTELargeModelInstallError.unsafePath
+                        }
+                    }
+                }
+
+                var destinationStatus = stat()
+                guard totalCopied == expectedSize,
+                      fstat(destinationDescriptor, &destinationStatus) == 0,
+                      (destinationStatus.st_mode & S_IFMT) == S_IFREG,
+                      destinationStatus.st_uid == getuid(), destinationStatus.st_nlink == 1,
+                      destinationStatus.st_size == expectedSize,
+                      fchmod(destinationDescriptor, privateFileMode) == 0,
+                      fsync(destinationDescriptor) == 0,
+                      fsync(destinationParent) == 0 else {
+                    throw GTELargeModelInstallError.unreadableInstall
+                }
+            } catch {
+                var failed = stat()
+                if fstat(destinationDescriptor, &failed) == 0,
+                   (failed.st_mode & S_IFMT) == S_IFREG,
+                   failed.st_uid == getuid(), failed.st_nlink == 1 {
+                    try? removePrivateItem(
+                        at: destination,
+                        expectedFileIdentity: identity(from: failed)
+                    )
+                }
+                throw error
+            }
+        }
+    }
+
     static func validatedURLSessionTemporaryFile(_ source: URL) throws -> URL {
         guard source.isFileURL,
               source.host == nil || source.host?.isEmpty == true else {
@@ -1591,6 +1710,9 @@ protocol GTELargeDownloadTransport: Sendable {
 /// URLSession transport used by the production installer. The caller controls
 /// when it is created, so model availability checks never create a request.
 struct URLSessionGTELargeDownloadTransport: GTELargeDownloadTransport {
+    static let parallelDownloadMinimumSize: Int64 = 64 * 1_048_576
+    static let parallelDownloadCount = 4
+
     func download(
         from source: URL,
         to destination: URL,
@@ -1600,12 +1722,117 @@ struct URLSessionGTELargeDownloadTransport: GTELargeDownloadTransport {
         guard GTELargeDownloadURLPolicy.accepts(source) else {
             throw GTELargeModelInstallError.invalidRedirect
         }
+
+        if expectedSize >= Self.parallelDownloadMinimumSize {
+            do {
+                try await downloadInRanges(
+                    from: source,
+                    to: destination,
+                    expectedSize: expectedSize,
+                    onProgress: onProgress
+                )
+                return
+            } catch is GTELargeRangeDownloadError {
+                onProgress(0)
+            }
+        }
+
+        try await downloadSingleRequest(
+            from: source,
+            to: destination,
+            expectedSize: expectedSize,
+            completeSize: expectedSize,
+            byteRange: nil,
+            onProgress: onProgress
+        )
+    }
+
+    static func byteRanges(for expectedSize: Int64, count: Int = parallelDownloadCount) -> [GTELargeByteRange] {
+        guard expectedSize > 0, count >= 2, count <= 8 else { return [] }
+        let divisor = Int64(count)
+        let segmentSize = expectedSize / divisor + (expectedSize % divisor == 0 ? 0 : 1)
+        return (0..<count).compactMap { index in
+            let start = Int64(index) * segmentSize
+            guard start < expectedSize else { return nil }
+            return GTELargeByteRange(
+                start: start,
+                end: min(start + segmentSize - 1, expectedSize - 1)
+            )
+        }
+    }
+
+    private func downloadInRanges(
+        from source: URL,
+        to destination: URL,
+        expectedSize: Int64,
+        onProgress: @escaping @Sendable (Int64) -> Void
+    ) async throws {
+        let ranges = Self.byteRanges(for: expectedSize)
+        guard ranges.count >= 2 else { throw GTELargeRangeDownloadError.unsupported }
+
+        let transferID = UUID().uuidString
+        let parent = destination.deletingLastPathComponent()
+        let parts = ranges.enumerated().map { index, range in
+            (
+                range: range,
+                url: parent.appendingPathComponent(".gte-range-\(transferID)-\(index)")
+            )
+        }
+        defer {
+            for part in parts {
+                guard let identity = try? GTELargeSecurePath.fileIdentity(at: part.url) else { continue }
+                try? GTELargeSecurePath.removePrivateItem(at: part.url, expectedFileIdentity: identity)
+            }
+        }
+
+        let progress = GTELargeRangeProgress(
+            segmentCount: parts.count,
+            totalSize: expectedSize,
+            onProgress: onProgress
+        )
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for (index, part) in parts.enumerated() {
+                group.addTask {
+                    try await downloadSingleRequest(
+                        from: source,
+                        to: part.url,
+                        expectedSize: part.range.length,
+                        completeSize: expectedSize,
+                        byteRange: part.range
+                    ) { written in
+                        progress.update(segment: index, written: written)
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        try Task.checkCancellation()
+        try GTELargeSecurePath.concatenateDownloadedRanges(
+            parts.map { ($0.url, $0.range.length) },
+            to: destination,
+            expectedSize: expectedSize
+        )
+        onProgress(expectedSize)
+    }
+
+    private func downloadSingleRequest(
+        from source: URL,
+        to destination: URL,
+        expectedSize: Int64,
+        completeSize: Int64,
+        byteRange: GTELargeByteRange?,
+        onProgress: @escaping @Sendable (Int64) -> Void
+    ) async throws {
         let state = GTELargeURLSessionDownloadState()
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let delegate = GTELargeURLSessionDownloadDelegate(
                     destination: destination,
                     expectedSize: expectedSize,
+                    completeSize: completeSize,
+                    byteRange: byteRange,
                     state: state,
                     continuation: continuation,
                     onProgress: onProgress
@@ -1614,13 +1841,78 @@ struct URLSessionGTELargeDownloadTransport: GTELargeDownloadTransport {
                 configuration.timeoutIntervalForRequest = 25
                 configuration.timeoutIntervalForResource = 3_600
                 let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-                let task = session.downloadTask(with: source)
+                var request = URLRequest(url: source)
+                if let byteRange {
+                    request.setValue(byteRange.headerValue, forHTTPHeaderField: "Range")
+                }
+                let task = session.downloadTask(with: request)
                 state.set(task)
                 task.resume()
             }
         }, onCancel: {
             state.cancel()
         })
+    }
+}
+
+struct GTELargeByteRange: Equatable, Sendable {
+    let start: Int64
+    let end: Int64
+
+    var length: Int64 { end - start + 1 }
+    var headerValue: String { "bytes=\(start)-\(end)" }
+}
+
+enum GTELargeDownloadResponsePolicy {
+    static func matchesContentRange(
+        _ response: HTTPURLResponse,
+        expected: GTELargeByteRange,
+        completeSize: Int64
+    ) -> Bool {
+        guard let raw = response.value(forHTTPHeaderField: "Content-Range")?.lowercased(),
+              raw.hasPrefix("bytes ") else { return false }
+        let value = raw.dropFirst("bytes ".count)
+        let halves = value.split(separator: "/", omittingEmptySubsequences: false)
+        guard halves.count == 2,
+              let total = Int64(halves[1]),
+              total == completeSize else { return false }
+        let bounds = halves[0].split(separator: "-", omittingEmptySubsequences: false)
+        guard bounds.count == 2,
+              let start = Int64(bounds[0]),
+              let end = Int64(bounds[1]),
+              start == expected.start,
+              end == expected.end else { return false }
+        let contentLength = response.expectedContentLength
+        return contentLength < 0 || contentLength == expected.length
+    }
+}
+
+private enum GTELargeRangeDownloadError: Error {
+    case unsupported
+}
+
+private final class GTELargeRangeProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var writtenBySegment: [Int64]
+    private let totalSize: Int64
+    private let onProgress: @Sendable (Int64) -> Void
+
+    init(segmentCount: Int, totalSize: Int64, onProgress: @escaping @Sendable (Int64) -> Void) {
+        writtenBySegment = Array(repeating: 0, count: segmentCount)
+        self.totalSize = totalSize
+        self.onProgress = onProgress
+    }
+
+    func update(segment: Int, written: Int64) {
+        lock.lock()
+        guard writtenBySegment.indices.contains(segment) else {
+            lock.unlock()
+            return
+        }
+        writtenBySegment[segment] = max(writtenBySegment[segment], max(0, written))
+        let total = min(writtenBySegment.reduce(0, +), totalSize)
+        lock.unlock()
+        onProgress(total)
     }
 }
 
@@ -1691,6 +1983,8 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
     private static let maximumRedirects = 4
     private let destination: URL
     private let expectedSize: Int64
+    private let completeSize: Int64
+    private let byteRange: GTELargeByteRange?
     private let state: GTELargeURLSessionDownloadState
     private let continuation: CheckedContinuation<Void, Error>
     private let onProgress: @Sendable (Int64) -> Void
@@ -1702,12 +1996,16 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
     init(
         destination: URL,
         expectedSize: Int64,
+        completeSize: Int64,
+        byteRange: GTELargeByteRange?,
         state: GTELargeURLSessionDownloadState,
         continuation: CheckedContinuation<Void, Error>,
         onProgress: @escaping @Sendable (Int64) -> Void
     ) {
         self.destination = destination
         self.expectedSize = expectedSize
+        self.completeSize = completeSize
+        self.byteRange = byteRange
         self.state = state
         self.continuation = continuation
         self.onProgress = onProgress
@@ -1720,6 +2018,11 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
+        if let error = responseError(for: downloadTask) {
+            downloadTask.cancel()
+            finish(session: session, result: .failure(error))
+            return
+        }
         guard totalBytesWritten <= expectedSize,
               totalBytesExpectedToWrite <= 0 || totalBytesExpectedToWrite <= expectedSize else {
             downloadTask.cancel()
@@ -1761,11 +2064,15 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
         didFinishDownloadingTo location: URL
     ) {
         guard let response = downloadTask.response as? HTTPURLResponse,
-              response.statusCode == 200,
               let finalURL = response.url,
               GTELargeDownloadURLPolicy.accepts(finalURL) else {
             let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
             finish(session: session, result: .failure(GTELargeModelInstallError.httpFailure(status)))
+            return
+        }
+
+        if let error = responseError(for: downloadTask) {
+            finish(session: session, result: .failure(error))
             return
         }
 
@@ -1808,6 +2115,29 @@ private final class GTELargeURLSessionDownloadDelegate: NSObject, URLSessionDown
         guard completionState == .pending else { return false }
         completionState = .copying
         return true
+    }
+
+    private func responseError(for task: URLSessionTask) -> Error? {
+        guard let response = task.response as? HTTPURLResponse else {
+            return GTELargeModelInstallError.httpFailure(0)
+        }
+        guard let byteRange else {
+            return response.statusCode == 200
+                ? nil
+                : GTELargeModelInstallError.httpFailure(response.statusCode)
+        }
+        if response.statusCode == 200 {
+            return GTELargeRangeDownloadError.unsupported
+        }
+        guard response.statusCode == 206,
+              GTELargeDownloadResponsePolicy.matchesContentRange(
+                response,
+                expected: byteRange,
+                completeSize: completeSize
+              ) else {
+            return GTELargeModelInstallError.httpFailure(response.statusCode)
+        }
+        return nil
     }
 }
 

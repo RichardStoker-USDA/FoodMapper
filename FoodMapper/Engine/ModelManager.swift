@@ -4,6 +4,27 @@ import os
 
 private let logger = Logger(subsystem: "com.foodmapper", category: "model-manager")
 
+private final class GTELargeProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastUpdate = Date.distantPast
+    private let minimumInterval: TimeInterval
+
+    init(minimumInterval: TimeInterval = 0.1) {
+        self.minimumInterval = minimumInterval
+    }
+
+    func shouldPublish(written: Int64, total: Int64) -> Bool {
+        let now = Date()
+        lock.lock()
+        defer { lock.unlock() }
+        guard written >= total || now.timeIntervalSince(lastUpdate) >= minimumInterval else {
+            return false
+        }
+        lastUpdate = now
+        return true
+    }
+}
+
 /// Lifecycle state of a model
 enum ModelState: Equatable {
     case notDownloaded
@@ -553,7 +574,9 @@ final class ModelManager: ObservableObject {
             rootDirectory: root,
             transport: URLSessionGTELargeDownloadTransport()
         )
+        let progressThrottle = GTELargeProgressThrottle()
         let updateProgress: @Sendable (Int64, Int64) -> Void = { [weak self] written, total in
+            guard progressThrottle.shouldPublish(written: written, total: total) else { return }
             Task { @MainActor [weak self] in
                 guard let self, !self.shouldCancelDownload(for: modelKey) else { return }
                 let progress = total == 0 ? 0 : Double(written) / Double(total)

@@ -1016,6 +1016,18 @@ final class AppState: ObservableObject {
         }
     }
 
+    func beginGTELargeDownloadMetrics(total: Int64) {
+        downloadStartTime = Date()
+        downloadBytesWritten = 0
+        downloadBytesTotal = total
+        downloadSpeedBytesPerSecond = 0
+        downloadTimeRemaining = nil
+        lastSpeedCalculationTime = .distantPast
+        lastBytesWritten = 0
+        smoothedSpeedBytesPerSecond = 0
+        lastMetadataUpdateTime = .distantPast
+    }
+
     init() {
         // Detect hardware configuration at launch
         let hw = HardwareConfig.detect()

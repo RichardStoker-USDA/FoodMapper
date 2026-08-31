@@ -39,12 +39,7 @@ extension AppState {
             return
         }
 
-        // Initialize progress variables
-        downloadStartTime = Date()
-        downloadBytesWritten = 0
-        downloadBytesTotal = GTELargeModelManifest.current.downloadSize
-        downloadSpeedBytesPerSecond = 0
-        downloadTimeRemaining = nil
+        beginGTELargeDownloadMetrics(total: GTELargeModelManifest.current.downloadSize)
 
         // Download via ModelManager (unified download path)
         modelStatus = .downloading(progress: 0)
