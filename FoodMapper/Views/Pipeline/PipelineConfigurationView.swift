@@ -5,6 +5,7 @@ import SwiftUI
 struct PipelineConfigurationView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openSettings) private var openSettings
     @State private var selectedPipeline: PipelineType = .qwen3TwoStage
 
     /// SF Symbol icon per pipeline type for the sidebar list
@@ -180,6 +181,25 @@ struct PipelineConfigurationView: View {
                         modelSizeRow(entry)
                     }
                 }
+
+                HStack(spacing: Spacing.sm) {
+                    Text("Optional model downloads are managed in Settings > Models.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        openSettings()
+                        DispatchQueue.main.async {
+                            NotificationCenter.default.post(name: .showModelSettings, object: nil)
+                        }
+                    } label: {
+                        Text("Model Settings")
+                            .font(.caption)
+                    }
+                    .controlSize(.small)
+                }
             }
             .padding(Spacing.md)
             .panelMaterialStyle(cornerRadius: 8)
@@ -191,25 +211,17 @@ struct PipelineConfigurationView: View {
             Text(entry.family.rawValue)
                 .font(.subheadline)
                 .fontWeight(.medium)
-                .frame(minWidth: 140, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
 
             Picker("", selection: entry.sizeBinding) {
                 ForEach(entry.family.availableSizes) { size in
-                    let key = entry.family.modelKey(for: size) ?? ""
-                    let available = appState.modelManager.state(for: key).isAvailable
-                    HStack {
-                        Text(size.displayName)
-                        if !available {
-                            Image(systemName: "arrow.down.circle")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(size)
+                    Text(size.displayName)
+                        .tag(size)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(maxWidth: 220)
+            .labelsHidden()
+            .frame(width: 220)
 
             let resolvedKey = entry.family.modelKey(for: entry.sizeBinding.wrappedValue) ?? ""
             let isAvailable = appState.modelManager.state(for: resolvedKey).isAvailable
@@ -222,6 +234,8 @@ struct PipelineConfigurationView: View {
                     .font(.caption)
                     .foregroundStyle(isAvailable ? Color.secondary : Color.experimentalAmber)
             }
+            .frame(width: 112, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
         }

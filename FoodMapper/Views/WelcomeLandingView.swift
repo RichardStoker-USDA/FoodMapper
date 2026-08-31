@@ -59,7 +59,8 @@ struct WelcomeLandingView: View {
                     icon: "link.badge.plus",
                     title: "New Match",
                     subtitle: "Start matching food descriptions",
-                    isHovered: hoveredCard == "new"
+                    isHovered: hoveredCard == "new",
+                    emphasis: .standard
                 ) {
                     guard !appState.showTutorial || appState.tutorialState.currentStep == 2 else { return }
                     appState.startNewMatch()
@@ -72,7 +73,8 @@ struct WelcomeLandingView: View {
                     icon: "externaldrive.badge.plus",
                     title: "Custom Database",
                     subtitle: "Add your own database",
-                    isHovered: hoveredCard == "custom"
+                    isHovered: hoveredCard == "custom",
+                    emphasis: .standard
                 ) {
                     guard !appState.showTutorial else { return }
                     appState.sidebarSelection = .databases
@@ -84,7 +86,8 @@ struct WelcomeLandingView: View {
                     icon: "doc.text.magnifyingglass",
                     title: "Behind the Research",
                     subtitle: "Explore the methods",
-                    isHovered: hoveredCard == "research"
+                    isHovered: hoveredCard == "research",
+                    emphasis: .research
                 ) {
                     guard !appState.showTutorial else { return }
                     appState.startResearchShowcase()
@@ -188,21 +191,28 @@ struct WelcomeLandingView: View {
 // MARK: - Action Card
 
 struct ActionCard: View {
+    enum Emphasis {
+        case standard
+        case research
+    }
+
     let icon: String
     let title: String
     let subtitle: String
     let isHovered: Bool
+    let emphasis: Emphasis
     let action: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: Spacing.md) {
                 Image(systemName: icon)
                     .font(.system(size: 32))
-                    .symbolRenderingMode(.multicolor)
-                    .foregroundStyle(isHovered ? Color.accentColor : .secondary)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(isHovered || emphasis == .research ? Color.accentColor : .secondary)
 
                 VStack(spacing: Spacing.xxs) {
                     Text(title)
@@ -225,15 +235,17 @@ struct ActionCard: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
-                        isHovered
+                        isHovered || emphasis == .research
                             ? Color.accentColor.opacity(colorScheme == .dark ? 0.3 : 0.2)
                             : Color.cardBorder(for: colorScheme),
                         lineWidth: isHovered ? 1.0 : (colorScheme == .dark ? 0.66 : 1.0)
                     )
             }
             .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.06), radius: 1, y: 1)
+            .scaleEffect(isHovered ? 1.01 : 1)
         }
         .buttonStyle(.plain)
+        .animation(reduceMotion ? nil : Animate.quick, value: isHovered)
     }
 }
 

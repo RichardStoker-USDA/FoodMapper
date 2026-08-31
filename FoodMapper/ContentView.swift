@@ -235,20 +235,10 @@ struct ContentView: View {
 
             // Match state machine (instant swap, no animation -- toolbar layout
             // fights SwiftUI transitions causing slide-off-screen artifacts).
-            // On Tahoe, suppress the system Liquid Glass container so our custom
-            // glass chrome is the only one visible.
-            if #available(macOS 26, *) {
-                ToolbarItem(placement: .primaryAction) {
-                    matchToolbarContent
-                }
-                .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .primaryAction) {
-                    matchToolbarContent
-                }
+            ToolbarItem(placement: .primaryAction) {
+                matchToolbarContent
             }
         }
-        .modifier(ForceToolbarSeparator())
         .sheet(isPresented: $appState.showModelDownloadSheet) {
             ModelDownloadSheet(
                 models: appState.pendingDownloadModels,
@@ -322,8 +312,7 @@ struct ContentView: View {
         }
     }
 
-    /// Match state toolbar content -- shared between Tahoe (with .sharedBackgroundVisibility)
-    /// and older OS versions (without).
+    /// Match state toolbar content shared by supported macOS versions.
     @ViewBuilder
     private var matchToolbarContent: some View {
         Group {
@@ -928,20 +917,6 @@ private struct MatchCompleteBanner: View {
     }
 }
 
-/// Forces a hard toolbar separator on macOS 26+ to prevent Liquid Glass
-/// scroll-adaptive behavior from hiding the separator during sidebar animation.
-/// On macOS 26, the system hides the toolbar separator when a ScrollView is at
-/// scroll position 0. The .hard style forces a permanent dividing line.
-private struct ForceToolbarSeparator: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content.scrollEdgeEffectStyle(.hard, for: .top)
-        } else {
-            content
-        }
-    }
-}
-
 // MARK: - Toolbar Buttons
 
 /// Primary match action in the toolbar.
@@ -951,11 +926,17 @@ private struct MatchButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label("Match", systemImage: "play")
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "play.fill")
+                    .imageScale(.small)
+                Text("Run Match")
+            }
                 .font(.body.weight(.semibold))
+                .fixedSize()
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.regular)
+        .accessibilityLabel("Run Match")
         .disabled(disabled)
     }
 }

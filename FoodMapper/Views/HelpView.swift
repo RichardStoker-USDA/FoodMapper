@@ -1450,7 +1450,7 @@ private struct HelpSettingsContent: View {
                     Text("Models")
                         .font(.headline)
                 }
-                Text(appState.isAdvancedMode ? "Download and manage models. Advanced mode lists all model families with download size, GPU memory estimate, and status." : "Download and manage the GTE-Large model used by the standard matching pipeline.")
+                Text(appState.isAdvancedMode ? "Download and manage models. Advanced mode lists optional model families with download size, GPU memory estimate, and status. Pipeline Configuration selects model sizes; downloads remain in Settings > Models." : "Download and manage the GTE-Large model used by the standard matching pipeline.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
