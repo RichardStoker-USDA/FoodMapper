@@ -305,7 +305,7 @@ final class AppState: ObservableObject {
         for result in results {
             guard let candidates = result.candidates else { continue }
             for candidate in candidates {
-                let key = candidate.matchText.lowercased()
+                let key = candidate.deduplicationKey
                 guard !seen.contains(key) else { continue }
                 seen.insert(key)
                 unique.append(candidate)

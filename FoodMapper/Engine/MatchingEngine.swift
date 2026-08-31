@@ -314,6 +314,10 @@ actor MatchingEngine {
     /// Identity of the rows presently held in memory. Never use a database ID
     /// alone here: an imported file can be replaced without its ID changing.
     private var currentDatabaseIdentity: String?
+    /// Digest for the immutable target snapshot captured for the current run.
+    /// Built-in and custom rows receive the same durable key when a snapshot is
+    /// available; snapshot-backed rows already carry their key from storage.
+    private var targetSnapshotDigest: String?
     private var activeRunID: UUID?
     private var cancelledRunIDs: Set<UUID> = []
 
@@ -422,6 +426,11 @@ actor MatchingEngine {
         targetIDs.removeAll()
         targetEntries.removeAll()
         currentDatabaseIdentity = nil
+        targetSnapshotDigest = nil
+    }
+
+    func setTargetSnapshotDigest(_ digest: String?) {
+        targetSnapshotDigest = digest
     }
 
     /// Get the currently loaded database entries (for pipelines that need entries without embedding)
@@ -435,14 +444,16 @@ actor MatchingEngine {
     /// Load database entries WITHOUT computing or loading embeddings.
     /// For pipelines that only need entry text/metadata (LLMOnly, RerankerOnly).
     func loadDatabaseEntriesOnly(_ database: AnyDatabase) async throws -> [DatabaseEntry] {
+        let entries: [DatabaseEntry]
         switch database {
         case .builtIn(let builtIn):
-            return try await loadBuiltInDatabaseEntries(for: builtIn)
+            entries = try await loadBuiltInDatabaseEntries(for: builtIn)
         case .custom(let custom):
-            return try await loadCustomDatabaseEntries(for: custom)
+            entries = try await loadCustomDatabaseEntries(for: custom)
         case .snapshot(let snapshot):
-            return try await TargetSnapshotStore.shared.loadEntries(for: snapshot)
+            entries = try await TargetSnapshotStore.shared.loadEntries(for: snapshot)
         }
+        return entriesWithTargetKeys(entries)
     }
 
     /// Set a custom matching instruction on the embedding model
@@ -503,8 +514,10 @@ actor MatchingEngine {
             ).1
         }
 
+        let keyedEntries = entriesWithTargetKeys(entries)
+
         // Store entries and build ID array (preserving order)
-        for (index, entry) in entries.enumerated() {
+        for (index, entry) in keyedEntries.enumerated() {
             let internalID = "\(entry.id)\u{1F}\(index)"
             targetEntries[internalID] = entry
             targetIDs.append(internalID)
@@ -516,10 +529,27 @@ actor MatchingEngine {
         } else if let embeddings {
             let embeddingDim = embeddingModel?.info.dimensions ?? 1024
             let flatData = embeddings.flatMap { $0 }
-            targetEmbeddingMatrix = MLXArray(flatData).reshaped([entries.count, embeddingDim])
+            targetEmbeddingMatrix = MLXArray(flatData).reshaped([keyedEntries.count, embeddingDim])
         }
 
-        currentDatabaseIdentity = Self.databaseIdentity(for: entries, databaseID: database.id)
+        currentDatabaseIdentity = Self.databaseIdentity(for: keyedEntries, databaseID: database.id)
+    }
+
+    private func entriesWithTargetKeys(_ entries: [DatabaseEntry]) -> [DatabaseEntry] {
+        guard let targetSnapshotDigest else { return entries }
+        return entries.enumerated().map { index, entry in
+            // Snapshot-backed entries already carry the source row that was
+            // verified on disk. Never replace that provenance with an
+            // unrelated ambient run digest.
+            if entry.targetRowKey != nil { return entry }
+            let key = TargetRowKey(targetDigest: targetSnapshotDigest, sourceRow: index + 2)
+            return DatabaseEntry(
+                id: entry.id,
+                text: entry.text,
+                additionalFields: entry.additionalFields,
+                targetRowKey: key
+            )
+        }
     }
 
     /// Result from database loading: entries plus embeddings as either direct MLXArray or [[Float]]
@@ -1271,7 +1301,8 @@ actor MatchingEngine {
                         matchID: entry.id,
                         score: Double(score),
                         status: status,
-                        matchAdditionalFields: entry.additionalFields
+                        matchAdditionalFields: entry.additionalFields,
+                        targetRowKey: entry.targetRowKey
                     ))
                 }
 

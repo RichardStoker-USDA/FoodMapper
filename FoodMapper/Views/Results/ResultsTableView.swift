@@ -79,17 +79,27 @@ struct ResultsTableView: View {
 
                     // Score -- colored dot + plain percentage (shows override score when overridden)
                     TableColumn("Score", value: \.score) { result in
-                        let displayScore: Double = {
-                            if let decision = reviewDecisions[result.id],
-                               decision.status == .overridden,
-                               let overrideScore = decision.overrideScore {
-                                return overrideScore
-                            }
-                            return result.score
-                        }()
-                        ScoreIndicator(score: displayScore)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(rowBackground(for: result.id))
+                        if reviewDecisions[result.id]?.manualTargetSelection != nil {
+                            Text("--")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .help("Manual selection was not scored")
+                                .accessibilityLabel("Manual selection, no score")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(rowBackground(for: result.id))
+                        } else {
+                            let displayScore: Double = {
+                                if let decision = reviewDecisions[result.id],
+                                   decision.status == .overridden,
+                                   let overrideScore = decision.overrideScore {
+                                    return overrideScore
+                                }
+                                return result.score
+                            }()
+                            ScoreIndicator(score: displayScore)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(rowBackground(for: result.id))
+                        }
                     }
                     .width(52)
 

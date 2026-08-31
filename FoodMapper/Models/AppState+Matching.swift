@@ -104,11 +104,26 @@ extension AppState {
                 // target manual search. V1 still receives its original database:
                 // built-in precomputed embeddings, custom cache identities, and
                 // parser/ID behavior remain unchanged.
-                let snapshot = try await TargetSnapshotStore.shared.capture(database: database)
-                try Task.checkCancellation()
-                guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
-                self.activeTargetSnapshot = snapshot.reference
+                var snapshot: TargetSnapshotDatabase?
+                do {
+                    snapshot = try await TargetSnapshotStore.shared.capture(database: database)
+                    try Task.checkCancellation()
+                    guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
+                    self.activeTargetSnapshot = snapshot?.reference
+                } catch let snapshotError as TargetSnapshotError where snapshotError == .cancelled {
+                    throw CancellationError()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // Snapshot retention is additive. Keep V1 matching and its
+                    // existing cache/parser semantics available if provenance
+                    // storage cannot be prepared.
+                    logger.warning("Target snapshot unavailable; continuing with V1 matching: \(error.localizedDescription)")
+                    snapshot = nil
+                    self.activeTargetSnapshot = nil
+                }
                 let engine = try await getOrCreateEngine()
+                await engine.setTargetSnapshotDigest(snapshot?.reference.digest)
 
                 // Load the correct embedding model via ModelManager (uses selected size)
                 if let embeddingKey = embeddingKey {
@@ -343,7 +358,7 @@ extension AppState {
                         for result in matchResults {
                             guard let candidates = result.candidates else { continue }
                             for candidate in candidates {
-                                let key = candidate.matchText.lowercased()
+                                let key = candidate.deduplicationKey
                                 guard !seen.contains(key) else { continue }
                                 seen.insert(key)
                                 unique.append(candidate)

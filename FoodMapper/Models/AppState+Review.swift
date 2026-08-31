@@ -275,7 +275,8 @@ extension AppState {
                            overrideText: String? = nil, overrideID: String? = nil,
                            overrideScore: Double? = nil,
                            candidateIndex: Int? = nil,
-                           manualTargetSelection: TargetSnapshotSelection? = nil) {
+                           manualTargetSelection: TargetSnapshotSelection? = nil,
+                           targetRowKey: TargetRowKey? = nil) {
         // Push previous state to undo stack
         let previous = reviewDecisions[resultId]
         reviewUndoStack.append((resultId, previous))
@@ -291,6 +292,7 @@ extension AppState {
         let finalNote: String?
         let finalCandidateIndex: Int?
         let finalManualTargetSelection: TargetSnapshotSelection?
+        let finalSelectedTargetRowKey: TargetRowKey?
 
         if overrideText == nil, overrideID == nil, let existing = previous {
             if status == .accepted {
@@ -299,24 +301,27 @@ extension AppState {
                 finalOverrideID = nil
                 finalOverrideScore = nil
                 finalNote = note ?? existing.note
-                finalCandidateIndex = candidateIndex ?? existing.selectedCandidateIndex
+                finalCandidateIndex = targetRowKey == nil ? candidateIndex : nil
                 finalManualTargetSelection = nil
+                finalSelectedTargetRowKey = targetRowKey ?? (candidateIndex == nil ? resultsByID[resultId]?.targetRowKey : nil)
             } else {
                 // Non-accept statuses (rejected, skipped) -- carry forward existing overrides
                 finalOverrideText = existing.overrideMatchText
                 finalOverrideID = existing.overrideMatchID
                 finalOverrideScore = overrideScore ?? existing.overrideScore
                 finalNote = note ?? existing.note
-                finalCandidateIndex = candidateIndex ?? existing.selectedCandidateIndex
+                finalCandidateIndex = targetRowKey == nil ? (candidateIndex ?? existing.selectedCandidateIndex) : nil
                 finalManualTargetSelection = existing.manualTargetSelection
+                finalSelectedTargetRowKey = targetRowKey ?? existing.selectedTargetRowKey
             }
         } else {
             finalOverrideText = overrideText
             finalOverrideID = overrideID
             finalOverrideScore = overrideScore
             finalNote = note
-            finalCandidateIndex = candidateIndex
+            finalCandidateIndex = targetRowKey == nil ? candidateIndex : nil
             finalManualTargetSelection = manualTargetSelection
+            finalSelectedTargetRowKey = targetRowKey ?? manualTargetSelection?.targetRowKey
         }
 
         let newDecision = ReviewDecision(
@@ -327,7 +332,8 @@ extension AppState {
             note: finalNote,
             reviewedAt: Date(),
             selectedCandidateIndex: finalCandidateIndex,
-            manualTargetSelection: finalManualTargetSelection
+            manualTargetSelection: finalManualTargetSelection,
+            selectedTargetRowKey: finalSelectedTargetRowKey
         )
         reviewDecisions[resultId] = newDecision
         reviewDecisionVersion += 1
@@ -347,7 +353,11 @@ extension AppState {
     /// reopened and checked against the active immutable snapshot before it is
     /// written to review storage. It was not scored by the pipeline, so no
     /// override score is persisted.
-    func setManualTargetSelection(_ selection: TargetSnapshotSelection, for resultId: UUID) {
+    func setManualTargetSelection(
+        _ selection: TargetSnapshotSelection,
+        for resultId: UUID,
+        onSuccess: (() -> Void)? = nil
+    ) {
         guard let snapshot = activeTargetSnapshot,
               selection.snapshotDigest == snapshot.digest else {
             error = AppError.fileLoadFailed(TargetSnapshotError.invalidSelection.localizedDescription)
@@ -357,15 +367,18 @@ extension AppState {
             do {
                 try await TargetSnapshotStore.shared.validate(selection: selection, reference: snapshot)
                 guard let self,
-                      self.activeTargetSnapshot == snapshot else { return }
+                      self.activeTargetSnapshot == snapshot,
+                      self.resultsByID[resultId] != nil else { return }
                 self.setReviewDecision(
                     .overridden,
                     for: resultId,
                     overrideText: selection.matchText,
                     overrideID: selection.matchID,
                     overrideScore: nil,
-                    manualTargetSelection: selection
+                    manualTargetSelection: selection,
+                    targetRowKey: selection.targetRowKey
                 )
+                onSuccess?()
             } catch {
                 guard let self else { return }
                 self.error = AppError.fileLoadFailed(error.localizedDescription)
@@ -491,7 +504,9 @@ extension AppState {
                 overrideScore: finalOverrideScore,
                 note: finalNote,
                 reviewedAt: Date(),
-                selectedCandidateIndex: finalCandidateIndex
+                selectedCandidateIndex: finalCandidateIndex,
+                manualTargetSelection: previous?.manualTargetSelection,
+                selectedTargetRowKey: previous?.selectedTargetRowKey
             )
             reviewDecisions[id] = newDecision
             if let result = resultsByID[id] {
@@ -521,7 +536,9 @@ extension AppState {
                 overrideMatchID: previous?.overrideMatchID,
                 note: previous?.note,
                 reviewedAt: Date(),
-                selectedCandidateIndex: previous?.selectedCandidateIndex
+                selectedCandidateIndex: previous?.selectedCandidateIndex,
+                manualTargetSelection: previous?.manualTargetSelection,
+                selectedTargetRowKey: previous?.selectedTargetRowKey
             )
             reviewDecisions[id] = newDecision
             if let result = resultsByID[id] {

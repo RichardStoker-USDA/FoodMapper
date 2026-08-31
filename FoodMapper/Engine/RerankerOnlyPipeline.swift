@@ -99,7 +99,8 @@ final class RerankerOnlyPipeline: MatchingPipelineProtocol {
                         matchText: entry.text,
                         matchID: entry.id,
                         score: Double(rerankerScore.score),
-                        additionalFields: entry.additionalFields
+                        additionalFields: entry.additionalFields,
+                        targetRowKey: entry.targetRowKey
                     )
                 }
 
@@ -113,7 +114,8 @@ final class RerankerOnlyPipeline: MatchingPipelineProtocol {
                     status: .match,
                     scoreType: .rerankerProbability,
                     matchAdditionalFields: bestEntry.additionalFields,
-                    candidates: topCandidates
+                    candidates: topCandidates,
+                    targetRowKey: bestEntry.targetRowKey
                 ))
             } else {
                 results.append(MatchResult(

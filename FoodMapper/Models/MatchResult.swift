@@ -206,23 +206,45 @@ struct MatchCandidate: Codable, Identifiable, Hashable {
     let matchID: String?
     let score: Double
     let additionalFields: [String: String]?
+    let targetRowKey: TargetRowKey?
 
     init(
         id: UUID = UUID(),
         matchText: String,
         matchID: String? = nil,
         score: Double,
-        additionalFields: [String: String]? = nil
+        additionalFields: [String: String]? = nil,
+        targetRowKey: TargetRowKey? = nil
     ) {
         self.id = id
         self.matchText = matchText
         self.matchID = matchID
         self.score = score
         self.additionalFields = additionalFields
+        self.targetRowKey = targetRowKey
     }
 
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(targetRowKey)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.targetRowKey == rhs.targetRowKey
+    }
+
+    /// Key used by the legacy candidate search index. A durable target row key
+    /// is authoritative when present. Older candidates use length-prefixed
+    /// content so duplicate IDs with different row metadata do not collapse.
+    var deduplicationKey: String {
+        if let targetRowKey {
+            return "row:\(targetRowKey.targetDigest):\(targetRowKey.sourceRow)"
+        }
+        let values = [matchID ?? "", matchText] + (additionalFields ?? [:])
+            .sorted { $0.key < $1.key }
+            .flatMap { [$0.key, $0.value] }
+        return "legacy:" + values.map { "\($0.utf8.count):\($0)" }.joined(separator: "|")
+    }
 }
 
 /// Status classification for a match result
@@ -266,6 +288,9 @@ struct MatchResult: Identifiable, Codable, Hashable {
     let llmReasoning: String?
     /// Additional fields from the target database entry (e.g. common_name, citation)
     let matchAdditionalFields: [String: String]?
+    /// Stable identity of the selected target row. Nil is retained for legacy
+    /// sessions and results that predate immutable target snapshots.
+    let targetRowKey: TargetRowKey?
     /// Top-N candidates sorted by score descending. nil for sessions saved before this feature.
     let candidates: [MatchCandidate]?
 
@@ -301,7 +326,8 @@ struct MatchResult: Identifiable, Codable, Hashable {
         scoreType: ScoreType = .cosineSimilarity,
         llmReasoning: String? = nil,
         matchAdditionalFields: [String: String]? = nil,
-        candidates: [MatchCandidate]? = nil
+        candidates: [MatchCandidate]? = nil,
+        targetRowKey: TargetRowKey? = nil
     ) {
         self.id = id
         self.inputText = inputText
@@ -314,12 +340,14 @@ struct MatchResult: Identifiable, Codable, Hashable {
         self.llmReasoning = llmReasoning
         self.matchAdditionalFields = matchAdditionalFields
         self.candidates = candidates
+        self.targetRowKey = targetRowKey
     }
 
     // Custom decoding for backward compatibility with sessions saved before scoreType/candidates
     enum CodingKeys: String, CodingKey {
         case id, inputText, inputRow, matchText, matchID, score, status, scoreType
         case llmReasoning, matchAdditionalFields, candidates
+        case targetRowKey
     }
 
     init(from decoder: Decoder) throws {
@@ -335,25 +363,42 @@ struct MatchResult: Identifiable, Codable, Hashable {
         llmReasoning = try container.decodeIfPresent(String.self, forKey: .llmReasoning)
         matchAdditionalFields = try container.decodeIfPresent([String: String].self, forKey: .matchAdditionalFields)
         candidates = try container.decodeIfPresent([MatchCandidate].self, forKey: .candidates)
+        targetRowKey = try container.decodeIfPresent(TargetRowKey.self, forKey: .targetRowKey)
     }
 
     /// Whether a candidate is the same item the pipeline chose as the top match.
-    /// Uses matchID when available (reliable), falls back to matchText comparison.
+    /// Uses the durable row key when available. Legacy IDs and text are used
+    /// only when they identify one candidate in the saved list.
     func isPipelineMatch(_ candidate: MatchCandidate) -> Bool {
+        switch (targetRowKey, candidate.targetRowKey) {
+        case let (.some(resultKey), .some(candidateKey)):
+            return resultKey == candidateKey
+        case (.some, .none), (.none, .some):
+            return false
+        case (.none, .none):
+            break
+        }
         if let candidateID = candidate.matchID, let resultID = self.matchID {
-            return candidateID == resultID
+            guard candidateID == resultID else { return false }
+            let sameIDCandidates = candidates?.filter { $0.matchID == resultID } ?? []
+            return sameIDCandidates.count <= 1
         }
         if let matchText = self.matchText {
-            return candidate.matchText == matchText
+            guard candidate.matchText == matchText else { return false }
+            let sameTextCandidates = candidates?.filter {
+                $0.matchText == matchText
+            } ?? []
+            return sameTextCandidates.count <= 1
         }
         return false
     }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+        hasher.combine(targetRowKey)
     }
 
     static func == (lhs: MatchResult, rhs: MatchResult) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id && lhs.targetRowKey == rhs.targetRowKey
     }
 }

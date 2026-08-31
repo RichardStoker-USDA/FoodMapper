@@ -786,14 +786,20 @@ struct ResultsView: View {
 
         if result.isPipelineMatch(candidate) {
             // Same candidate the pipeline chose -- confirmation, not override
-            appState.setReviewDecision(.accepted, for: selectedId, candidateIndex: index)
+            appState.setReviewDecision(
+                .accepted,
+                for: selectedId,
+                candidateIndex: candidate.targetRowKey == nil ? index : nil,
+                targetRowKey: candidate.targetRowKey
+            )
         } else {
             appState.setReviewDecision(
                 .overridden, for: selectedId,
                 overrideText: candidate.matchText,
                 overrideID: candidate.matchID,
                 overrideScore: candidate.score,
-                candidateIndex: index
+                candidateIndex: candidate.targetRowKey == nil ? index : nil,
+                targetRowKey: candidate.targetRowKey
             )
         }
         appState.advanceToNextPending()

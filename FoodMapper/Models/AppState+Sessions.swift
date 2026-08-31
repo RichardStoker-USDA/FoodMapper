@@ -140,7 +140,7 @@ extension AppState {
                 for result in pending {
                     guard let candidates = result.candidates else { continue }
                     for candidate in candidates {
-                        let key = candidate.matchText.lowercased()
+                        let key = candidate.deduplicationKey
                         guard !seen.contains(key) else { continue }
                         seen.insert(key)
                         unique.append(candidate)
@@ -176,12 +176,36 @@ extension AppState {
         }
         do {
             let data = try Data(contentsOf: sessionsIndexURL)
-            sessions = try JSONDecoder().decode([MatchingSession].self, from: data)
+            let decoded = try Self.decodePersistedSessions(data)
+            sessions = decoded.sessions
+            if decoded.skippedCount > 0 {
+                logger.warning("Skipped \(decoded.skippedCount) invalid session record(s) while loading the index")
+            }
             sessions.sort { $0.date > $1.date }
             reconcileTargetSnapshots()
         } catch {
             logger.error("Failed to load sessions index: \(error)")
         }
+    }
+
+    /// Decode the session index item by item. One damaged legacy session must
+    /// not hide every other session from the history view.
+    nonisolated static func decodePersistedSessions(_ data: Data) throws -> (sessions: [MatchingSession], skippedCount: Int) {
+        guard let objects = try JSONSerialization.jsonObject(with: data) as? [Any] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Session index is not an array"))
+        }
+        var decoded: [MatchingSession] = []
+        var skippedCount = 0
+        let decoder = JSONDecoder()
+        for object in objects {
+            do {
+                let item = try JSONSerialization.data(withJSONObject: object, options: [])
+                decoded.append(try decoder.decode(MatchingSession.self, from: item))
+            } catch {
+                skippedCount += 1
+            }
+        }
+        return (decoded, skippedCount)
     }
 
     func saveSessionsIndex() {

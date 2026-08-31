@@ -190,7 +190,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                     matchText: w.entry.text,
                     matchID: w.entry.id,
                     score: Double(w.confidence),
-                    additionalFields: w.entry.additionalFields
+                    additionalFields: w.entry.additionalFields,
+                    targetRowKey: w.entry.targetRowKey
                 )
             }
 
@@ -203,7 +204,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                 status: status,
                 scoreType: .generativeSelection,
                 matchAdditionalFields: winner.entry.additionalFields,
-                candidates: candidates
+                candidates: candidates,
+                targetRowKey: winner.entry.targetRowKey
             )
         }
 
@@ -237,7 +239,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                 matchText: w.entry.text,
                 matchID: w.entry.id,
                 score: Double(prob),
-                additionalFields: w.entry.additionalFields
+                additionalFields: w.entry.additionalFields,
+                targetRowKey: w.entry.targetRowKey
             )
         }.sorted { $0.score > $1.score }
 
@@ -256,7 +259,8 @@ final class LLMOnlyPipeline: MatchingPipelineProtocol {
                 status: status,
                 scoreType: .generativeSelection,
                 matchAdditionalFields: winner.entry.additionalFields,
-                candidates: candidateList
+                candidates: candidateList,
+                targetRowKey: winner.entry.targetRowKey
             )
         }
 

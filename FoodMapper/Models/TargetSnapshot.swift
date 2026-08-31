@@ -5,6 +5,26 @@ import Foundation
 /// Content-addressed target data retained with a matching session. The source
 /// file is copied before matching starts, then the matching engine reads this
 /// copy instead of a mutable custom-database file or app-bundle resource.
+struct TargetRowKey: Codable, Hashable, Sendable {
+    static let digestLength = 64
+
+    let targetDigest: String
+    /// One-based logical source record number. The header is record 1, so the
+    /// first data row is record 2. This value is stable across array rebuilds.
+    let sourceRow: Int
+
+    init(targetDigest: String, sourceRow: Int) {
+        self.targetDigest = targetDigest
+        self.sourceRow = sourceRow
+    }
+
+    var isValid: Bool {
+        targetDigest.count == Self.digestLength &&
+            targetDigest.allSatisfy { $0.isASCII && ($0.isNumber || ("a"..."f").contains(String($0))) } &&
+            sourceRow >= 2
+    }
+}
+
 struct TargetSnapshotReference: Codable, Hashable, Sendable {
     static let digestLength = 64
 
@@ -30,6 +50,31 @@ struct TargetSnapshotReference: Codable, Hashable, Sendable {
         self.sourceKind = sourceKind
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case digest, sourceDigest, databaseIdentity, displayName, sourceKind
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let digest = try container.decode(String.self, forKey: .digest)
+        self.init(
+            digest: digest,
+            sourceDigest: try container.decodeIfPresent(String.self, forKey: .sourceDigest),
+            databaseIdentity: try container.decode(String.self, forKey: .databaseIdentity),
+            displayName: try container.decode(String.self, forKey: .displayName),
+            sourceKind: try container.decode(TargetSnapshotSourceKind.self, forKey: .sourceKind)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(digest, forKey: .digest)
+        try container.encode(sourceDigest, forKey: .sourceDigest)
+        try container.encode(databaseIdentity, forKey: .databaseIdentity)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(sourceKind, forKey: .sourceKind)
+    }
+
     var isValid: Bool {
         [digest, sourceDigest].allSatisfy {
             $0.count == Self.digestLength &&
@@ -47,7 +92,7 @@ enum TargetSnapshotSourceKind: String, Codable, Hashable, Sendable {
 /// SHA-256 digest of `source.data`; `digest` also binds that source to the
 /// database and matching-column policy.
 struct TargetSnapshotManifest: Codable, Equatable, Hashable, Sendable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     let version: Int
     let digest: String
@@ -66,6 +111,69 @@ struct TargetSnapshotManifest: Codable, Equatable, Hashable, Sendable {
     let recordsDigest: String
 
     var format: DataFileFormat { delimiter == "\t" ? .tsv : .csv }
+
+    init(
+        version: Int,
+        digest: String,
+        sourceDigest: String,
+        databaseIdentity: String,
+        displayName: String,
+        sourceKind: TargetSnapshotSourceKind,
+        delimiter: String,
+        header: [String],
+        idColumn: String?,
+        textColumn: String,
+        rowCount: Int,
+        sourceOrder: String,
+        selectedFields: [String],
+        sourceFilename: String,
+        recordsDigest: String
+    ) {
+        self.version = version
+        self.digest = digest
+        self.sourceDigest = sourceDigest
+        self.databaseIdentity = databaseIdentity
+        self.displayName = displayName
+        self.sourceKind = sourceKind
+        self.delimiter = delimiter
+        self.header = header
+        self.idColumn = idColumn
+        self.textColumn = textColumn
+        self.rowCount = rowCount
+        self.sourceOrder = sourceOrder
+        self.selectedFields = selectedFields
+        self.sourceFilename = sourceFilename
+        self.recordsDigest = recordsDigest
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, digest, sourceDigest, databaseIdentity, displayName, sourceKind,
+             delimiter, header, idColumn, textColumn, rowCount, sourceOrder,
+             selectedFields, sourceFilename, recordsDigest
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let digest = try container.decode(String.self, forKey: .digest)
+        let header = try container.decode([String].self, forKey: .header)
+        self.init(
+            version: try container.decodeIfPresent(Int.self, forKey: .version) ?? 1,
+            digest: digest,
+            sourceDigest: try container.decodeIfPresent(String.self, forKey: .sourceDigest) ?? digest,
+            databaseIdentity: try container.decode(String.self, forKey: .databaseIdentity),
+            displayName: try container.decode(String.self, forKey: .displayName),
+            sourceKind: try container.decode(TargetSnapshotSourceKind.self, forKey: .sourceKind),
+            delimiter: try container.decode(String.self, forKey: .delimiter),
+            header: header,
+            idColumn: try container.decodeIfPresent(String.self, forKey: .idColumn),
+            textColumn: try container.decode(String.self, forKey: .textColumn),
+            rowCount: try container.decode(Int.self, forKey: .rowCount),
+            sourceOrder: try container.decode(String.self, forKey: .sourceOrder),
+            selectedFields: try container.decodeIfPresent([String].self, forKey: .selectedFields) ?? header,
+            sourceFilename: try container.decode(String.self, forKey: .sourceFilename),
+            recordsDigest: try container.decode(String.self, forKey: .recordsDigest)
+        )
+    }
 }
 
 /// One source row. Values stay positional so duplicate headers cannot be
@@ -109,23 +217,81 @@ struct TargetSnapshotSearchResult: Identifiable, Hashable, Sendable {
 
     var selection: TargetSnapshotSelection {
         TargetSnapshotSelection(
-            snapshotDigest: snapshot.digest,
-            sourceRow: record.sourceRow,
+            targetRowKey: targetRowKey,
             matchText: matchText,
             matchID: matchID,
             fields: fields
         )
+    }
+
+    var targetRowKey: TargetRowKey {
+        TargetRowKey(targetDigest: snapshot.digest, sourceRow: record.sourceRow)
     }
 }
 
 /// Persisted provenance for a manual full-target selection. No score belongs
 /// here because this item may not have been retrieved or scored by the run.
 struct TargetSnapshotSelection: Codable, Hashable, Sendable {
-    let snapshotDigest: String
-    let sourceRow: Int
+    let targetRowKey: TargetRowKey
     let matchText: String
     let matchID: String?
     let fields: [String: String]
+
+    init(targetRowKey: TargetRowKey, matchText: String, matchID: String?, fields: [String: String]) {
+        self.targetRowKey = targetRowKey
+        self.matchText = matchText
+        self.matchID = matchID
+        self.fields = fields
+    }
+
+    /// Compatibility initializer for callers and saved selections from the
+    /// snapshot-only schema.
+    init(snapshotDigest: String, sourceRow: Int, matchText: String, matchID: String?, fields: [String: String]) {
+        self.init(
+            targetRowKey: TargetRowKey(targetDigest: snapshotDigest, sourceRow: sourceRow),
+            matchText: matchText,
+            matchID: matchID,
+            fields: fields
+        )
+    }
+
+    var snapshotDigest: String { targetRowKey.targetDigest }
+    var sourceRow: Int { targetRowKey.sourceRow }
+
+    private enum CodingKeys: String, CodingKey {
+        case targetRowKey, snapshotDigest, sourceRow, matchText, matchID, fields
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let key: TargetRowKey
+        if let decoded = try container.decodeIfPresent(TargetRowKey.self, forKey: .targetRowKey) {
+            key = decoded
+        } else {
+            key = TargetRowKey(
+                targetDigest: try container.decode(String.self, forKey: .snapshotDigest),
+                sourceRow: try container.decode(Int.self, forKey: .sourceRow)
+            )
+        }
+        self.init(
+            targetRowKey: key,
+            matchText: try container.decode(String.self, forKey: .matchText),
+            matchID: try container.decodeIfPresent(String.self, forKey: .matchID),
+            fields: try container.decode([String: String].self, forKey: .fields)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(targetRowKey, forKey: .targetRowKey)
+        // Keep the old scalar fields in the encoded form so older saved data
+        // readers can still display a manual selection.
+        try container.encode(snapshotDigest, forKey: .snapshotDigest)
+        try container.encode(sourceRow, forKey: .sourceRow)
+        try container.encode(matchText, forKey: .matchText)
+        try container.encodeIfPresent(matchID, forKey: .matchID)
+        try container.encode(fields, forKey: .fields)
+    }
 }
 
 struct TargetSnapshotDatabase: Hashable, Codable, FoodDatabase {
@@ -188,6 +354,7 @@ actor TargetSnapshotStore {
     static let recordsFilename = "records.ndjson"
     static let manifestFilename = "manifest.json"
     static let maxRecordBytes = 4 * 1_024 * 1_024
+    static let maxSerializedRecordBytes = maxRecordBytes * 8
     static let maxManifestBytes = 1_024 * 1_024
     static let maxHeaderColumns = 4_096
     static let maxRows = 1_000_000
@@ -265,8 +432,22 @@ actor TargetSnapshotStore {
             )
             let destination = root.appendingPathComponent(reference.digest, isDirectory: true)
             if let existing = try? loadManifest(reference: reference), existing == manifest {
-                try removeSnapshotDirectory(stageName)
-                return TargetSnapshotDatabase(reference: reference, manifest: existing)
+                do {
+                    try validateSnapshot(reference: reference, directory: destination, expectedManifest: existing)
+                    try removeSnapshotDirectory(stageName)
+                    return TargetSnapshotDatabase(reference: reference, manifest: existing)
+                } catch is CancellationError {
+                    throw TargetSnapshotError.cancelled
+                } catch let error as TargetSnapshotError where error == .cancelled {
+                    throw error
+                } catch {
+                    try quarantineSnapshotDirectory(reference.digest)
+                }
+            } else if FileManager.default.fileExists(atPath: destination.path) {
+                // A directory with this content address exists but does not
+                // describe the staged source. Keep it for diagnosis and make
+                // the new snapshot the only visible entry at this digest.
+                try quarantineSnapshotDirectory(reference.digest)
             }
             try writeManifest(manifest, in: stage)
             try validateSnapshot(reference: reference, directory: stage, expectedManifest: manifest)
@@ -289,7 +470,9 @@ actor TargetSnapshotStore {
     }
 
     func manifest(for reference: TargetSnapshotReference) throws -> TargetSnapshotManifest {
-        try loadManifest(reference: reference)
+        let manifest = try loadManifest(reference: reference)
+        try validateSnapshot(reference: reference, directory: try snapshotDirectory(for: reference), expectedManifest: manifest)
+        return manifest
     }
 
     func loadEntries(for database: TargetSnapshotDatabase) throws -> [DatabaseEntry] {
@@ -299,10 +482,15 @@ actor TargetSnapshotStore {
         try verifySourceDigest(reference: database.reference, directory: directory)
         let descriptor = try openVerifiedRecords(manifest: manifest, directory: directory)
         defer { close(descriptor) }
-        var reader = JSONLineReader(descriptor: descriptor, maximumLineBytes: Self.maxRecordBytes * 2)
+        var reader = JSONLineReader(
+            descriptor: descriptor,
+            maximumLineBytes: Self.maxSerializedRecordBytes,
+            maximumTotalBytes: maximumRecordsBytes(for: manifest)
+        )
         var entries: [DatabaseEntry] = []
         entries.reserveCapacity(manifest.rowCount)
         while let line = try reader.nextLine() {
+            try Task.checkCancellation()
             let record = try JSONDecoder().decode(TargetSnapshotRecord.self, from: line)
             guard record.values.count == manifest.header.count else { throw TargetSnapshotError.corruptSnapshot }
             let fields = record.fields(header: manifest.header)
@@ -311,7 +499,12 @@ actor TargetSnapshotStore {
             let additional = Dictionary(uniqueKeysWithValues: manifest.header.enumerated().compactMap { index, name in
                 (name == manifest.textColumn || name == manifest.idColumn || record.values[index].isEmpty) ? nil : (name, record.values[index])
             })
-            entries.append(DatabaseEntry(id: id, text: text, additionalFields: additional))
+            entries.append(DatabaseEntry(
+                id: id,
+                text: text,
+                additionalFields: additional,
+                targetRowKey: TargetRowKey(targetDigest: database.reference.digest, sourceRow: record.sourceRow)
+            ))
         }
         guard entries.count == manifest.rowCount else { throw TargetSnapshotError.corruptSnapshot }
         return entries
@@ -323,8 +516,8 @@ actor TargetSnapshotStore {
         limit: Int = TargetSnapshotStore.maxResults
     ) throws -> [TargetSnapshotSearchResult] {
         let normalizedQuery = Self.normalize(query)
-        guard !normalizedQuery.isEmpty else { return [] }
-        let resultLimit = min(max(1, limit), Self.maxResults)
+        guard !normalizedQuery.isEmpty, limit > 0 else { return [] }
+        let resultLimit = min(limit, Self.maxResults)
         let manifest = try loadManifest(reference: reference)
         let directory = try snapshotDirectory(for: reference)
         try verifySourceDigest(reference: reference, directory: directory)
@@ -332,10 +525,15 @@ actor TargetSnapshotStore {
         defer { close(descriptor) }
         var buckets = Dictionary(uniqueKeysWithValues: TargetSnapshotMatchKind.allCases.map { ($0, [TargetSnapshotSearchResult]()) })
         let tokens = Set(normalizedQuery.split(separator: " ").map(String.init))
-        var reader = JSONLineReader(descriptor: descriptor, maximumLineBytes: Self.maxRecordBytes * 2)
+        var reader = JSONLineReader(
+            descriptor: descriptor,
+            maximumLineBytes: Self.maxSerializedRecordBytes,
+            maximumTotalBytes: maximumRecordsBytes(for: manifest)
+        )
         var scanned = 0
+        var retainedCount = 0
         while let line = try reader.nextLine() {
-            if scanned & 0x3FF == 0, Task.isCancelled { throw TargetSnapshotError.cancelled }
+            if scanned & 0x3FF == 0 { try Task.checkCancellation() }
             scanned += 1
             let record = try JSONDecoder().decode(TargetSnapshotRecord.self, from: line)
             guard record.values.count == manifest.header.count else { throw TargetSnapshotError.corruptSnapshot }
@@ -356,44 +554,77 @@ actor TargetSnapshotStore {
             } else {
                 kind = nil
             }
-            guard let kind, buckets[kind, default: []].count < resultLimit else { continue }
-            buckets[kind, default: []].append(TargetSnapshotSearchResult(
+            guard let kind else { continue }
+            let result = TargetSnapshotSearchResult(
                 snapshot: reference, record: record, header: manifest.header,
                 idColumn: manifest.idColumn, textColumn: manifest.textColumn, kind: kind
-            ))
+            )
+            if retainedCount < resultLimit {
+                buckets[kind, default: []].append(result)
+                retainedCount += 1
+            } else if let worstKind = TargetSnapshotMatchKind.allCases.reversed().first(where: {
+                !(buckets[$0] ?? []).isEmpty
+            }), kind < worstKind {
+                buckets[worstKind]?.removeLast()
+                buckets[kind, default: []].append(result)
+            }
         }
-        return TargetSnapshotMatchKind.allCases.flatMap { buckets[$0, default: []] }
+        return Array(TargetSnapshotMatchKind.allCases
+            .flatMap { buckets[$0, default: []] }
+            .prefix(resultLimit))
     }
 
     func recover() throws {
         try SecureFileAccess.validateStorageDirectory(root)
         let children = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         for child in children where child.lastPathComponent.hasPrefix(".snapshot-stage-") {
+            try Task.checkCancellation()
             try? removeSnapshotDirectory(child.lastPathComponent)
         }
         for child in children where !child.lastPathComponent.hasPrefix(".") {
+            try Task.checkCancellation()
             let digest = child.lastPathComponent
             guard TargetSnapshotReference(digest: digest, databaseIdentity: "", displayName: "", sourceKind: .custom).isValid else {
-                try? removeSnapshotDirectory(digest)
                 continue
             }
             let directory = root.appendingPathComponent(digest, isDirectory: true)
             let manifestURL = directory.appendingPathComponent(Self.manifestFilename)
             guard let descriptor = try? SecureFileAccess.openRegularFile(manifestURL, under: directory, maximumSize: Int64(Self.maxManifestBytes)) else {
-                try? removeSnapshotDirectory(digest)
+                try? quarantineSnapshotDirectory(digest)
                 continue
             }
-            let manifestData = try? SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: Self.maxManifestBytes)
+            let manifestData: Data?
+            do {
+                manifestData = try SecureFileAccess.readBounded(
+                    descriptor: descriptor,
+                    maximumSize: Self.maxManifestBytes
+                )
+            } catch {
+                close(descriptor)
+                if Task.isCancelled { throw TargetSnapshotError.cancelled }
+                try? quarantineSnapshotDirectory(digest)
+                continue
+            }
             close(descriptor)
             guard let manifestData,
                   let manifest = try? JSONDecoder().decode(TargetSnapshotManifest.self, from: manifestData),
                   manifest.digest == digest else {
-                try? removeSnapshotDirectory(digest)
+                try? quarantineSnapshotDirectory(digest)
                 continue
             }
             let reference = TargetSnapshotReference(digest: digest, sourceDigest: manifest.sourceDigest, databaseIdentity: manifest.databaseIdentity, displayName: manifest.displayName, sourceKind: manifest.sourceKind)
-            if (try? loadManifest(reference: reference)) == nil {
-                try? removeSnapshotDirectory(digest)
+            guard let manifest = try? loadManifest(reference: reference) else {
+                try? quarantineSnapshotDirectory(digest)
+                continue
+            }
+            do {
+                try validateSnapshot(reference: reference, directory: directory, expectedManifest: manifest)
+            } catch is CancellationError {
+                throw TargetSnapshotError.cancelled
+            } catch let error as TargetSnapshotError where error == .cancelled {
+                throw error
+            } catch {
+                try? quarantineSnapshotDirectory(digest)
             }
         }
     }
@@ -406,6 +637,7 @@ actor TargetSnapshotStore {
         let retained = Set(references.map(\.digest))
         let children = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         for child in children where !child.lastPathComponent.hasPrefix(".") {
+            try Task.checkCancellation()
             let leaf = child.lastPathComponent
             guard TargetSnapshotReference(digest: leaf, databaseIdentity: "", displayName: "", sourceKind: .custom).isValid else { continue }
             if !retained.contains(leaf) { try? removeSnapshotDirectory(leaf) }
@@ -415,17 +647,23 @@ actor TargetSnapshotStore {
     /// Validate a persisted manual selection against its immutable row before
     /// it is accepted by review storage or an exporter.
     func validate(selection: TargetSnapshotSelection, reference: TargetSnapshotReference) throws {
+        try Task.checkCancellation()
         guard selection.snapshotDigest == reference.digest else { throw TargetSnapshotError.invalidSelection }
         let manifest = try loadManifest(reference: reference)
         let directory = try snapshotDirectory(for: reference)
         try verifySourceDigest(reference: reference, directory: directory)
         let descriptor = try openVerifiedRecords(manifest: manifest, directory: directory)
         defer { close(descriptor) }
-        var reader = JSONLineReader(descriptor: descriptor, maximumLineBytes: Self.maxRecordBytes * 2)
+        var reader = JSONLineReader(
+            descriptor: descriptor,
+            maximumLineBytes: Self.maxSerializedRecordBytes,
+            maximumTotalBytes: maximumRecordsBytes(for: manifest)
+        )
         while let line = try reader.nextLine() {
+            try Task.checkCancellation()
             let record = try JSONDecoder().decode(TargetSnapshotRecord.self, from: line)
             guard record.values.count == manifest.header.count else { throw TargetSnapshotError.corruptSnapshot }
-            guard record.sourceRow != selection.sourceRow || record.fields(header: manifest.header) == selection.fields else {
+            guard record.sourceRow != selection.sourceRow || record.fields(header: manifest.header) != selection.fields else {
                 let fields = record.fields(header: manifest.header)
                 guard selection.matchText == fields[manifest.textColumn],
                       selection.matchID == manifest.idColumn.flatMap({ fields[$0] }) else {
@@ -441,6 +679,7 @@ actor TargetSnapshotStore {
         guard !selections.isEmpty else { return }
         guard let reference else { throw TargetSnapshotError.invalidSelection }
         for selection in selections {
+            try Task.checkCancellation()
             try validate(selection: selection, reference: reference)
         }
     }
@@ -504,7 +743,7 @@ actor TargetSnapshotStore {
         }
         let format = DataFileFormat.detect(from: CSVParser.stripBOM(headerText))
         rawReader.setDelimiter(format.delimiter)
-        let header = try parseRecord(headerData, delimiter: format.delimiter)
+        let header = try parseRecord(headerData, delimiter: format.delimiter, stripBOM: true)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard !header.isEmpty else { throw TargetSnapshotError.invalidManifest }
         guard header.count <= Self.maxHeaderColumns else { throw TargetSnapshotError.invalidManifest }
@@ -531,6 +770,8 @@ actor TargetSnapshotStore {
 
         let recordsDescriptor = try SecureFileAccess.createPrivateFile(Self.recordsFilename, in: stage)
         let records = FileHandle(fileDescriptor: recordsDescriptor, closeOnDealloc: true)
+        let recordEncoder = JSONEncoder()
+        recordEncoder.outputFormatting = [.sortedKeys]
         var rowCount = 0
         var recordsBytes = 0
         var recordsHasher = SHA256()
@@ -540,14 +781,24 @@ actor TargetSnapshotStore {
                 // `CSVParser.parseRecords` discards blank records. Keep that
                 // acceptance rule here so snapshot indexing and normal imports
                 // describe the same target table.
-                if raw.allSatisfy({ $0 == 0x20 || $0 == 0x09 }) { continue }
-                let values = try parseRecord(raw, delimiter: format.delimiter)
-                let sourceRow = rowCount + 2
-                guard values.count == header.count else {
-                    throw TargetSnapshotError.malformedRow(row: sourceRow, expected: header.count, actual: values.count)
+                if raw.isEmpty || raw.allSatisfy({ $0 == 0x20 || $0 == 0x09 }) { continue }
+                guard let parsedValues = try parseOptionalRecord(raw, delimiter: format.delimiter) else {
+                    continue
                 }
+                guard parsedValues.count <= header.count else {
+                    throw TargetSnapshotError.malformedRow(row: rowCount + 2, expected: header.count, actual: parsedValues.count)
+                }
+                // CSVParser fills missing trailing fields with empty strings.
+                // Keep the same row shape here so snapshot-backed identity
+                // cannot change the V1 import result.
+                let values = parsedValues + Array(repeating: "", count: header.count - parsedValues.count)
+                // CSVParser discards records whose fields are all whitespace.
+                // Do this after parsing so quoted empty fields follow the same
+                // rule as unquoted blank lines.
+                if values.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
+                let sourceRow = rowCount + 2
                 let record = TargetSnapshotRecord(sourceRow: sourceRow, values: values)
-                var encoded = try JSONEncoder().encode(record)
+                var encoded = try recordEncoder.encode(record)
                 encoded.append(0x0A)
                 let nextBytes = recordsBytes + encoded.count
                 guard nextBytes <= maximumRecordsBytes(forSourceBytes: maximumSourceBytes) else {
@@ -566,6 +817,7 @@ actor TargetSnapshotStore {
             throw error
         }
         guard rowCount > 0 else { throw TargetSnapshotError.invalidManifest }
+        let recordsDigest = recordsHasher.finalize().map { String(format: "%02x", $0) }.joined()
         let digest = Self.snapshotDigest(
             sourceDigest: sourceDigest,
             databaseIdentity: databaseIdentity,
@@ -575,7 +827,10 @@ actor TargetSnapshotStore {
             textColumn: cleanTextColumn,
             idColumn: cleanIDColumn?.isEmpty == true ? nil : cleanIDColumn,
             selectedFields: allSelected,
-            header: header
+            header: header,
+            rowCount: rowCount,
+            sourceOrder: "ascending-row",
+            recordsDigest: recordsDigest
         )
         return TargetSnapshotManifest(
             version: TargetSnapshotManifest.currentVersion,
@@ -592,15 +847,27 @@ actor TargetSnapshotStore {
             sourceOrder: "ascending-row",
             selectedFields: allSelected,
             sourceFilename: sourceFilename,
-            recordsDigest: recordsHasher.finalize().map { String(format: "%02x", $0) }.joined()
+            recordsDigest: recordsDigest
         )
     }
 
-    private func parseRecord(_ data: Data, delimiter: Character) throws -> [String] {
-        guard let string = String(data: data, encoding: .utf8) else { throw TargetSnapshotError.invalidManifest }
-        let records = try CSVParser.parseRecords(content: CSVParser.stripBOM(string), delimiter: delimiter)
-        guard records.count == 1, let values = records.first else { throw TargetSnapshotError.invalidManifest }
+    private func parseRecord(_ data: Data, delimiter: Character, stripBOM: Bool = false) throws -> [String] {
+        guard let values = try parseOptionalRecord(data, delimiter: delimiter, stripBOM: stripBOM) else {
+            throw TargetSnapshotError.invalidManifest
+        }
         return values
+    }
+
+    private func parseOptionalRecord(
+        _ data: Data,
+        delimiter: Character,
+        stripBOM: Bool = false
+    ) throws -> [String]? {
+        guard let string = String(data: data, encoding: .utf8) else { throw TargetSnapshotError.invalidManifest }
+        let content = stripBOM ? CSVParser.stripBOM(string) : string
+        let records = try CSVParser.parseRecords(content: content, delimiter: delimiter)
+        guard records.count <= 1 else { throw TargetSnapshotError.invalidManifest }
+        return records.first
     }
 
     private struct SnapshotPolicy: Encodable {
@@ -613,6 +880,9 @@ actor TargetSnapshotStore {
         let idColumn: String?
         let selectedFields: [String]
         let header: [String]
+        let rowCount: Int
+        let sourceOrder: String
+        let recordsDigest: String
     }
 
     private static func snapshotDigest(
@@ -624,9 +894,57 @@ actor TargetSnapshotStore {
         textColumn: String,
         idColumn: String?,
         selectedFields: [String],
-        header: [String]
+        header: [String],
+        rowCount: Int,
+        sourceOrder: String,
+        recordsDigest: String
     ) -> String {
         let policy = SnapshotPolicy(
+            sourceDigest: sourceDigest,
+            databaseIdentity: databaseIdentity,
+            displayName: displayName,
+            sourceKind: sourceKind,
+            delimiter: delimiter,
+            textColumn: textColumn,
+            idColumn: idColumn,
+            selectedFields: selectedFields,
+            header: header,
+            rowCount: rowCount,
+            sourceOrder: sourceOrder,
+            recordsDigest: recordsDigest
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(policy)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Version 2 used the source and matching policy as its directory digest,
+    /// but did not bind the serialized row hash. Keep this exact calculation
+    /// for old manifests while new captures use `snapshotDigest` above.
+    private static func legacySnapshotDigest(
+        sourceDigest: String,
+        databaseIdentity: String,
+        displayName: String,
+        sourceKind: TargetSnapshotSourceKind,
+        delimiter: String,
+        textColumn: String,
+        idColumn: String?,
+        selectedFields: [String],
+        header: [String]
+    ) -> String {
+        struct LegacyPolicy: Encodable {
+            let sourceDigest: String
+            let databaseIdentity: String
+            let displayName: String
+            let sourceKind: TargetSnapshotSourceKind
+            let delimiter: String
+            let textColumn: String
+            let idColumn: String?
+            let selectedFields: [String]
+            let header: [String]
+        }
+        let policy = LegacyPolicy(
             sourceDigest: sourceDigest,
             databaseIdentity: databaseIdentity,
             displayName: displayName,
@@ -656,7 +974,7 @@ actor TargetSnapshotStore {
         defer { close(descriptor) }
         let data = try SecureFileAccess.readBounded(descriptor: descriptor, maximumSize: Self.maxManifestBytes)
         let manifest = try JSONDecoder().decode(TargetSnapshotManifest.self, from: data)
-        guard manifest.version == TargetSnapshotManifest.currentVersion,
+        guard manifest.version == 1 || manifest.version == 2 || manifest.version == TargetSnapshotManifest.currentVersion,
               manifest.digest == reference.digest,
               manifest.sourceDigest == reference.sourceDigest,
               manifest.databaseIdentity == reference.databaseIdentity,
@@ -668,6 +986,8 @@ actor TargetSnapshotStore {
               manifest.delimiter == "," || manifest.delimiter == "\t",
               !manifest.header.isEmpty,
               manifest.header.count <= Self.maxHeaderColumns,
+              manifest.header.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              Set(manifest.header.map(Self.normalize)).count == manifest.header.count,
               manifest.header.contains(manifest.textColumn),
               manifest.idColumn.map(manifest.header.contains) ?? true,
               manifest.selectedFields.count <= Self.maxHeaderColumns,
@@ -677,17 +997,41 @@ actor TargetSnapshotStore {
               manifest.recordsDigest.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
             throw TargetSnapshotError.invalidManifest
         }
-        guard Self.snapshotDigest(
-            sourceDigest: manifest.sourceDigest,
-            databaseIdentity: manifest.databaseIdentity,
-            displayName: manifest.displayName,
-            sourceKind: manifest.sourceKind,
-            delimiter: manifest.delimiter,
-            textColumn: manifest.textColumn,
-            idColumn: manifest.idColumn,
-            selectedFields: manifest.selectedFields,
-            header: manifest.header
-        ) == manifest.digest else { throw TargetSnapshotError.invalidManifest }
+        if manifest.version == TargetSnapshotManifest.currentVersion {
+            guard Self.snapshotDigest(
+                sourceDigest: manifest.sourceDigest,
+                databaseIdentity: manifest.databaseIdentity,
+                displayName: manifest.displayName,
+                sourceKind: manifest.sourceKind,
+                delimiter: manifest.delimiter,
+                textColumn: manifest.textColumn,
+                idColumn: manifest.idColumn,
+                selectedFields: manifest.selectedFields,
+                header: manifest.header,
+                rowCount: manifest.rowCount,
+                sourceOrder: manifest.sourceOrder,
+                recordsDigest: manifest.recordsDigest
+            ) == manifest.digest else { throw TargetSnapshotError.invalidManifest }
+        } else if manifest.version == 2 {
+            // Version 2 used the matching policy as its directory digest but
+            // did not include recordsDigest. The source and records checks
+            // below still apply to this legacy format.
+            guard Self.legacySnapshotDigest(
+                sourceDigest: manifest.sourceDigest,
+                databaseIdentity: manifest.databaseIdentity,
+                displayName: manifest.displayName,
+                sourceKind: manifest.sourceKind,
+                delimiter: manifest.delimiter,
+                textColumn: manifest.textColumn,
+                idColumn: manifest.idColumn,
+                selectedFields: manifest.selectedFields,
+                header: manifest.header
+            ) == manifest.digest else { throw TargetSnapshotError.invalidManifest }
+        } else {
+            // Version 1 used the source-byte digest as its directory and
+            // manifest digest. The source and records checks below still apply.
+            guard manifest.sourceDigest == manifest.digest else { throw TargetSnapshotError.invalidManifest }
+        }
         return manifest
     }
 
@@ -716,7 +1060,20 @@ actor TargetSnapshotStore {
             maximumSize: Int64(maximumSourceBytes)
         )
         defer { close(descriptor) }
-        guard try digest(descriptor: descriptor) == reference.sourceDigest else {
+        var before = stat()
+        guard fstat(descriptor, &before) == 0,
+              before.st_size >= 0,
+              before.st_size <= off_t(maximumSourceBytes) else {
+            throw TargetSnapshotError.corruptSnapshot
+        }
+        let sourceDigest = try digest(descriptor: descriptor, maximumBytes: maximumSourceBytes)
+        var after = stat()
+        guard fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              after.st_size <= off_t(maximumSourceBytes),
+              sourceDigest == reference.sourceDigest else {
             throw TargetSnapshotError.corruptSnapshot
         }
     }
@@ -753,7 +1110,11 @@ actor TargetSnapshotStore {
     }
 
     private func verifyRecords(manifest: TargetSnapshotManifest, descriptor: Int32) throws {
-        var reader = JSONLineReader(descriptor: descriptor, maximumLineBytes: Self.maxRecordBytes * 2)
+        var reader = JSONLineReader(
+            descriptor: descriptor,
+            maximumLineBytes: Self.maxSerializedRecordBytes,
+            maximumTotalBytes: maximumRecordsBytes(for: manifest)
+        )
         var hasher = SHA256()
         var expectedSourceRow = 2
         var count = 0
@@ -776,11 +1137,16 @@ actor TargetSnapshotStore {
         }
     }
 
-    private func digest(descriptor: Int32) throws -> String {
+    private func digest(descriptor: Int32, maximumBytes: Int? = nil) throws -> String {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         var hasher = SHA256()
+        var totalBytes = 0
         while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
             if Task.isCancelled { throw TargetSnapshotError.cancelled }
+            totalBytes += chunk.count
+            if let maximumBytes, totalBytes > maximumBytes {
+                throw TargetSnapshotError.sourceTooLarge(actual: Int64(totalBytes), limit: maximumBytes)
+            }
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
@@ -798,16 +1164,40 @@ actor TargetSnapshotStore {
     }
 
     private func maximumRecordsBytes(forSourceBytes sourceBytes: Int) -> Int {
-        min(sourceBytes * 3, 2 * 1_024 * 1_024 * 1_024)
+        let cap = 2 * 1_024 * 1_024 * 1_024
+        let (scaled, overflow) = sourceBytes.multipliedReportingOverflow(by: 3)
+        return overflow ? cap : min(max(0, scaled), cap)
     }
 
     private func removeSnapshotDirectory(_ leaf: String) throws {
-        guard SecureFileAccess.safeLeaf(leaf), leaf.hasPrefix(".snapshot-stage-") || leaf.count == TargetSnapshotReference.digestLength else {
+        let validDigest = TargetSnapshotReference(
+            digest: leaf,
+            databaseIdentity: "",
+            displayName: "",
+            sourceKind: .custom
+        ).isValid
+        guard SecureFileAccess.safeLeaf(leaf), (leaf.hasPrefix(".snapshot-stage-") || validDigest) else {
             throw TargetSnapshotError.invalidReference
         }
         let directory = root.appendingPathComponent(leaf, isDirectory: true)
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         try SecureFileAccess.removePrivateDirectoryTree(leaf, from: root)
+    }
+
+    /// Move a corrupt, app-owned snapshot out of the visible digest namespace.
+    /// Quarantine entries are hidden and are never reused or reconciled.
+    private func quarantineSnapshotDirectory(_ digest: String) throws {
+        guard TargetSnapshotReference(
+            digest: digest,
+            databaseIdentity: "",
+            displayName: "",
+            sourceKind: .custom
+        ).isValid else { throw TargetSnapshotError.invalidReference }
+        let directory = root.appendingPathComponent(digest, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        guard (try? SecureFileAccess.validateStorageDirectory(directory)) != nil else { return }
+        let quarantine = ".snapshot-quarantine-\(digest.prefix(12))-\(UUID().uuidString.lowercased())"
+        try SecureFileAccess.rename(digest, from: root, to: quarantine, in: root)
     }
 
     private func generatedID(record: TargetSnapshotRecord) -> String {
@@ -831,10 +1221,12 @@ private struct LogicalRecordReader {
     private var buffer = Data()
     private var offset = 0
     private var record = Data()
+    private var fieldBytes = Data()
     private var quoted = false
     private var afterQuote = false
     private var fieldOnlyWhitespace = true
     private var delimiter: UInt8?
+    private var skipNextLF = false
 
     init(descriptor: Int32, maximumRecordBytes: Int) {
         self.descriptor = descriptor
@@ -847,89 +1239,129 @@ private struct LogicalRecordReader {
 
     mutating func nextRecord() throws -> Data? {
         while true {
+            try Task.checkCancellation()
             if offset == buffer.count {
                 let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
                 guard let next = try handle.read(upToCount: 65_536), !next.isEmpty else {
+                    if skipNextLF { skipNextLF = false }
                     guard !record.isEmpty else { return nil }
                     if afterQuote {
                         quoted = false
                         afterQuote = false
                     }
                     guard !quoted else { throw CSVParseError.unterminatedQuotedField }
-                    defer { record.removeAll(keepingCapacity: true) }
-                    return record
+                    return try finishRecord()
                 }
                 buffer = next
                 offset = 0
             }
             let byte = buffer[offset]
             offset += 1
+            if skipNextLF {
+                skipNextLF = false
+                if byte == 0x0A { continue }
+            }
             if quoted && afterQuote {
-                if byte == delimiter {
+                if byte == 0x22 {
+                    // An escaped quote is represented by two quote bytes. The
+                    // first byte set afterQuote; consume the second here.
+                    afterQuote = false
+                    appendByte(byte)
+                } else if delimiter.map({ byte == $0 }) ?? (byte == 0x2C || byte == 0x09) {
                     quoted = false
                     afterQuote = false
-                    fieldOnlyWhitespace = true
-                    record.append(byte)
+                    appendByte(byte)
+                    resetField()
                 } else if byte == 0x0A {
-                    quoted = false
-                    afterQuote = false
-                    if record.last == 0x0D { record.removeLast() }
-                    defer { record.removeAll(keepingCapacity: true) }
-                    return record
+                    return try finishRecord()
                 } else if byte == 0x0D {
-                    quoted = false
-                    afterQuote = false
-                    record.append(byte)
+                    skipNextLF = true
+                    return try finishRecord()
                 } else if byte == 0x20 || byte == 0x09 {
                     // CSVParser accepts whitespace after a quoted field. Keep
                     // the bytes so the shared parser makes the final decision.
-                    record.append(byte)
+                    appendByte(byte)
                 } else {
-                    throw CSVParseError.unexpectedCharacterAfterClosingQuote(Character(UnicodeScalar(byte)))
+                    // Keep the complete logical record. CSVParser is the
+                    // authority for whether post-quote bytes are whitespace
+                    // and for the exact parse error it reports.
+                    appendByte(byte)
                 }
             } else if quoted {
                 if byte == 0x22 {
                     afterQuote = true
                 }
-                record.append(byte)
-            } else if byte == 0x0A && !quoted {
-                if record.last == 0x0D { record.removeLast() }
-                defer {
-                    record.removeAll(keepingCapacity: true)
-                    afterQuote = false
-                    fieldOnlyWhitespace = true
-                }
-                return record
+                appendByte(byte)
+            } else if byte == 0x0A {
+                return try finishRecord()
+            } else if byte == 0x0D {
+                skipNextLF = true
+                return try finishRecord()
             } else {
-                if byte == 0x22, fieldOnlyWhitespace {
-                    quoted = true
-                    afterQuote = false
-                } else if byte == delimiter || (delimiter == nil && (byte == 0x2C || byte == 0x09)) {
-                    fieldOnlyWhitespace = true
-                } else if byte != 0x20 && byte != 0x09 && byte != 0x0D {
+                if byte == 0x22 {
+                    if fieldOnlyWhitespace,
+                       let field = String(data: fieldBytes, encoding: .utf8),
+                       field.trimmingCharacters(in: .whitespaces).isEmpty {
+                        quoted = true
+                        afterQuote = false
+                    } else {
+                        fieldOnlyWhitespace = false
+                    }
+                } else if delimiter.map({ byte == $0 }) ?? (byte == 0x2C || byte == 0x09) {
+                    appendByte(byte)
+                    resetField()
+                    continue
+                } else if byte < 0x80 && byte != 0x20 && byte != 0x09 && byte != 0x0D {
                     fieldOnlyWhitespace = false
                 }
-                record.append(byte)
+                appendByte(byte)
             }
             guard record.count <= maximumRecordBytes else { throw TargetSnapshotError.oversizedRecord }
         }
+    }
+
+    private mutating func appendByte(_ byte: UInt8) {
+        record.append(byte)
+        fieldBytes.append(byte)
+    }
+
+    private mutating func resetField() {
+        fieldBytes.removeAll(keepingCapacity: true)
+        fieldOnlyWhitespace = true
+    }
+
+    private mutating func finishRecord() throws -> Data {
+        guard record.count <= maximumRecordBytes else {
+            throw TargetSnapshotError.oversizedRecord
+        }
+        let result = record
+        record.removeAll(keepingCapacity: true)
+        fieldBytes.removeAll(keepingCapacity: true)
+        quoted = false
+        afterQuote = false
+        fieldOnlyWhitespace = true
+        return result
     }
 }
 
 private struct JSONLineReader {
     private let descriptor: Int32
     private let maximumLineBytes: Int
+    private let maximumTotalBytes: Int
     private var buffer = Data()
     private var offset = 0
     private var line = Data()
+    private var totalBytes = 0
 
-    init(descriptor: Int32, maximumLineBytes: Int) {
+    init(descriptor: Int32, maximumLineBytes: Int, maximumTotalBytes: Int) {
         self.descriptor = descriptor
         self.maximumLineBytes = maximumLineBytes
+        self.maximumTotalBytes = maximumTotalBytes
     }
 
     mutating func nextLine() throws -> Data? {
         while true {
+            try Task.checkCancellation()
             if offset == buffer.count {
                 let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
                 guard let next = try handle.read(upToCount: 65_536), !next.isEmpty else {
@@ -937,6 +1369,11 @@ private struct JSONLineReader {
                     defer { line.removeAll(keepingCapacity: true) }
                     return line
                 }
+                guard totalBytes <= maximumTotalBytes,
+                      next.count <= maximumTotalBytes - totalBytes else {
+                    throw TargetSnapshotError.corruptSnapshot
+                }
+                totalBytes += next.count
                 buffer = next
                 offset = 0
             }

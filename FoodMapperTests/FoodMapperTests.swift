@@ -200,7 +200,7 @@ final class TargetSnapshotTests: XCTestCase {
     }
 
     func testSnapshotParserMatchesBlankAndPostQuoteWhitespaceRules() async throws {
-        let source = try sourceURL("id,description\n\n1,\"Broccoli soup\"   \n \n2,\"Milk\" \n")
+        let source = try sourceURL("id,description\n\n1,\"Broccoli soup\"   \n \n,\"\"\n2,\"Milk\" \n")
         defer { try? FileManager.default.removeItem(at: source) }
         let input = try CSVParser.parse(content: String(contentsOf: source), url: source)
         let store = TargetSnapshotStore()
@@ -209,7 +209,108 @@ final class TargetSnapshotTests: XCTestCase {
             sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
         )
         XCTAssertEqual(snapshot.manifest.rowCount, input.rowCount)
-        XCTAssertEqual(try await store.search(reference: snapshot.reference, query: "broccoli soup").first?.matchID, "1")
+        let broccoliID = try await store.search(reference: snapshot.reference, query: "broccoli soup").first?.matchID
+        XCTAssertEqual(broccoliID, "1")
+        let entries = try await store.loadEntries(for: snapshot)
+        XCTAssertEqual(entries.compactMap { $0.targetRowKey?.sourceRow }, [2, 3])
+    }
+
+    func testSnapshotParserMatchesEscapedQuotesBOMAndMixedLineEndings() async throws {
+        let source = try sourceURL(
+            "\u{FEFF}id,description,note\r\n" +
+            "1,\"Chef \"\"special\"\" soup\",\"Line one\rLine two\"\r" +
+            "2,\"Broccoli soup\" \t,plain\r"
+        )
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let input = try CSVParser.parse(content: String(contentsOf: source), url: source)
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "parser-quote-cr", displayName: "Parser",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let entries = try await store.loadEntries(for: snapshot)
+
+        XCTAssertEqual(input.rowCount, 2)
+        XCTAssertEqual(snapshot.manifest.rowCount, input.rowCount)
+        XCTAssertEqual(entries[0].text, "Chef \"special\" soup")
+        XCTAssertEqual(entries[0].additionalFields["note"], "Line one\nLine two")
+        XCTAssertEqual(entries[1].text, "Broccoli soup")
+        XCTAssertEqual(entries[1].targetRowKey, TargetRowKey(targetDigest: snapshot.reference.digest, sourceRow: 3))
+    }
+
+    func testSnapshotParserMatchesUnicodeWhitespaceBeforeQuotedField() async throws {
+        let source = try sourceURL(
+            "id,description\n" +
+            "1,\u{00A0}\"Broccoli\n soup\"\n" +
+            "2,Milk\n"
+        )
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let input = try CSVParser.parse(content: String(contentsOf: source), url: source)
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "parser-unicode-whitespace", displayName: "Parser",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let entries = try await store.loadEntries(for: snapshot)
+
+        XCTAssertEqual(input.rowCount, 2)
+        XCTAssertEqual(input.rows.first?["description"], "Broccoli\n soup")
+        XCTAssertEqual(entries.first?.text, "Broccoli\n soup")
+        XCTAssertEqual(entries.count, input.rowCount)
+    }
+
+    func testSnapshotPadsMissingTrailingFieldsLikeCSVParser() async throws {
+        let source = try sourceURL("id,description,note\n1,Milk\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let parsed = try CSVParser.parse(content: String(contentsOf: source), url: source)
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "parser-missing-trailing", displayName: "Parser",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let entries = try await store.loadEntries(for: snapshot)
+
+        XCTAssertEqual(parsed.rowCount, snapshot.manifest.rowCount)
+        XCTAssertEqual(entries.first?.text, "Milk")
+        XCTAssertTrue(entries.first?.additionalFields.isEmpty == true)
+    }
+
+    func testSnapshotPreservesADataBOMAfterTheHeader() async throws {
+        let source = try sourceURL("id,description\n1,\"\u{FEFF}Milk\"\n")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let parsed = try CSVParser.parse(content: String(contentsOf: source), url: source)
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "parser-data-bom", displayName: "Parser",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let entries = try await store.loadEntries(for: snapshot)
+
+        XCTAssertEqual(parsed.rows.first?["description"], "\u{FEFF}Milk")
+        XCTAssertEqual(entries.first?.text, "\u{FEFF}Milk")
+    }
+
+    func testTargetSearchUsesOneLimitAfterMatchTierOrdering() async throws {
+        let source = try sourceURL(
+            "id,description\n" +
+            "1,broccoli soup\n" +
+            "2,broccoli\n" +
+            "3,broccoli\n"
+        )
+        defer { try? FileManager.default.removeItem(at: source) }
+        let store = TargetSnapshotStore()
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "search-limit", displayName: "Search",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+
+        let results = try await store.search(reference: snapshot.reference, query: "broccoli", limit: 2)
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(results.map(\.kind), [.exactDescription, .exactDescription])
+        XCTAssertEqual(results.map(\.record.sourceRow), [3, 4])
     }
 
     func testManualSelectionBindsDuplicateIDToExactSnapshotRow() async throws {
@@ -225,6 +326,7 @@ final class TargetSnapshotTests: XCTestCase {
         XCTAssertEqual(rows[0].matchID, rows[1].matchID)
         XCTAssertNotEqual(rows[0].selection.sourceRow, rows[1].selection.sourceRow)
         XCTAssertNotEqual(rows[0].selection.fields, rows[1].selection.fields)
+        XCTAssertNotEqual(rows[0].targetRowKey, rows[1].targetRowKey)
         try await store.validate(selection: rows[1].selection, reference: snapshot.reference)
 
         var fabricated = rows[1].selection
@@ -248,6 +350,291 @@ final class TargetSnapshotTests: XCTestCase {
         }
     }
 
+    func testTypedFooDBDuplicateIDsStayOnTheSelectedRowDuringExport() {
+        let digest = String(repeating: "a", count: TargetRowKey.digestLength)
+        let firstKey = TargetRowKey(targetDigest: digest, sourceRow: 2)
+        let secondKey = TargetRowKey(targetDigest: digest, sourceRow: 3)
+        let first = MatchCandidate(
+            matchText: "Broccoli soup", matchID: "9", score: 0.8,
+            additionalFields: ["energy": "44"], targetRowKey: firstKey
+        )
+        let second = MatchCandidate(
+            matchText: "Broccoli soup", matchID: "9", score: 0.7,
+            additionalFields: ["energy": "61"], targetRowKey: secondKey
+        )
+        let result = MatchResult(
+            inputText: "broccoli soup", inputRow: 0, matchText: first.matchText, matchID: first.matchID,
+            score: first.score, status: .match, matchAdditionalFields: first.additionalFields,
+            candidates: [first, second], targetRowKey: firstKey
+        )
+        let keyedDecision = ReviewDecision(
+            status: .overridden, overrideMatchText: second.matchText, overrideMatchID: second.matchID,
+            overrideScore: second.score, note: nil, reviewedAt: nil,
+            selectedTargetRowKey: secondKey
+        )
+        let keyedCSV = CSVExporter.export(
+            results: [result], pipelineName: "Test", selectedColumn: "input",
+            targetTextColumn: "description", targetIdColumn: "id",
+            targetColumnNames: ["id", "description", "energy"], reviewDecisions: [result.id: keyedDecision]
+        )
+
+        XCTAssertTrue(keyedCSV.contains("9,Broccoli soup,61"))
+        XCTAssertFalse(keyedCSV.contains("9,Broccoli soup,44"))
+
+        let partialCSV = CSVExporter.export(
+            results: [result], pipelineName: "Test", selectedColumn: "input",
+            reviewDecisions: [result.id: ReviewDecision(
+                status: .overridden, overrideMatchText: second.matchText, overrideMatchID: second.matchID,
+                overrideScore: nil, note: nil, reviewedAt: nil,
+                manualTargetSelection: TargetSnapshotSelection(
+                    targetRowKey: secondKey, matchText: second.matchText, matchID: second.matchID,
+                    fields: ["id": "9", "description": "Broccoli soup", "energy": "61"]
+                ), selectedTargetRowKey: secondKey
+            )]
+        )
+        XCTAssertTrue(partialCSV.contains("db_energy"))
+        XCTAssertTrue(partialCSV.contains("61"))
+
+        let ambiguousDecision = ReviewDecision(
+            status: .overridden, overrideMatchText: second.matchText, overrideMatchID: second.matchID,
+            overrideScore: second.score, note: nil, reviewedAt: nil
+        )
+        let ambiguousCSV = CSVExporter.export(
+            results: [result], pipelineName: "Test", selectedColumn: "input",
+            targetTextColumn: "description", targetIdColumn: "id",
+            targetColumnNames: ["id", "description", "energy"], reviewDecisions: [result.id: ambiguousDecision]
+        )
+
+        XCTAssertFalse(ambiguousCSV.contains("Broccoli soup,44"))
+        XCTAssertFalse(ambiguousCSV.contains("Broccoli soup,61"))
+    }
+
+    func testCandidateDedupeKeyKeepsDistinctRowsWithTheSameID() {
+        let digest = String(repeating: "c", count: TargetRowKey.digestLength)
+        let firstCandidateID = UUID()
+        let first = MatchCandidate(
+            id: firstCandidateID, matchText: "Broccoli soup", matchID: "9", score: 0.8,
+            additionalFields: ["energy": "44"],
+            targetRowKey: TargetRowKey(targetDigest: digest, sourceRow: 2)
+        )
+        let second = MatchCandidate(
+            matchText: "Broccoli soup", matchID: "9", score: 0.7,
+            additionalFields: ["energy": "61"],
+            targetRowKey: TargetRowKey(targetDigest: digest, sourceRow: 3)
+        )
+        let duplicate = MatchCandidate(
+            id: firstCandidateID, matchText: "Broccoli soup", matchID: "9", score: 0.6,
+            additionalFields: ["energy": "44"],
+            targetRowKey: TargetRowKey(targetDigest: digest, sourceRow: 2)
+        )
+
+        XCTAssertNotEqual(first.deduplicationKey, second.deduplicationKey)
+        XCTAssertEqual(first.deduplicationKey, duplicate.deduplicationKey)
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(first, duplicate)
+    }
+
+    func testBundledFooDBDuplicateIDsKeepDistinctSnapshotKeys() async throws {
+        guard BuiltInDatabase.fooDB.csvURL != nil else {
+            throw XCTSkip("FooDB resource is not present")
+        }
+        let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "foodb-duplicates-\(UUID().uuidString)"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TargetSnapshotStore(root: root)
+        let snapshot = try await store.capture(database: .builtIn(.fooDB))
+        let entries = try await store.loadEntries(for: snapshot)
+        let duplicateRows = try XCTUnwrap(
+            Dictionary(grouping: entries, by: \.id).values.first(where: { $0.count > 1 })
+        )
+        let keys = try duplicateRows.map { try XCTUnwrap($0.targetRowKey) }
+
+        XCTAssertGreaterThan(keys.count, 1)
+        XCTAssertEqual(Set(keys).count, keys.count)
+        XCTAssertEqual(Set(keys.map(\.sourceRow)).count, keys.count)
+    }
+
+    func testLegacySnapshotSchemasAndResultsDecodeWithoutRowKeys() throws {
+        let digest = String(repeating: "b", count: TargetSnapshotReference.digestLength)
+        let referenceData = try JSONSerialization.data(withJSONObject: [
+            "digest": digest,
+            "databaseIdentity": "legacy",
+            "displayName": "Legacy",
+            "sourceKind": "custom"
+        ])
+        let reference = try JSONDecoder().decode(TargetSnapshotReference.self, from: referenceData)
+        XCTAssertEqual(reference.sourceDigest, digest)
+
+        let manifestData = try JSONSerialization.data(withJSONObject: [
+            "digest": digest,
+            "databaseIdentity": "legacy",
+            "displayName": "Legacy",
+            "sourceKind": "custom",
+            "delimiter": ",",
+            "header": ["id", "description"],
+            "idColumn": "id",
+            "textColumn": "description",
+            "rowCount": 1,
+            "sourceOrder": "ascending-row",
+            "sourceFilename": "target.csv",
+            "recordsDigest": digest
+        ])
+        let manifest = try JSONDecoder().decode(TargetSnapshotManifest.self, from: manifestData)
+        XCTAssertEqual(manifest.version, 1)
+        XCTAssertEqual(manifest.sourceDigest, digest)
+        XCTAssertEqual(manifest.selectedFields, ["id", "description"])
+
+        let selectionData = try JSONSerialization.data(withJSONObject: [
+            "snapshotDigest": digest,
+            "sourceRow": 2,
+            "matchText": "Milk",
+            "matchID": "1",
+            "fields": ["id": "1", "description": "Milk"]
+        ])
+        let selection = try JSONDecoder().decode(TargetSnapshotSelection.self, from: selectionData)
+        XCTAssertEqual(selection.targetRowKey, TargetRowKey(targetDigest: digest, sourceRow: 2))
+
+        let result = MatchResult(
+            inputText: "milk", inputRow: 0, matchText: "Milk", matchID: "1", score: 0.9,
+            status: .match, targetRowKey: TargetRowKey(targetDigest: digest, sourceRow: 2)
+        )
+        var resultObject = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? [String: Any])
+        resultObject.removeValue(forKey: "targetRowKey")
+        let legacyResultData = try JSONSerialization.data(withJSONObject: resultObject)
+        let legacyResult = try JSONDecoder().decode(MatchResult.self, from: legacyResultData)
+        XCTAssertNil(legacyResult.targetRowKey)
+
+        let legacyDecisionData = Data(#"{"status":"overridden","overrideMatchText":"Milk","overrideMatchID":"1","overrideScore":0.9}"#.utf8)
+        let legacyDecision = try JSONDecoder().decode(ReviewDecision.self, from: legacyDecisionData)
+        XCTAssertNil(legacyDecision.selectedTargetRowKey)
+    }
+
+    func testSessionIndexSkipsOneInvalidLegacyRecord() throws {
+        let valid = MatchingSession(
+            inputFileName: "input.csv", databaseName: "Target", threshold: 0.5,
+            totalCount: 1, matchedCount: 1, resultsFilename: "valid.json", date: Date(timeIntervalSince1970: 0)
+        )
+        let validObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(valid)) as? [String: Any]
+        )
+        var invalidObject = validObject
+        invalidObject["resultsFilename"] = "../outside.json"
+        let data = try JSONSerialization.data(withJSONObject: [validObject, invalidObject])
+
+        let decoded = try AppState.decodePersistedSessions(data)
+
+        XCTAssertEqual(decoded.sessions.count, 1)
+        XCTAssertEqual(decoded.sessions.first?.resultsFilename, "valid.json")
+        XCTAssertEqual(decoded.skippedCount, 1)
+    }
+
+    func testTamperedSnapshotIsQuarantinedBeforeReuse() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "tampered-\(UUID().uuidString)"])
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let store = TargetSnapshotStore(root: root)
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "tampered", displayName: "Tampered",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let records = root.appendingPathComponent(snapshot.reference.digest, isDirectory: true)
+            .appendingPathComponent(TargetSnapshotStore.recordsFilename)
+        try Data("not-json\n".utf8).write(to: records, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: records.path)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.search(reference: snapshot.reference, query: "milk")
+        }
+        try await store.recover()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(snapshot.reference.digest).path))
+        let quarantined = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".snapshot-quarantine-") }
+        XCTAssertEqual(quarantined.count, 1)
+
+        let repaired = try await store.capture(
+            sourceURL: source, databaseIdentity: "tampered", displayName: "Tampered",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        XCTAssertEqual(repaired.reference.digest, snapshot.reference.digest)
+        let repairedSearchCount = try await store.search(reference: repaired.reference, query: "milk").count
+        XCTAssertEqual(repairedSearchCount, 1)
+    }
+
+    func testSnapshotDigestBindsRecordsDigest() async throws {
+        let source = try sourceURL("id,description\n1,Milk\n")
+        let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "bound-records-\(UUID().uuidString)"])
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let store = TargetSnapshotStore(root: root)
+        let snapshot = try await store.capture(
+            sourceURL: source, databaseIdentity: "bound-records", displayName: "Bound Records",
+            sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
+        )
+        let directory = root.appendingPathComponent(snapshot.reference.digest, isDirectory: true)
+        let recordsURL = directory.appendingPathComponent(TargetSnapshotStore.recordsFilename)
+        let originalRecords = try String(contentsOf: recordsURL, encoding: .utf8)
+        let tamperedRecords = originalRecords.replacingOccurrences(of: "Milk", with: "Rice")
+        try tamperedRecords.write(to: recordsURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: recordsURL.path)
+
+        let manifestURL = directory.appendingPathComponent(TargetSnapshotStore.manifestFilename)
+        var manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        manifest["recordsDigest"] = CustomDatabaseValidator.digest(Data(tamperedRecords.utf8))
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await store.search(reference: snapshot.reference, query: "rice")
+        }
+        try await store.recover()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testSuppliedFoodFilesKeepTargetRowsAddressable() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let downloads = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        let targetURL = environment["FOODMAPPER_TEST_TARGET_PATH"]
+            .map(URL.init(fileURLWithPath:))
+            ?? downloads.appendingPathComponent("fndds0304food.csv")
+        let inputURL = environment["FOODMAPPER_TEST_INPUT_PATH"]
+            .map(URL.init(fileURLWithPath:))
+            ?? downloads.appendingPathComponent("ing0304_2or98_missing.csv")
+        guard FileManager.default.fileExists(atPath: targetURL.path),
+              FileManager.default.fileExists(atPath: inputURL.path) else {
+            throw XCTSkip("Supplied food files are not present")
+        }
+
+        let target = try await CSVParser.parse(url: targetURL)
+        let input = try await CSVParser.parse(url: inputURL)
+        let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "supplied-\(UUID().uuidString)"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TargetSnapshotStore(root: root)
+        let snapshot = try await store.capture(
+            sourceURL: targetURL, databaseIdentity: "fndds0304food", displayName: "FNDDS",
+            sourceKind: .custom, textColumn: "fooddesc0304", idColumn: "foodcode0304", requireSourceOwner: true
+        )
+        let reportedInput = "SOUP,BROCCOLI CHS,CND,COND,COMM"
+        let reportedTarget = "Broccoli cheese soup, prepared with milk"
+        let reportedInputRow = input.rows.first { $0["ingcode0304"] == "6584" }
+        let hits = try await store.search(reference: snapshot.reference, query: reportedTarget)
+        let entries = try await store.loadEntries(for: snapshot)
+
+        XCTAssertTrue(input.columns.contains("ingdesc0304"))
+        XCTAssertEqual(reportedInputRow?["ingdesc0304"], reportedInput)
+        XCTAssertEqual(snapshot.manifest.rowCount, target.rowCount)
+        XCTAssertEqual(hits.first?.matchText, reportedTarget)
+        XCTAssertEqual(hits.first?.matchID, "72302100")
+        XCTAssertEqual(hits.first?.record.sourceRow, 5238)
+        XCTAssertEqual(entries.first?.targetRowKey, TargetRowKey(targetDigest: snapshot.reference.digest, sourceRow: 2))
+    }
+
     func testExportUsesReviewedCandidateIndexForDuplicateIDs() {
         let first = MatchCandidate(matchText: "Broccoli soup", matchID: "9", score: 0.8, additionalFields: ["energy": "44"])
         let second = MatchCandidate(matchText: "Broccoli soup", matchID: "9", score: 0.7, additionalFields: ["energy": "61"])
@@ -256,6 +643,7 @@ final class TargetSnapshotTests: XCTestCase {
             score: first.score, status: .match, matchAdditionalFields: first.additionalFields,
             candidates: [first, second]
         )
+        XCTAssertFalse(result.isPipelineMatch(second))
         let decision = ReviewDecision(
             status: .overridden, overrideMatchText: second.matchText, overrideMatchID: second.matchID,
             overrideScore: second.score, note: nil, reviewedAt: nil, selectedCandidateIndex: 1
@@ -282,7 +670,8 @@ final class TargetSnapshotTests: XCTestCase {
             sourceKind: .custom, textColumn: "description", idColumn: "id", requireSourceOwner: true
         )
         try await store.reconcile(retaining: [snapshot.reference])
-        XCTAssertEqual(try await store.search(reference: snapshot.reference, query: "milk").count, 1)
+        let retainedSearchCount = try await store.search(reference: snapshot.reference, query: "milk").count
+        XCTAssertEqual(retainedSearchCount, 1)
         try await store.reconcile(retaining: [])
         await XCTAssertThrowsErrorAsync {
             _ = try await store.search(reference: snapshot.reference, query: "milk")

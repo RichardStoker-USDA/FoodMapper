@@ -17,8 +17,7 @@ enum CSVExporter {
         // Detect LLM override: LLM selected a different candidate than embedding's top-1
         if result.scoreType == .llmSelected,
            let firstCandidate = result.candidates?.first,
-           result.matchID != nil,
-           result.matchID != firstCandidate.matchID {
+           !sameTarget(result, firstCandidate) {
             if let decision = decision {
                 switch decision.status {
                 case .accepted: return "Match (confirmed)"
@@ -81,11 +80,17 @@ enum CSVExporter {
         return targetColumnNames.map { col in
             if col == targetTextColumn {
                 if useOverride {
+                    if let manualSelection = decision?.manualTargetSelection {
+                        return manualSelection.matchText
+                    }
                     return decision?.overrideMatchText ?? result.matchText ?? ""
                 }
                 return result.matchText ?? ""
             } else if col == targetIdColumn {
                 if useOverride {
+                    if let manualSelection = decision?.manualTargetSelection {
+                        return manualSelection.matchID ?? ""
+                    }
                     return decision?.overrideMatchID ?? result.matchID ?? ""
                 }
                 return result.matchID ?? ""
@@ -96,6 +101,12 @@ enum CSVExporter {
                 // Additional fields: use override candidate's fields if available
                 if let candidate = overrideCandidate {
                     return candidate.additionalFields?[col] ?? ""
+                }
+                if useOverride {
+                    // Do not combine an override's text/ID with the original
+                    // row's metadata when an old duplicate-ID decision cannot
+                    // be resolved to one candidate.
+                    return ""
                 }
                 return result.matchAdditionalFields?[col] ?? ""
             }
@@ -293,7 +304,7 @@ enum CSVExporter {
         }
 
         // Fallback: generic column names for old sessions without target metadata
-        let additionalKeys = collectAdditionalFieldKeys(from: results)
+        let additionalKeys = collectAdditionalFieldKeys(from: results, decisions: reviewDecisions)
         var headerCols = ["row", "input", "match", "match_id", "fm_status", "fm_score", "fm_pipeline", "fm_note"]
         if detailed {
             if includeReasoning { headerCols.append("fm_reasoning") }
@@ -313,8 +324,12 @@ enum CSVExporter {
                 matchText = ""
                 matchId = ""
             } else if decision?.status == .overridden {
-                matchText = decision?.overrideMatchText ?? result.matchText ?? ""
-                matchId = decision?.overrideMatchID ?? result.matchID ?? ""
+                matchText = decision?.manualTargetSelection?.matchText
+                    ?? decision?.overrideMatchText
+                    ?? result.matchText ?? ""
+                matchId = decision?.manualTargetSelection?.matchID
+                    ?? decision?.overrideMatchID
+                    ?? result.matchID ?? ""
             } else {
                 matchText = result.matchText ?? ""
                 matchId = result.matchID ?? ""
@@ -362,6 +377,8 @@ enum CSVExporter {
                 for key in additionalKeys {
                     if let candidate = overrideCandidate {
                         row.append(escapeField(candidate.additionalFields?[key] ?? "", delimiter: delim))
+                    } else if decision?.status == .overridden {
+                        row.append("")
                     } else {
                         row.append(escapeField(result.matchAdditionalFields?[key] ?? "", delimiter: delim))
                     }
@@ -377,25 +394,56 @@ enum CSVExporter {
     // MARK: - Helpers
 
     /// A target identifier can legitimately occur in more than one source row.
-    /// Preserve the reviewed candidate's original position when it is present;
-    /// older decisions fall back to the historic ID lookup.
+    /// Resolve a reviewed candidate by durable row identity first. Older
+    /// decisions use their saved array index, then an ID only when that ID is
+    /// unique in the result's candidate list.
     private static func overrideCandidate(for result: MatchResult, decision: ReviewDecision?) -> MatchCandidate? {
         guard decision?.status == .overridden else { return nil }
+        if let key = decision?.selectedTargetRowKey {
+            return result.candidates?.first(where: { $0.targetRowKey == key })
+        }
         if let index = decision?.selectedCandidateIndex,
            let candidates = result.candidates,
            candidates.indices.contains(index) {
             return candidates[index]
         }
         guard let overrideID = decision?.overrideMatchID else { return nil }
-        return result.candidates?.first(where: { $0.matchID == overrideID })
+        let matches = result.candidates?.filter { $0.matchID == overrideID } ?? []
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private static func sameTarget(_ result: MatchResult, _ candidate: MatchCandidate) -> Bool {
+        switch (result.targetRowKey, candidate.targetRowKey) {
+        case let (.some(resultKey), .some(candidateKey)):
+            return resultKey == candidateKey
+        case (.some, .none), (.none, .some):
+            return false
+        case (.none, .none):
+            if let resultID = result.matchID, let candidateID = candidate.matchID {
+                guard resultID == candidateID else { return false }
+                let sameIDCandidates = result.candidates?.filter { $0.matchID == resultID } ?? []
+                return sameIDCandidates.count <= 1
+            }
+            guard result.matchText == candidate.matchText else { return false }
+            let sameTextCandidates = result.candidates?.filter {
+                $0.matchText == result.matchText
+            } ?? []
+            return sameTextCandidates.count <= 1
+        }
     }
 
     /// Collect all unique additional field keys from results, sorted alphabetically
-    private static func collectAdditionalFieldKeys(from results: [MatchResult]) -> [String] {
+    private static func collectAdditionalFieldKeys(
+        from results: [MatchResult],
+        decisions: [UUID: ReviewDecision]
+    ) -> [String] {
         var keySet = Set<String>()
         for result in results {
             if let fields = result.matchAdditionalFields {
                 keySet.formUnion(fields.keys)
+            }
+            if let manualFields = decisions[result.id]?.manualTargetSelection?.fields {
+                keySet.formUnion(manualFields.keys)
             }
         }
         return keySet.sorted()

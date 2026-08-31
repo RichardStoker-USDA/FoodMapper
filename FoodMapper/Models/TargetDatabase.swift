@@ -974,10 +974,17 @@ struct DatabaseEntry: Identifiable, Codable {
     let id: String
     let text: String
     let additionalFields: [String: String]
+    let targetRowKey: TargetRowKey?
 
-    init(id: String, text: String, additionalFields: [String: String] = [:]) {
+    init(
+        id: String,
+        text: String,
+        additionalFields: [String: String] = [:],
+        targetRowKey: TargetRowKey? = nil
+    ) {
         self.id = id
         self.text = text
         self.additionalFields = additionalFields
+        self.targetRowKey = targetRowKey
     }
 }

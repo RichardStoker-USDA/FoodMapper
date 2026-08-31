@@ -1022,7 +1022,7 @@ private struct HelpReviewWorkflowContent: View {
                 Text("Override Search")
                     .font(.headline)
 
-                Text("If the right match is not in the displayed alternatives, open Manual Override and search the deduplicated union of candidate database entries retained for the current session. Type at least 2 characters to search. This is not a full target-database search. Click a result to set it as the match.")
+                Text("If the right match is not in the displayed alternatives, open Manual Override and type at least 2 characters. Sessions with a valid saved target snapshot search every row in that frozen database and show the source row and database name. Older sessions, or sessions whose snapshot cannot be opened, search the candidate entries retained for the session. Click a result to set it as the match.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -1286,7 +1286,7 @@ private struct HelpExportingContent: View {
                 Text("Override Handling")
                     .font(.headline)
 
-                Text("The export records override status, selected text, ID, and score. Extra target fields come from an override only when that candidate is retained in the result's candidate list. Otherwise those fields use the original selected target when available. No-match rows have empty target columns. If input and target databases share a column name, the target column gets a \" (target)\" suffix.")
+                Text("The export records override status, selected text, ID, and a score when the selected candidate was scored. A full-target manual selection keeps the complete selected target row and leaves its score empty. Older candidate-only overrides use the target fields retained with that candidate. No-match rows have empty target columns. If input and target databases share a column name, the target column gets a \" (target)\" suffix.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }

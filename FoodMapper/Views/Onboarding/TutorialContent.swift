@@ -123,7 +123,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 10,
             title: "Pick an Alternative",
-            body: "The candidate list shows retrieved candidate database entries ranked by score. Click any candidate to select it. During Guided Review, press 1\u{2013}5 to select a candidate by rank. Manual Override searches candidate entries retained across the current session, not the full target database.",
+            body: "The candidate list shows retrieved target entries ranked by score. Click any candidate to select it. During Guided Review, press 1\u{2013}5 to select a candidate by rank. Manual Override searches every row in the target database saved with this session. Older sessions without a saved target use their retained candidates.",
             icon: "arrow.triangle.swap",
             highlightAnchors: ["inspectorCandidates"],
             coachMarkPosition: .left,

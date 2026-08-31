@@ -130,7 +130,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                             matchText: candidate.entry.text,
                             matchID: candidate.entry.id,
                             score: Double(candidate.score),
-                            additionalFields: candidate.entry.additionalFields
+                            additionalFields: candidate.entry.additionalFields,
+                            targetRowKey: candidate.entry.targetRowKey
                         )
                     }
                     finalResults[inputIndex] = MatchResult(
@@ -264,7 +265,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         matchText: candidate.entry.text,
                         matchID: candidate.entry.id,
                         score: Double(candidate.score),
-                        additionalFields: candidate.entry.additionalFields
+                        additionalFields: candidate.entry.additionalFields,
+                        targetRowKey: candidate.entry.targetRowKey
                     )
                 }
 
@@ -283,7 +285,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         scoreType: .llmSelected,
                         llmReasoning: reasoning,
                         matchAdditionalFields: bestCandidate.entry.additionalFields,
-                        candidates: matchCandidates
+                        candidates: matchCandidates,
+                        targetRowKey: bestCandidate.entry.targetRowKey
                     )
 
                 case .review(let reviewIndex):
@@ -299,7 +302,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         scoreType: .llmSelected,
                         llmReasoning: "Flagged for review: candidate \(reviewIndex + 1) (\(reviewCandidate.entry.text)) is a possible but uncertain match",
                         matchAdditionalFields: reviewCandidate.entry.additionalFields,
-                        candidates: matchCandidates
+                        candidates: matchCandidates,
+                        targetRowKey: reviewCandidate.entry.targetRowKey
                     )
 
                 case .noMatch:
@@ -322,7 +326,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         matchText: candidate.entry.text,
                         matchID: candidate.entry.id,
                         score: Double(candidate.score),
-                        additionalFields: candidate.entry.additionalFields
+                        additionalFields: candidate.entry.additionalFields,
+                        targetRowKey: candidate.entry.targetRowKey
                     )
                 }
                 if score >= threshold {
@@ -335,7 +340,8 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
                         status: .match,
                         scoreType: .apiFallback,
                         matchAdditionalFields: topCandidate.entry.additionalFields,
-                        candidates: matchCandidates
+                        candidates: matchCandidates,
+                        targetRowKey: topCandidate.entry.targetRowKey
                     )
                 } else {
                     finalResults[task.originalIndex] = MatchResult(
