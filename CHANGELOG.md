@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.6 (2026-08-31)
+
+Manual Override, model setup, and data handling fixes.
+
+### Fixes
+- Manual Override now searches every row in the target database saved with a new session instead of only the retained candidates
+- Manual selections retain the selected target ID and row fields in exports without assigning a similarity score
+- Existing verified GTE-Large installations remain valid after model-card metadata changes
+- CSV and TSV imports handle escaped quotes, quoted newlines, CRLF records, and duplicate headers; inconsistent row widths are rejected
+- Interrupted custom-database and cache updates recover without replacing a valid stored database with partial files
+
+### Improvements
+- GTE-Large weights can download through four checked byte ranges when the server supports range requests
+- Model download progress, cancellation, retry state, speed, and time estimates reset for each attempt
+- Existing Anthropic API keys move from app preferences into the macOS Keychain after the Keychain write succeeds
+- Advanced Help sections remain hidden until advanced options are enabled
+- In-app publication links and research figures match the published paper
+
+---
+
 ## 0.1.5 (2026-03-06)
 
 Sonoma compatibility fixes for Research Showcase animations.

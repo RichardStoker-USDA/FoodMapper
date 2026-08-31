@@ -262,10 +262,13 @@ is_xcode_26_6_version() {
 require_xcode_26_6() {
     local version version_output
     : "${DEVELOPER_DIR:?Set DEVELOPER_DIR to the Xcode 26.6 developer directory.}"
-    [ "$DEVELOPER_DIR" = "/Applications/Xcode_26.6.app/Contents/Developer" ] || {
-        printf '%s\n' "The isolated test suite requires /Applications/Xcode_26.6.app." >&2
-        return 1
-    }
+    case "$DEVELOPER_DIR" in
+        /Applications/Xcode.app/Contents/Developer|/Applications/Xcode_26.6.app/Contents/Developer) ;;
+        *)
+            printf '%s\n' "The isolated test suite requires Xcode 26.6 from /Applications/Xcode.app or /Applications/Xcode_26.6.app." >&2
+            return 1
+            ;;
+    esac
     [ -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ] || {
         printf '%s\n' "Xcode 26.6 is not available at DEVELOPER_DIR." >&2
         return 1
