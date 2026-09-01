@@ -717,6 +717,7 @@ final class AppState: ObservableObject {
     @Published var tourEmbeddingResults: [MatchResult]? = nil
     @Published var tourEmbeddingProgress: Double = 0
     @Published var tourEmbeddingError: String? = nil
+    var hasPresentedResearchCue = false
 
     // Tour hybrid matching state
     @Published var tourHybridResults: [MatchResult]? = nil

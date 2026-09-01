@@ -4,8 +4,10 @@ import SwiftUI
 /// Three action cards: New Match, Custom Database, Behind the Research.
 struct WelcomeLandingView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hoveredCard: String?
     @State private var hoveredSession: MatchingSession.ID?
+    @State private var researchCueValue = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -60,7 +62,8 @@ struct WelcomeLandingView: View {
                     title: "New Match",
                     subtitle: "Start matching food descriptions",
                     isHovered: hoveredCard == "new",
-                    emphasis: .standard
+                    emphasis: .standard,
+                    attentionValue: 0
                 ) {
                     guard !appState.showTutorial || appState.tutorialState.currentStep == 2 else { return }
                     appState.startNewMatch()
@@ -74,7 +77,8 @@ struct WelcomeLandingView: View {
                     title: "Custom Database",
                     subtitle: "Add your own database",
                     isHovered: hoveredCard == "custom",
-                    emphasis: .standard
+                    emphasis: .standard,
+                    attentionValue: 0
                 ) {
                     guard !appState.showTutorial else { return }
                     appState.sidebarSelection = .databases
@@ -87,7 +91,8 @@ struct WelcomeLandingView: View {
                     title: "Behind the Research",
                     subtitle: "Explore the methods",
                     isHovered: hoveredCard == "research",
-                    emphasis: .research
+                    emphasis: .research,
+                    attentionValue: researchCueValue
                 ) {
                     guard !appState.showTutorial else { return }
                     appState.startResearchShowcase()
@@ -108,6 +113,17 @@ struct WelcomeLandingView: View {
             Spacer()
         }
         .padding(Spacing.xxl)
+        .task(id: appState.showTutorial) {
+            guard !appState.showTutorial,
+                  !reduceMotion,
+                  !appState.hasPresentedResearchCue else { return }
+            try? await Task.sleep(for: .milliseconds(850))
+            guard !Task.isCancelled,
+                  !appState.showTutorial,
+                  !appState.hasPresentedResearchCue else { return }
+            appState.hasPresentedResearchCue = true
+            researchCueValue += 1
+        }
     }
 
     // MARK: - History Section
@@ -201,6 +217,7 @@ struct ActionCard: View {
     let subtitle: String
     let isHovered: Bool
     let emphasis: Emphasis
+    let attentionValue: Int
     let action: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -209,10 +226,7 @@ struct ActionCard: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: Spacing.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 32))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(isHovered || emphasis == .research ? Color.accentColor : .secondary)
+                cardIcon
 
                 VStack(spacing: Spacing.xxs) {
                     Text(title)
@@ -226,6 +240,7 @@ struct ActionCard: View {
                 }
             }
             .frame(width: 175, height: 140)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .background {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(colorScheme == .dark
@@ -235,17 +250,43 @@ struct ActionCard: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
-                        isHovered || emphasis == .research
+                        isHovered
                             ? Color.accentColor.opacity(colorScheme == .dark ? 0.3 : 0.2)
                             : Color.cardBorder(for: colorScheme),
                         lineWidth: isHovered ? 1.0 : (colorScheme == .dark ? 0.66 : 1.0)
                     )
             }
             .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.06), radius: 1, y: 1)
-            .scaleEffect(isHovered ? 1.01 : 1)
         }
-        .buttonStyle(.plain)
-        .animation(reduceMotion ? nil : Animate.quick, value: isHovered)
+        .buttonStyle(ActionCardButtonStyle(isHovered: isHovered, reduceMotion: reduceMotion))
+    }
+
+    @ViewBuilder
+    private var cardIcon: some View {
+        switch emphasis {
+        case .standard:
+            Image(systemName: icon)
+                .font(.system(size: 32))
+                .symbolRenderingMode(.multicolor)
+        case .research:
+            Image(systemName: icon)
+                .font(.system(size: 32))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.accentColor)
+                .symbolEffect(.bounce.up.byLayer, value: attentionValue)
+        }
+    }
+}
+
+private struct ActionCardButtonStyle: ButtonStyle {
+    let isHovered: Bool
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))
+            .animation(reduceMotion ? nil : Animate.quick, value: configuration.isPressed)
+            .animation(reduceMotion ? nil : Animate.quick, value: isHovered)
     }
 }
 

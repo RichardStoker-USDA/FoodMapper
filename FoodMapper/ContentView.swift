@@ -925,19 +925,41 @@ private struct MatchButton: View {
     let disabled: Bool
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: "play.fill")
-                    .imageScale(.small)
-                Text("Run Match")
+        Group {
+            if #available(macOS 26, *) {
+                runButton
+                    .buttonStyle(.glassProminent)
+            } else {
+                runButton
+                    .buttonStyle(.borderedProminent)
             }
-                .font(.body.weight(.semibold))
-                .fixedSize()
         }
-        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
         .controlSize(.regular)
+        .contentShape(Capsule())
         .accessibilityLabel("Run Match")
         .disabled(disabled)
+    }
+
+    private var runButton: some View {
+        Button(action: action) {
+            runButtonLabel
+        }
+        .contentShape(Capsule())
+    }
+
+    private var runButtonLabel: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 13, weight: .semibold))
+
+            Text("Run Match")
+                .font(.body.weight(.semibold))
+        }
+        .padding(.horizontal, Spacing.xs)
+        .padding(.vertical, 3)
+        .fixedSize()
+        .contentShape(Capsule())
     }
 }
 
