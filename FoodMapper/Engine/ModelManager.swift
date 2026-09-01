@@ -61,17 +61,21 @@ struct RegisteredModel: Identifiable {
     let repoId: String?
     /// Immutable Hugging Face commit for models that are downloaded by the app.
     let revision: String?
-    /// Approximate download size in bytes
+    /// Exact total of the approved artifacts in bytes.
     let downloadSize: Int64?
-    /// Approximate GPU memory usage in bytes
-    let gpuMemoryUsage: Int64?
-    /// Minimum hardware profile to use this model comfortably
-    let minimumProfile: HardwareProfile
+    let publisher: String
+    let licenseName: String
+    let purpose: ModelPurpose
+    let admission: ModelAdmission
 
     var id: String { key }
 
     /// Whether this model is bundled with the app (no download needed)
     var isBundled: Bool { repoId == nil }
+
+    var isInstallable: Bool {
+        admission == .published || admission == .evaluation
+    }
 
     init(
         key: String,
@@ -81,8 +85,10 @@ struct RegisteredModel: Identifiable {
         repoId: String?,
         revision: String? = nil,
         downloadSize: Int64?,
-        gpuMemoryUsage: Int64?,
-        minimumProfile: HardwareProfile
+        publisher: String,
+        licenseName: String,
+        purpose: ModelPurpose,
+        admission: ModelAdmission
     ) {
         self.key = key
         self.displayName = displayName
@@ -91,14 +97,29 @@ struct RegisteredModel: Identifiable {
         self.repoId = repoId
         self.revision = revision
         self.downloadSize = downloadSize
-        self.gpuMemoryUsage = gpuMemoryUsage
-        self.minimumProfile = minimumProfile
+        self.publisher = publisher
+        self.licenseName = licenseName
+        self.purpose = purpose
+        self.admission = admission
     }
+}
+
+enum ModelPurpose: String, CaseIterable {
+    case embedding = "Embedding"
+    case reranking = "Reranking"
+    case candidateSelection = "Candidate selection"
+}
+
+enum ModelAdmission: String, CaseIterable {
+    case published = "Published method"
+    case evaluation = "Evaluation"
+    case inventory = "Under review"
 }
 
 /// Model family grouping
 enum ModelFamily: String, CaseIterable {
     case gteLarge = "GTE-Large"
+    case nomicEmbedding = "Nomic Embed Text"
     case qwen3Embedding = "Qwen3-Embedding"
     case qwen3Reranker = "Qwen3-Reranker"
     case qwen3Generative = "Qwen3-Generative"
@@ -107,6 +128,7 @@ enum ModelFamily: String, CaseIterable {
 
 /// Model size categories
 enum ModelSizeCategory: String, CaseIterable {
+    case compact = "137M"
     case small = "0.6B"
     case medium = "4B"
     case large = "8B"
@@ -217,9 +239,25 @@ final class ModelManager: ObservableObject {
                 modelFamily: .gteLarge,
                 sizeCategory: .legacy,
                 repoId: "richtext/foodmapper-gte-large",
+                revision: GTELargeModelManifest.current.revision,
                 downloadSize: GTELargeModelManifest.current.downloadSize,
-                gpuMemoryUsage: 700_000_000,
-                minimumProfile: .base
+                publisher: "Alibaba-NLP",
+                licenseName: GTELargeModelManifest.current.upstreamLicense,
+                purpose: .embedding,
+                admission: .published
+            ),
+            RegisteredModel(
+                key: "nomic-embed-text-v1.5",
+                displayName: "Nomic Embed Text v1.5",
+                modelFamily: .nomicEmbedding,
+                sizeCategory: .compact,
+                repoId: NomicEmbeddingModel.repository,
+                revision: NomicEmbeddingModel.revision,
+                downloadSize: 547_886_235,
+                publisher: "Nomic AI",
+                licenseName: "Apache 2.0",
+                purpose: .embedding,
+                admission: .evaluation
             ),
             RegisteredModel(
                 key: "qwen3-emb-0.6b-4bit",
@@ -228,9 +266,11 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .small,
                 repoId: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
                 revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a",
-                downloadSize: 351_000_000,
-                gpuMemoryUsage: 500_000_000,
-                minimumProfile: .base
+                downloadSize: 349_558_958,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .embedding,
+                admission: .evaluation
             ),
             RegisteredModel(
                 key: "qwen3-emb-4b-4bit",
@@ -239,9 +279,11 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .medium,
                 repoId: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
                 revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72",
-                downloadSize: 2_280_000_000,
-                gpuMemoryUsage: 2_500_000_000,
-                minimumProfile: .base
+                downloadSize: 2_276_905_306,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .embedding,
+                admission: .evaluation
             ),
             RegisteredModel(
                 key: "qwen3-emb-8b-4bit",
@@ -250,9 +292,11 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .large,
                 repoId: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ",
                 revision: "885642d6b98742ea03b77a1673579c92ca961efd",
-                downloadSize: 4_500_000_000,
-                gpuMemoryUsage: 5_000_000_000,
-                minimumProfile: .standard
+                downloadSize: 4_271_422_891,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .embedding,
+                admission: .inventory
             ),
             RegisteredModel(
                 key: "qwen3-reranker-0.6b",
@@ -261,9 +305,11 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .small,
                 repoId: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
                 revision: "e8a94247380953b292660c992e41d94ac04df5f8",
-                downloadSize: 1_200_000_000,
-                gpuMemoryUsage: 1_200_000_000,
-                minimumProfile: .base
+                downloadSize: 1_205_821_369,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .reranking,
+                admission: .evaluation
             ),
             RegisteredModel(
                 key: "qwen3-reranker-4b",
@@ -272,9 +318,11 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .medium,
                 repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
                 revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1",
-                downloadSize: 2_300_000_000,
-                gpuMemoryUsage: 2_500_000_000,
-                minimumProfile: .base
+                downloadSize: 2_274_130_286,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .reranking,
+                admission: .evaluation
             ),
             RegisteredModel(
                 key: "qwen3-judge-0.6b-4bit",
@@ -283,9 +331,11 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .small,
                 repoId: "mlx-community/Qwen3-0.6B-4bit",
                 revision: "73e3e38d981303bc594367cd910ea6eb48349da8",
-                downloadSize: 351_000_000,
-                gpuMemoryUsage: 500_000_000,
-                minimumProfile: .base
+                downloadSize: 349_711_765,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .candidateSelection,
+                admission: .evaluation
             ),
             RegisteredModel(
                 key: "qwen3-judge-4b-4bit",
@@ -294,84 +344,13 @@ final class ModelManager: ObservableObject {
                 sizeCategory: .medium,
                 repoId: "mlx-community/Qwen3-4B-4bit",
                 revision: "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
-                downloadSize: 2_280_000_000,
-                gpuMemoryUsage: 2_500_000_000,
-                minimumProfile: .base
-            ),
-            RegisteredModel(
-                key: "gemma4-e2b-it-4bit",
-                displayName: "Gemma 4 E2B Instruct 4-bit",
-                modelFamily: .gemma4Generative,
-                sizeCategory: .small,
-                repoId: "mlx-community/gemma-4-e2b-it-4bit",
-                downloadSize: 1_200_000_000,
-                gpuMemoryUsage: 1_500_000_000,
-                minimumProfile: .base
-            ),
-            RegisteredModel(
-                key: "gemma4-e4b-it-4bit",
-                displayName: "Gemma 4 E4B Instruct 4-bit",
-                modelFamily: .gemma4Generative,
-                sizeCategory: .medium,
-                repoId: "mlx-community/gemma-4-e4b-it-4bit",
-                downloadSize: 2_400_000_000,
-                gpuMemoryUsage: 2_800_000_000,
-                minimumProfile: .base
+                downloadSize: 2_277_297_903,
+                publisher: "Qwen",
+                licenseName: "Apache 2.0",
+                purpose: .candidateSelection,
+                admission: .evaluation
             ),
         ]
-
-        loadCustomRegisteredModels()
-    }
-
-    /// Loads custom user-registered models dynamically from a local JSON config
-    private func loadCustomRegisteredModels() {
-        let fileManager = FileManager.default
-        let modelsDir = FoodMapperStorage.privateDirectory(["Models"])
-
-        let customModelsURL = modelsDir.appendingPathComponent("custom_models.json")
-
-        guard fileManager.fileExists(atPath: customModelsURL.path) else { return }
-
-        do {
-            let data = try Data(contentsOf: customModelsURL)
-            struct CustomModelDecodable: Decodable {
-                let key: String
-                let displayName: String
-                let modelFamily: String
-                let sizeCategory: String
-                let repoId: String?
-                let downloadSize: Int64?
-                let gpuMemoryUsage: Int64?
-                let minimumProfile: String
-            }
-
-            let decoded = try JSONDecoder().decode([CustomModelDecodable].self, from: data)
-
-            for item in decoded {
-                let family = ModelFamily(rawValue: item.modelFamily) ?? .gemma4Generative
-                let size = ModelSizeCategory(rawValue: item.sizeCategory) ?? .medium
-                let profile = HardwareProfile(rawValue: item.minimumProfile) ?? .base
-
-                let customModel = RegisteredModel(
-                    key: item.key,
-                    displayName: item.displayName,
-                    modelFamily: family,
-                    sizeCategory: size,
-                    repoId: item.repoId,
-                    downloadSize: item.downloadSize,
-                    gpuMemoryUsage: item.gpuMemoryUsage,
-                    minimumProfile: profile
-                )
-
-                // Add to registeredModels if not already present
-                if !registeredModels.contains(where: { $0.key == customModel.key }) {
-                    registeredModels.append(customModel)
-                    logger.info("Loaded custom model registration: \(customModel.key) (\(customModel.displayName))")
-                }
-            }
-        } catch {
-            logger.error("Failed to load custom models JSON: \(error.localizedDescription)")
-        }
     }
 
     /// Check which models are already downloaded/available
@@ -415,15 +394,6 @@ final class ModelManager: ObservableObject {
 
     /// Recommended pipeline based on hardware and available models
     var recommendedPipeline: PipelineType {
-        // Prefer Qwen3 two-stage if both models available
-        if areModelsAvailable(for: .qwen3TwoStage) {
-            return .qwen3TwoStage
-        }
-        // Fall back to Qwen3 embedding-only
-        if areModelsAvailable(for: .qwen3Embedding) {
-            return .qwen3Embedding
-        }
-        // Default to GTE-Large
         return .gteLargeEmbedding
     }
 
@@ -464,6 +434,9 @@ final class ModelManager: ObservableObject {
         guard let registration = registeredModel(for: key) else {
             throw ModelManagerError.unknownModel(key)
         }
+        guard registration.isInstallable else {
+            throw ModelManagerError.modelUnderReview(key)
+        }
 
         // Prevent parallel download tasks for the same model key
         guard !activeDownloads.contains(key) else {
@@ -491,7 +464,8 @@ final class ModelManager: ObservableObject {
                 guard let repoId = repoId, let revision = registration.revision else {
                     throw ModelManagerError.unknownModel(key)
                 }
-                // Other models use Hub snapshot (nested {org}/{repo}/ directories)
+                // Optional models use pinned manifests under the Hub-compatible
+                // {organization}/{repository} directory layout.
                 _ = try await downloader.download(repoId: repoId, revision: revision) { [weak self] progress in
                     Task { @MainActor in
                         guard let self else { return }
@@ -510,12 +484,14 @@ final class ModelManager: ObservableObject {
                              (error as? URLError)?.code == .cancelled
 
             if isCancelled {
-                if key != "gte-large", let repoId = repoId {
-                    try? await downloader.deleteModel(repoId: repoId)
-                }
                 cancelledDownloadKeys.remove(key)
                 if key == "gte-large" {
                     modelStates[key] = MLXEmbeddingModel.isModelAvailable ? .downloaded : .notDownloaded
+                } else if let repoId, let revision = registration.revision,
+                          downloader.isDownloaded(repoId: repoId, revision: revision) {
+                    // A cancellation may arrive after the verified snapshot was
+                    // atomically installed. Keep that complete installation.
+                    modelStates[key] = .downloaded
                 } else {
                     modelStates[key] = .notDownloaded
                 }
@@ -683,6 +659,15 @@ final class ModelManager: ObservableObject {
                 let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ", revision: "885642d6b98742ea03b77a1673579c92ca961efd")
                 try await qwenModel.load(snapshot: snapshot)
                 model = qwenModel
+
+            case "nomic-embed-text-v1.5":
+                let nomicModel = NomicEmbeddingModel()
+                let snapshot = try await downloader.validatedLocalSnapshot(
+                    for: NomicEmbeddingModel.repository,
+                    revision: NomicEmbeddingModel.revision
+                )
+                try await nomicModel.load(snapshot: snapshot)
+                model = nomicModel
 
             default:
                 throw ModelManagerError.unknownModel(key)
@@ -858,6 +843,7 @@ final class ModelManager: ObservableObject {
 
 enum ModelManagerError: LocalizedError {
     case unknownModel(String)
+    case modelUnderReview(String)
     case modelNotAvailable(String)
     case insufficientMemory(required: Int64, available: Int64)
     case downloadFailed(String)
@@ -868,6 +854,8 @@ enum ModelManagerError: LocalizedError {
         switch self {
         case .unknownModel(let key):
             return "Unknown model: \(key)"
+        case .modelUnderReview(let key):
+            return "Model '\(key)' is still under review and cannot be installed."
         case .modelNotAvailable(let key):
             return "Model '\(key)' is not downloaded"
         case .insufficientMemory(let required, let available):

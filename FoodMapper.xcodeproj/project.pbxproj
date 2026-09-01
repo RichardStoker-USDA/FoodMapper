@@ -29,6 +29,13 @@
 		9E9636134B19442E0F6BCE73 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC3C22CF05A6A8E91295F17 /* AppSettings.swift */; };
 		A880FBD0D3275D29B9EFE850 /* Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F873BCC95F2341F9C2DE89B5 /* Sidebar.swift */; };
 		ANTHAPI001BUILD /* AnthropicAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANTHAPI002FILEREF /* AnthropicAPIClient.swift */; };
+		ADVCORE001BUILD /* AdvancedFeatureGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVCORE001FILEREF /* AdvancedFeatureGate.swift */; };
+		ADVCORE002BUILD /* BenchmarkCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVCORE002FILEREF /* BenchmarkCore.swift */; };
+		ADVCORE003BUILD /* ProviderProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVCORE003FILEREF /* ProviderProfile.swift */; };
+		ADVMODEL001BUILD /* NomicEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVMODEL001FILEREF /* NomicEmbeddingModel.swift */; };
+		ADVSTATE001BUILD /* AppState+Benchmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVSTATE001FILEREF /* AppState+Benchmarks.swift */; };
+		ADVSTATE002BUILD /* AppState+Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVSTATE002FILEREF /* AppState+Providers.swift */; };
+		ADVPIPE001BUILD /* ProviderRerankerPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVPIPE001FILEREF /* ProviderRerankerPipeline.swift */; };
 		ASSETS001AB06705BEB2F2F60 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ASSETS002A5867F164E2245D6 /* Assets.xcassets */; };
 		B259B4F7194B9E2513F7560F /* MLXEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */; };
 		BBC18C9D20BA1A5DD87D3DA0 /* TargetDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06E0A8FCBF2377C9413A6B /* TargetDatabase.swift */; };
@@ -39,6 +46,7 @@
 		C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */; };
 		B1C2D3E4F5061728394A5B6C /* TestStorageGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6D /* TestStorageGuard.swift */; };
 		A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5EC71000000000000002 /* HelpSectionTests.swift */; };
+		ADVTEST001BUILD /* AdvancedFeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVTEST001FILEREF /* AdvancedFeatureTests.swift */; };
 		C5A2F572155A82FFBBC9201A /* FoodMapperApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19B3EAF237E39DA12E71979 /* FoodMapperApp.swift */; };
 		CF168F5398114B7D20C0F37D /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = A9493989579DD61D47B78934 /* Transformers */; };
 		CF54982618A1BF1CF3F73D79 /* Databases in Resources */ = {isa = PBXBuildFile; fileRef = 652E572F57B1EC6B9506993B /* Databases */; };
@@ -85,6 +93,7 @@
 		P8SETUP001BUILD /* MatchSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P8SETUP002FILEREF /* MatchSetupView.swift */; };
 		PIPE001OVBUILD0000000 /* PipelineOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPE001OVFILEREF0000 /* PipelineOverviewView.swift */; };
 		PIPE002CFBUILD0000000 /* PipelineConfigurationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPE002CFFILEREF0000 /* PipelineConfigurationView.swift */; };
+		ADVVIEW001BUILD /* ProviderProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVVIEW001FILEREF /* ProviderProfilesView.swift */; };
 		PIPELINE001BUILD /* EmbeddingModelProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE001FILEREF /* EmbeddingModelProtocol.swift */; };
 		PIPELINE002BUILD /* MatchingPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE002FILEREF /* MatchingPipeline.swift */; };
 		PIPELINE003BUILD /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE003FILEREF /* ModelManager.swift */; };
@@ -184,12 +193,20 @@
 		9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperTests.swift; sourceTree = "<group>"; };
 		B1C2D3E4F5061728394A5B6D /* TestStorageGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestStorageGuard.swift; sourceTree = "<group>"; };
 		A11E5EC71000000000000002 /* HelpSectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpSectionTests.swift; sourceTree = "<group>"; };
+		ADVTEST001FILEREF /* AdvancedFeatureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedFeatureTests.swift; sourceTree = "<group>"; };
 		9DAC23B2D730F805E8CD3F8A /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXEmbeddingModel.swift; sourceTree = "<group>"; };
 		A4FEAEF5A5867F164E2245D6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingTests.swift; sourceTree = "<group>"; };
 		GTETEST001FILEREF /* GTELargeModelInstallTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GTELargeModelInstallTests.swift; sourceTree = "<group>"; };
 		ANTHAPI002FILEREF /* AnthropicAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicAPIClient.swift; sourceTree = "<group>"; };
+		ADVCORE001FILEREF /* AdvancedFeatureGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedFeatureGate.swift; sourceTree = "<group>"; };
+		ADVCORE002FILEREF /* BenchmarkCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkCore.swift; sourceTree = "<group>"; };
+		ADVCORE003FILEREF /* ProviderProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderProfile.swift; sourceTree = "<group>"; };
+		ADVMODEL001FILEREF /* NomicEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomicEmbeddingModel.swift; sourceTree = "<group>"; };
+		ADVSTATE001FILEREF /* AppState+Benchmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Benchmarks.swift"; sourceTree = "<group>"; };
+		ADVSTATE002FILEREF /* AppState+Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Providers.swift"; sourceTree = "<group>"; };
+		ADVPIPE001FILEREF /* ProviderRerankerPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRerankerPipeline.swift; sourceTree = "<group>"; };
 		ASSETS002A5867F164E2245D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B398910584D2D6D54FD08EC7 /* FoodMapper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoodMapper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE570A4E4DE359704D6CCB2C /* StatisticsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsPanel.swift; sourceTree = "<group>"; };
@@ -225,6 +242,7 @@
 		P8SETUP002FILEREF /* MatchSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchSetupView.swift; sourceTree = "<group>"; };
 		PIPE001OVFILEREF0000 /* PipelineOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineOverviewView.swift; sourceTree = "<group>"; };
 		PIPE002CFFILEREF0000 /* PipelineConfigurationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineConfigurationView.swift; sourceTree = "<group>"; };
+		ADVVIEW001FILEREF /* ProviderProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderProfilesView.swift; sourceTree = "<group>"; };
 		PIPELINE001FILEREF /* EmbeddingModelProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingModelProtocol.swift; sourceTree = "<group>"; };
 		PIPELINE002FILEREF /* MatchingPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchingPipeline.swift; sourceTree = "<group>"; };
 		PIPELINE003FILEREF /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
@@ -343,11 +361,22 @@
 				F19B3EAF237E39DA12E71979 /* FoodMapperApp.swift */,
 				STARTUP002FILEREF /* FoodMapperStartupCoordinator.swift */,
 				SPARKLE006PLISTFREF0 /* Info.plist */,
+				ADVCORE001GROUP /* Core */,
 				A2D73DE654A177934AD557E1 /* Engine */,
 				679FAC9DBCC446638850164E /* Models */,
 				EA3A9DB0F01AE85CA424C820 /* Views */,
 			);
 			path = FoodMapper;
+			sourceTree = "<group>";
+		};
+		ADVCORE001GROUP /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				ADVCORE001FILEREF /* AdvancedFeatureGate.swift */,
+				ADVCORE002FILEREF /* BenchmarkCore.swift */,
+				ADVCORE003FILEREF /* ProviderProfile.swift */,
+			);
+			path = Core;
 			sourceTree = "<group>";
 		};
 		679FAC9DBCC446638850164E /* Models */ = {
@@ -356,6 +385,7 @@
 				4EC3C22CF05A6A8E91295F17 /* AppSettings.swift */,
 				97A2B2D05965D4A245ACBD7B /* AppState.swift */,
 				AS001DBSFILEREF0000 /* AppState+Databases.swift */,
+				ADVSTATE001FILEREF /* AppState+Benchmarks.swift */,
 				AS002EXPFILEREF0000 /* AppState+Export.swift */,
 				AS003MTCFILEREF0000 /* AppState+Matching.swift */,
 				AS004MDLFILEREF0000 /* AppState+Models.swift */,
@@ -364,6 +394,7 @@
 				AS007SESFILEREF0000 /* AppState+Sessions.swift */,
 				AS008STOFILEREF0000 /* AppState+Storage.swift */,
 				AS009TOUFILEREF0000 /* AppState+Tour.swift */,
+				ADVSTATE002FILEREF /* AppState+Providers.swift */,
 				D1828737DB7CCFE3CE668CFC /* InputFile.swift */,
 				D68A3B6EE5B2220FC644F9FD /* MatchingSession.swift */,
 				1438643E235614FDEB31CAB0 /* MatchResult.swift */,
@@ -417,6 +448,8 @@
 				GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */,
 				PIPELINE006FILEREF /* ModelDownloader.swift */,
 				PIPELINE003FILEREF /* ModelManager.swift */,
+				ADVMODEL001FILEREF /* NomicEmbeddingModel.swift */,
+				ADVPIPE001FILEREF /* ProviderRerankerPipeline.swift */,
 				PIPELINE005FILEREF /* QwenEmbeddingModel.swift */,
 				PIPELINE008FILEREF /* QwenRerankerModel.swift */,
 				PIPELINE010FILEREF /* RerankerOnlyPipeline.swift */,
@@ -461,6 +494,7 @@
 				B1C2D3E4F5061728394A5B6D /* TestStorageGuard.swift */,
 				STARTUP004FILEREF /* StorageStartupTests.swift */,
 				A11E5EC71000000000000002 /* HelpSectionTests.swift */,
+				ADVTEST001FILEREF /* AdvancedFeatureTests.swift */,
 			);
 			path = FoodMapperTests;
 			sourceTree = "<group>";
@@ -499,6 +533,7 @@
 			children = (
 				PIPE001OVFILEREF0000 /* PipelineOverviewView.swift */,
 				PIPE002CFFILEREF0000 /* PipelineConfigurationView.swift */,
+				ADVVIEW001FILEREF /* ProviderProfilesView.swift */,
 			);
 			path = Pipeline;
 			sourceTree = "<group>";
@@ -659,6 +694,7 @@
 				B1C2D3E4F5061728394A5B6C /* TestStorageGuard.swift in Sources */,
 				STARTUP003BUILD /* StorageStartupTests.swift in Sources */,
 				A11E5EC71000000000000003 /* HelpSectionTests.swift in Sources */,
+				ADVTEST001BUILD /* AdvancedFeatureTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -671,6 +707,11 @@
 				DBABOUT001BF01A9CBC50FA0 /* BuiltInDatabaseAboutView.swift in Sources */,
 				9E9636134B19442E0F6BCE73 /* AppSettings.swift in Sources */,
 				E36D43D3F277BADEA549EB91 /* AppState.swift in Sources */,
+				ADVCORE001BUILD /* AdvancedFeatureGate.swift in Sources */,
+				ADVCORE002BUILD /* BenchmarkCore.swift in Sources */,
+				ADVCORE003BUILD /* ProviderProfile.swift in Sources */,
+				ADVSTATE001BUILD /* AppState+Benchmarks.swift in Sources */,
+				ADVSTATE002BUILD /* AppState+Providers.swift in Sources */,
 				AS001DBSBUILD0000000 /* AppState+Databases.swift in Sources */,
 				AS002EXPBUILD0000000 /* AppState+Export.swift in Sources */,
 				AS003MTCBUILD0000000 /* AppState+Matching.swift in Sources */,
@@ -744,6 +785,8 @@
 				GTEINSTALL001BUILD /* GTELargeModelInstall.swift in Sources */,
 				PIPELINE004BUILD /* EmbeddingOnlyPipeline.swift in Sources */,
 				PIPELINE005BUILD /* QwenEmbeddingModel.swift in Sources */,
+				ADVMODEL001BUILD /* NomicEmbeddingModel.swift in Sources */,
+				ADVPIPE001BUILD /* ProviderRerankerPipeline.swift in Sources */,
 				PIPELINE006BUILD /* ModelDownloader.swift in Sources */,
 				PIPELINE008BUILD /* QwenRerankerModel.swift in Sources */,
 				PIPELINE009BUILD /* TwoStagePipeline.swift in Sources */,
@@ -774,6 +817,7 @@
 				TOUR017BUILD /* SplashScreenView.swift in Sources */,
 				PIPE001OVBUILD0000000 /* PipelineOverviewView.swift in Sources */,
 				PIPE002CFBUILD0000000 /* PipelineConfigurationView.swift in Sources */,
+				ADVVIEW001BUILD /* ProviderProfilesView.swift in Sources */,
 				SPARKLE005BUILD00000 /* CheckForUpdatesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -64,8 +64,8 @@ extension AppState {
             return ReviewDecision(status: .autoNeedsReview, reviewedAt: Date())
         case .cosineSimilarity:
             // Auto-match only for GTE-Large pipelines (tuned for their score distribution).
-            // Qwen3-Embedding also produces cosineSimilarity but its scores aren't calibrated
-            // for auto-match thresholds yet, so everything goes to review.
+            // Evaluation embedding models also produce cosineSimilarity, but their scores
+            // are not calibrated for these thresholds, so everything goes to review.
             let isGTEPipeline = (pipelineType == .gteLargeEmbedding ||
                                  pipelineType == .gteLargeHaiku ||
                                  pipelineType == .gteLargeHaikuV2)

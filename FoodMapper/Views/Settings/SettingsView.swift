@@ -43,7 +43,7 @@ struct SettingsView: View {
             .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
             .tag(SettingsTab.advanced)
         }
-        .frame(width: 505, height: 485)
+        .frame(width: appState.isAdvancedMode ? 760 : 560, height: appState.isAdvancedMode ? 540 : 485)
         .onReceive(NotificationCenter.default.publisher(for: .showModelSettings)) { _ in
             selectedTab = .models
         }

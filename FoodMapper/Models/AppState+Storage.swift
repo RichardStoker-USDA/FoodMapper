@@ -162,6 +162,12 @@ extension AppState {
         let fm = FileManager.default
         let foodMapperDir = FoodMapperStorage.privateDirectory()
 
+        // Provider profiles are removed with Application Support, so remove
+        // their keyed credentials first rather than leaving orphaned entries.
+        for profile in providerProfiles {
+            _ = APIKeyStorage.deleteProviderCredential(profileID: profile.id)
+        }
+
         // Delete the entire FoodMapper application support directory
         // (Models, CustomDBs, Sessions, custom_databases.json)
         try? fm.removeItem(at: foodMapperDir)
