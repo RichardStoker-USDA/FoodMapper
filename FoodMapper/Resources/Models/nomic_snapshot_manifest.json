@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "repo": "nomic-ai/nomic-embed-text-v1.5",
+      "revision": "e9b6763023c676ca8431644204f50c2b100d9aab",
+      "artifacts": [
+        {
+          "path": "1_Pooling/config.json",
+          "byte_size": 286,
+          "sha256": "3d6180f7233df2f529d65ea60c8db4af614fb78cbe99fd81103dcfeb9f8166a5",
+          "roles": ["runtime_loader"]
+        },
+        {
+          "path": "config.json",
+          "byte_size": 2538,
+          "sha256": "9ab00bd92cee80a569f708140b7b6c1661a65891ff3765b1519e181ba2f2c92b",
+          "roles": ["snapshot_manifest", "runtime_loader"]
+        },
+        {
+          "path": "config_sentence_transformers.json",
+          "byte_size": 140,
+          "sha256": "482f42ca954f5a8d55bccbb437b8d6eb721ce19059c78330c815045ddd1a87eb",
+          "roles": ["runtime_loader_optional"]
+        },
+        {
+          "path": "model.safetensors",
+          "byte_size": 546938168,
+          "sha256": "9e7d262b1fe5ea350782829496efa831901b77486bbde1cea54a4c822d010d5c",
+          "roles": ["snapshot_manifest", "runtime_loader"]
+        },
+        {
+          "path": "modules.json",
+          "byte_size": 255,
+          "sha256": "f93c503b32fa7bc2e186843f0add961caa14eb68f7be516e327df3cadbcd541a",
+          "roles": ["runtime_loader_optional"]
+        },
+        {
+          "path": "sentence_bert_config.json",
+          "byte_size": 58,
+          "sha256": "9ee3935137f87c9ce6662ae17fe7afb7c9c64744a41247359fd228dc37e627b3",
+          "roles": ["runtime_loader_optional"]
+        },
+        {
+          "path": "special_tokens_map.json",
+          "byte_size": 695,
+          "sha256": "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a",
+          "roles": ["runtime_loader"]
+        },
+        {
+          "path": "tokenizer.json",
+          "byte_size": 711396,
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+          "roles": ["snapshot_manifest", "runtime_loader"]
+        },
+        {
+          "path": "tokenizer_config.json",
+          "byte_size": 1191,
+          "sha256": "d7e0000bcc80134debd2222220427e6bf5fa20a669f40a0d0d1409cc18e0a9bc",
+          "roles": ["runtime_loader"]
+        },
+        {
+          "path": "vocab.txt",
+          "byte_size": 231508,
+          "sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+          "roles": ["runtime_loader"]
+        }
+      ]
+    }
+  ]
+}

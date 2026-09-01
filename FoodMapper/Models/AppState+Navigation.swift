@@ -103,36 +103,9 @@ extension AppState {
         }
     }
 
-    /// Auto-select the best available pipeline for the given mode.
-    /// Prefers higher-quality pipelines when the required models are downloaded.
+    /// Keep the paper-backed embedding method as the default selection.
     func autoSelectPipeline(for mode: PipelineMode) -> PipelineType {
-        if mode == .researchValidation {
-            return .gteLargeEmbedding
-        }
-
-        // Check if any Qwen3 embedding model is available (any size)
-        let hasQwenEmbedding = ModelFamily.qwen3Embedding.availableSizes.contains { size in
-            guard let key = ModelFamily.qwen3Embedding.modelKey(for: size) else { return false }
-            return modelManager.state(for: key).isAvailable
-        }
-
-        // Check if any Qwen3 reranker model is available (any size)
-        let hasQwenReranker = ModelFamily.qwen3Reranker.availableSizes.contains { size in
-            guard let key = ModelFamily.qwen3Reranker.modelKey(for: size) else { return false }
-            return modelManager.state(for: key).isAvailable
-        }
-
-        // Prefer two-stage (embedding + reranker) if both families available
-        if hasQwenEmbedding && hasQwenReranker {
-            return .qwen3TwoStage
-        }
-
-        // Fall back to embedding-only if available
-        if hasQwenEmbedding {
-            return .qwen3Embedding
-        }
-
-        // Default to GTE-Large (always available once downloaded)
+        _ = mode
         return .gteLargeEmbedding
     }
 }

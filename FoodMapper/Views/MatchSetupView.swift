@@ -16,8 +16,6 @@ struct MatchSetupView: View {
     @State private var showAPIKeyHelp = false
     @State private var showInstructionInfo = false
     @State private var showCSVHelp = false
-    @State private var inlineDownloadTasks: [String: Task<Void, Never>] = [:]
-    @State private var inlineCancellingModels: Set<String> = []
 
     enum InlineAPIKeyStatus: Equatable {
         case idle, validating, valid, invalid(String)
@@ -382,7 +380,7 @@ struct MatchSetupView: View {
     private var showModelsRequiredWarning: Bool {
         // Don't show "Models required" for .gteLargeHaiku -- the API key section handles that
         guard appState.selectedPipelineType != .gteLargeHaiku else { return false }
-        return !appState.canRunSelectedPipeline
+        return !missingModels.isEmpty
     }
 
     /// Models that need downloading for the current pipeline
@@ -398,21 +396,12 @@ struct MatchSetupView: View {
         }
     }
 
-    /// Whether this view is actively managing any inline download tasks.
-    private var hasInlineActiveDownloads: Bool {
-        !inlineDownloadTasks.isEmpty
+    private var installableMissingModels: [RegisteredModel] {
+        missingModels.filter(\.isInstallable)
     }
 
-    /// Whether at least one missing model can be started or retried now.
-    private var canDownloadAnyMissingModel: Bool {
-        missingModels.contains { model in
-            switch appState.modelManager.state(for: model.key) {
-            case .notDownloaded, .error:
-                return true
-            default:
-                return false
-            }
-        }
+    private var missingModelsUnderReview: [RegisteredModel] {
+        missingModels.filter { !$0.isInstallable }
     }
 
     private var advancedMatchingOptions: some View {
@@ -435,13 +424,13 @@ struct MatchSetupView: View {
 
                     if showModelsRequiredWarning {
                         HStack(spacing: Spacing.xxs) {
-                            if isAnyMissingModelDownloading || hasInlineActiveDownloads {
+                            if isAnyMissingModelDownloading {
                                 ProgressView()
                                     .controlSize(.mini)
                             }
 
                             Label(
-                                isAnyMissingModelDownloading || hasInlineActiveDownloads
+                                isAnyMissingModelDownloading
                                     ? "Downloading..."
                                     : "Missing models",
                                 systemImage: "arrow.down.circle"
@@ -505,6 +494,11 @@ struct MatchSetupView: View {
                     family: pipelineUsesGemma4Generative ? .gemma4Generative : .qwen3Generative,
                     selection: $appState.selectedGenerativeSize
                 )
+            }
+
+            if basePipelineType.requiresProviderProfile {
+                Divider()
+                providerProfilePicker
             }
 
             // Haiku toggle (only when GTE-Large is the base pipeline)
@@ -579,6 +573,52 @@ struct MatchSetupView: View {
     }
 
     // MARK: - Haiku Toggle Row
+
+    private var providerProfilePicker: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: Spacing.xs) {
+                Text("Provider:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if appState.providerProfiles.isEmpty {
+                    Text("No profiles configured")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Add Provider") {
+                        appState.sidebarSelection = .providerProfiles
+                        appState.showMatchSetup = false
+                    }
+                    .controlSize(.small)
+                } else {
+                    Picker("Provider", selection: $appState.selectedProviderProfileID) {
+                        ForEach(appState.providerProfiles) { profile in
+                            Text("\(profile.name) · \(profile.model)")
+                                .tag(Optional(profile.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 300)
+                }
+
+                Spacer()
+            }
+
+            if let profile = appState.selectedProviderProfile,
+               !appState.hasCurrentProviderProbe(for: profile) {
+                HStack(spacing: Spacing.xs) {
+                    Label("Test this connection before matching", systemImage: "network")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Button("Open Providers") {
+                        appState.sidebarSelection = .providerProfiles
+                        appState.showMatchSetup = false
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
 
     private var haikuToggleRow: some View {
         HStack(spacing: Spacing.xs) {
@@ -922,177 +962,62 @@ struct MatchSetupView: View {
         }
     }
 
-    // MARK: - Inline Model Download
+    // MARK: - Model Installation Review
 
-    /// Compact inline download section shown when pipeline models aren't available.
     private var inlineModelDownloadSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(alignment: .center, spacing: Spacing.sm) {
-                Text("Required Models Missing")
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Model setup needed")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-
                 Spacer()
-
-                if missingModels.count > 1 {
-                    if isAnyMissingModelDownloading || hasInlineActiveDownloads {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text("Downloading...")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.secondary.opacity(0.1)))
-                    } else {
-                        Button {
-                            downloadMissingModels()
-                        } label: {
-                            Text("Download All (\(missingModels.count))")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                if isAnyMissingModelDownloading {
+                    ProgressView()
+                        .controlSize(.mini)
                 }
             }
-            .padding(Spacing.md)
-            .background(Color.primary.opacity(0.03))
 
-            Divider()
-
-            // List
-            VStack(spacing: 0) {
-                ForEach(Array(missingModels.enumerated()), id: \.element.id) { index, model in
-                    inlineModelDownloadRow(model)
-                    if index < missingModels.count - 1 {
-                        Divider()
-                            .padding(.leading, Spacing.md)
-                    }
-                }
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(colorScheme == .dark ? Color(white: 0.14).opacity(0.95) : Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(
-                    colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04),
-                    lineWidth: 1
-                )
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.08),
-            radius: 4,
-            y: 2
-        )
-    }
-
-    private func inlineModelDownloadRow(_ model: RegisteredModel) -> some View {
-        let state = appState.modelManager.state(for: model.key)
-
-        return HStack(spacing: Spacing.md) {
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.05))
-                    .frame(width: 32, height: 32)
-                Image(systemName: "cube.box")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.displayName)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                HStack(spacing: Spacing.xs) {
-                    if let size = model.downloadSize {
-                        Text(formatDownloadSize(size))
-                            .font(.caption2)
+            ForEach(missingModels) { model in
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: model.isInstallable ? "arrow.down.circle" : "lock.circle")
+                        .foregroundStyle(.secondary)
+                        .frame(width: Size.iconMedium)
+                    VStack(alignment: .leading, spacing: Spacing.xxxs) {
+                        Text(model.displayName)
+                            .font(.callout.weight(.medium))
+                        Text("\(model.publisher) · \(model.downloadSize.map(formatDownloadSize) ?? "Bundled")")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-
-                    if case .error(let message) = state {
-                        Text("• \(message)")
-                            .font(.caption2)
-                            .lineLimit(1)
-                            .foregroundStyle(.red)
-                    }
+                    Spacer()
+                    Text(model.isInstallable ? "Not installed" : "Under review")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            Spacer()
-
-            InlineModelStatusView(
-                model: model,
-                state: state,
-                onDownload: { startInlineDownload(model) },
-                onCancel: { cancelInlineDownload(model) }
-            )
+            HStack {
+                if !missingModelsUnderReview.isEmpty {
+                    Text("Models marked Under review cannot be selected for a run.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if !installableMissingModels.isEmpty {
+                    Button("Review Model Install") {
+                        appState.pendingDownloadModels = installableMissingModels
+                        appState.showModelDownloadSheet = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
         }
         .padding(Spacing.md)
-    }
-
-    /// Download all missing models for the current pipeline inline.
-    private func downloadMissingModels() {
-        for model in missingModels {
-            switch appState.modelManager.state(for: model.key) {
-            case .notDownloaded, .error:
-                startInlineDownload(model)
-            default:
-                continue
-            }
-        }
-    }
-
-    private func startInlineDownload(_ model: RegisteredModel) {
-        let key = model.key
-        guard inlineDownloadTasks[key] == nil else { return }
-
-        inlineCancellingModels.remove(key)
-
-        let task = Task {
-            defer {
-                Task { @MainActor in
-                    inlineDownloadTasks.removeValue(forKey: key)
-                    inlineCancellingModels.remove(key)
-                }
-            }
-
-            do {
-                try await appState.modelManager.downloadModel(key: key)
-                if key == "gte-large" {
-                    await MainActor.run { appState.syncModelStatus() }
-                }
-            } catch {
-                // Error state is already tracked in ModelManager.
-            }
-        }
-
-        inlineDownloadTasks[key] = task
-    }
-
-    private func cancelInlineDownload(_ model: RegisteredModel) {
-        let key = model.key
-        inlineCancellingModels.insert(key)
-        appState.modelManager.cancelDownload(key: key)
-        inlineDownloadTasks[key]?.cancel()
+        .panelMaterialStyle(cornerRadius: 8)
     }
 
     private func formatDownloadSize(_ bytes: Int64) -> String {
-        if bytes >= 1_000_000_000 {
-            return String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
-        } else {
-            return String(format: "%d MB", bytes / 1_000_000)
-        }
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     /// Pipeline types available in the advanced dropdown (excludes .gteLargeHaiku, handled by toggle)
@@ -1538,118 +1463,6 @@ struct MatchSetupView: View {
                 isLoading = false
                 appState.error = AppError.fileLoadFailed(error.localizedDescription)
             }
-        }
-    }
-}
-
-private struct InlineModelStatusView: View {
-    let model: RegisteredModel
-    let state: ModelState
-    let onDownload: () -> Void
-    let onCancel: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var indeterminateOffset: CGFloat = -100
-    
-    var body: some View {
-        switch state {
-        case .notDownloaded:
-            Button(action: onDownload) {
-                Text("Get")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.15 : 0.1))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Download model")
-
-        case .loading:
-            // Indeterminate progress bar
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Preparing...")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.2))
-                        
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.clear, Color.accentColor.opacity(0.5), .clear],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(width: geo.size.width * 0.4)
-                            .offset(x: indeterminateOffset)
-                            .onAppear {
-                                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                                    indeterminateOffset = geo.size.width
-                                }
-                            }
-                    }
-                }
-                .frame(height: 4)
-                .clipShape(Capsule())
-            }
-            .frame(width: 100)
-
-        case .downloading(let progress):
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Downloading")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(progress.formatted(.percent.precision(.fractionLength(0))))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.2))
-                        
-                        Capsule()
-                            .fill(Color.accentColor)
-                            .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)))
-                    }
-                }
-                .frame(height: 4)
-            }
-            .frame(width: 100)
-
-        case .downloaded, .loaded:
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark")
-                    .font(.caption.weight(.bold))
-                Text("Installed")
-                    .font(.caption.weight(.medium))
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
-
-        case .error:
-            Button(action: onDownload) {
-                Label("Retry", systemImage: "arrow.clockwise")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.red.opacity(0.8)))
-            }
-            .buttonStyle(.plain)
         }
     }
 }

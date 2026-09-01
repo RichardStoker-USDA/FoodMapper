@@ -1450,7 +1450,7 @@ private struct HelpSettingsContent: View {
                     Text("Models")
                         .font(.headline)
                 }
-                Text(appState.isAdvancedMode ? "Download and manage models. Advanced mode lists optional model families with download size, GPU memory estimate, and status. Pipeline Configuration selects model sizes; downloads remain in Settings > Models." : "Download and manage the GTE-Large model used by the standard matching pipeline.")
+                Text(appState.isAdvancedMode ? "Review installed models, exact download sizes, publishers, licenses, pinned revisions, and local status. Optional models are installed only after you confirm the reviewed file list." : "Download and manage the GTE-Large model used by the standard matching pipeline.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1484,7 +1484,7 @@ private struct HelpSettingsContent: View {
                         HelpItem(title: "System Info", content: "Shows your Mac's detected hardware profile (Base/Standard/Pro/Max/Ultra), device name, and unified memory.")
                         HelpItem(title: "Performance Controls", content: "Available controls depend on the selected path and app release. Record the settings with an experimental comparison.")
                         HelpItem(title: "Database Limits", content: "Allow databases above the hardware-recommended size.")
-                        HelpItem(title: "Reset", content: "Removes FoodMapper Application Support data and preferences, then restarts the app. It does not remove the Anthropic API key stored in your Mac's Keychain. Two confirmations are required.")
+                        HelpItem(title: "Reset", content: "Removes FoodMapper Application Support data, provider credentials, and preferences, then restarts the app. It does not remove the Anthropic API key stored in your Mac's Keychain. Two confirmations are required.")
                     }
                 }
             }
@@ -1500,15 +1500,15 @@ private struct HelpExperimentalFeaturesContent: View {
     var body: some View {
         HelpSectionTitle(
             "Experimental Features",
-            subtitle: "Optional features that have not been qualified for research use."
+            subtitle: "Optional runs, local model comparisons, and provider connections."
         )
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("What Are Experimental Features?")
+                Text("Separate from the Published Method")
                     .font(.headline)
 
-                Text("Experimental features are separate from the default GTE-Large path. Their artifacts and outputs have not completed the project's research qualification process.")
+                Text("The default GTE-Large and optional Anthropic path remain unchanged. Advanced mode adds evaluation tools beside that method. Turning Advanced mode off hides these topics, returns pipeline selection to GTE-Large, and cancels active experimental work.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1517,38 +1517,42 @@ private struct HelpExperimentalFeaturesContent: View {
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("How to Enable")
+                Text("Runs")
                     .font(.headline)
 
-                Text("Go to Settings > Advanced and turn on \"Show advanced options\". The available controls and optional downloads depend on the app release.")
-                    .font(.callout)
-                    .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
-                    .fixedSize(horizontal: false, vertical: true)
+                HelpItem(title: "Choose a Pipeline", content: "Runs lists the published methods and the current evaluation pipelines. Select model sizes and matching context before opening a new match.")
+                HelpItem(title: "Install from the Pipeline", content: "Review Install shows publisher, license, pinned revision, exact file size, and install state. A model is not downloaded until you confirm that sheet.")
+                HelpItem(title: "Current Model Set", content: "Nomic Embed Text v1.5 and admitted Qwen3 artifacts are available for evaluation. Models marked Under review cannot be installed or used.")
             }
-        }
-
-        HelpCard {
-            HelpItem(title: "Experimental Downloads", content: "Advanced mode can show optional Qwen3 and Gemma artifact downloads. They are not part of the default local embedding path. Record the exact artifact, settings, and results before comparing one with GTE-Large.")
         }
 
         HelpCard {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("Other Advanced Options")
+                Text("Benchmarks")
                     .font(.headline)
 
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HelpItem(title: "Model Selection", content: "Some experimental artifact families have more than one size. Memory and runtime depend on the selected artifact and Mac.")
-                    HelpItem(title: "Run Records", content: "Keep the artifact revision, settings, input and target snapshots, and output with any experimental comparison.")
-                    HelpItem(title: "Detailed Export", content: "Detailed export includes stored fields only when the current session has them.")
-                }
+                HelpItem(title: "Pinned Fixture", content: "The built-in food-matching regression fixture contains 20 cases and 30 targets. It covers preparation, non-dairy foods, fermentation, canned foods, dry mixes, and related distinctions.")
+                HelpItem(title: "Recorded Metrics", content: "Each run stores top-1, top-5, top-10, mean reciprocal rank, median per-case latency, the fixture revision, the model revision, and each expected target rank.")
+                HelpItem(title: "Private Storage", content: "Benchmark records stay in FoodMapper Application Support and are not added to the project repository.")
             }
         }
 
-        HelpWarningCard(
-            icon: "info.circle",
-            title: "Not Research-Qualified",
-            text: "Do not treat experimental output as research evidence without a separate qualification run and review."
-        )
+        HelpCard {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                Text("Providers")
+                    .font(.headline)
+                HelpItem(title: "Supported Profiles", content: "Provider profiles support OpenAI and loopback OpenAI-compatible servers. Local profiles are limited to 127.0.0.1 or ::1.")
+                HelpItem(title: "Credentials", content: "Profile metadata is stored in FoodMapper Application Support. API keys and bearer tokens are stored separately in the macOS Keychain.")
+                HelpItem(title: "Request Format", content: "FoodMapper fixes the messages, strict response schema, streaming mode, token limit, and credential handling. Custom request fields are not available for automatic decisions.")
+                HelpItem(title: "Connection Probe", content: "The probe sends a fixed broccoli example and checks for one candidate ID in JSON. OpenAI probes require a transfer confirmation. Imported data is not used by the probe.")
+                HelpItem(title: "Provider Runs", content: "GTE-Large retrieves candidates locally. Each selected input description and its candidates are then sent to the chosen provider. Every provider-assisted run requires a confirmation and is limited to 250 inputs.")
+            }
+        }
+
+        Text("Experimental output has not completed the published method's research qualification. Keep the run record and review selected targets before using a comparison in research.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
 }
@@ -1876,7 +1880,7 @@ private struct HelpTroubleshootingContent: View {
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
-                    HelpWarningCard(text: "Resetting permanently removes downloaded models, saved sessions and review decisions, custom databases and cached embeddings, stored input files, and FoodMapper preferences. It does not remove the Anthropic API key stored in Keychain. This cannot be undone. Back up any session exports before resetting. Two confirmation steps are required to prevent accidental data loss.")
+                    HelpWarningCard(text: "Resetting permanently removes downloaded models, saved sessions and review decisions, benchmark records, custom databases and cached embeddings, stored input files, provider profiles and their Keychain credentials, and FoodMapper preferences. It does not remove the Anthropic API key stored in Keychain. This cannot be undone. Back up any session exports before resetting. Two confirmation steps are required to prevent accidental data loss.")
                 }
             }
         }

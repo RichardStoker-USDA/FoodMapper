@@ -61,12 +61,76 @@ extension AppState {
               let column = selectedColumn,
               let database = selectedDatabase else { return }
 
+        let pipelineType = selectedPipelineType
+        let advancedLease: AdvancedFeatureLease?
+        if pipelineType.isExperimental {
+            do {
+                advancedLease = try advancedFeatureGate.issueLease()
+                let inputValues = file.values(for: column)
+                let inputBytes = inputValues.reduce(0) { partial, value in
+                    partial + value.lengthOfBytes(using: .utf8)
+                }
+                let limits = try AdvancedRunLimits.defaults.validated()
+                guard inputValues.count <= limits.inputRows else {
+                    throw AdvancedFeatureError.limitExceeded("Input rows", limits.inputRows)
+                }
+                guard inputBytes <= limits.inputBytes else {
+                    throw AdvancedFeatureError.limitExceeded("Input bytes", limits.inputBytes)
+                }
+            } catch {
+                self.error = AppError.matchingFailed(error.localizedDescription)
+                return
+            }
+        } else {
+            advancedLease = nil
+        }
+
+        let providerProfileForRun: ProviderProfile?
+        let providerCredentialForRun: String?
+        if pipelineType.requiresProviderProfile {
+            guard let profile = selectedProviderProfile else {
+                self.error = AppError.matchingFailed("Select a provider profile before starting this run.")
+                return
+            }
+            let inputCount = file.values(for: column).count
+            guard inputCount <= 250 else {
+                self.error = AppError.matchingFailed("Provider-assisted runs are limited to 250 input rows.")
+                return
+            }
+            let credential = APIKeyStorage.getProviderCredential(profileID: profile.id)
+            if profile.kind == .openAI, credential == nil {
+                self.error = AppError.matchingFailed("Add the provider API key before starting this run.")
+                return
+            }
+            guard hasCurrentProviderProbe(for: profile) else {
+                self.error = AppError.matchingFailed("Test this provider connection before starting a run.")
+                return
+            }
+            if approvedProviderTransferProfileID != profile.id {
+                pendingProviderTransferProfile = profile
+                showProviderTransferConfirmation = true
+                return
+            }
+            // An approval belongs to one immediate attempt. Consume it before
+            // any later preflight can return so a retry always asks again.
+            approvedProviderTransferProfileID = nil
+            providerProfileForRun = profile
+            providerCredentialForRun = credential
+        } else {
+            providerProfileForRun = nil
+            providerCredentialForRun = nil
+        }
+
         // Check if any required models (with selected sizes) are missing and prompt for download
         let requiredKeys = requiredModelKeysForCurrentPipeline
         let missing = requiredKeys.compactMap { key -> RegisteredModel? in
             let state = modelManager.state(for: key)
             guard !state.isAvailable else { return nil }
             return modelManager.registeredModel(for: key)
+        }
+        if let blocked = missing.first(where: { !$0.isInstallable }) {
+            self.error = AppError.matchingFailed("\(blocked.displayName) is still under review and cannot be used for matching.")
+            return
         }
         if !missing.isEmpty {
             pendingDownloadModels = missing
@@ -79,7 +143,6 @@ extension AppState {
             error = AppError.matchingFailed("Another database operation is still running.")
             return
         }
-
         isProcessing = true
         userNavigatedAwayDuringMatching = false
         matchingPhase = .loadingDatabase
@@ -93,13 +156,15 @@ extension AppState {
         matchingCompleted = 0
 
         // Capture pipeline type and model keys for this run (user could change selection during matching)
-        let pipelineType = selectedPipelineType
         let embeddingKey = embeddingModelKeyForCurrentPipeline
         let rerankerKey = selectedRerankerModelKey
         let generativeKey = generativeModelKeyForCurrentPipeline
 
         matchingTask = Task { [self] in
             do {
+                if let advancedLease {
+                    try self.advancedFeatureGate.validate(advancedLease)
+                }
                 // Capture immutable target bytes for session provenance and full
                 // target manual search. V1 still receives its original database:
                 // built-in precomputed embeddings, custom cache identities, and
@@ -127,6 +192,9 @@ extension AppState {
 
                 // Load the correct embedding model via ModelManager (uses selected size)
                 if let embeddingKey = embeddingKey {
+                    if let advancedLease {
+                        try self.advancedFeatureGate.validate(advancedLease)
+                    }
                     let model = try await self.modelManager.loadEmbeddingModel(key: embeddingKey)
                     await engine.setEmbeddingModel(model)
                     logger.info("Using embedding model: \(embeddingKey) (\(model.info.displayName), \(model.info.dimensions)-dim)")
@@ -138,7 +206,10 @@ extension AppState {
 
                 let pipeline = try await self.createPipeline(
                     type: pipelineType, engine: engine,
-                    rerankerKey: rerankerKey, generativeKey: generativeKey
+                    rerankerKey: rerankerKey, generativeKey: generativeKey,
+                    providerProfile: providerProfileForRun,
+                    providerCredential: providerCredentialForRun,
+                    advancedLease: advancedLease
                 )
 
                 let hwConfig = self.effectiveHardwareConfig(for: pipelineType)
@@ -155,7 +226,7 @@ extension AppState {
                     }
                 case .gteLargeHaiku:
                     rerankerInst = self.resolvedHaikuPrompt
-                case .qwen3LLMOnly, .embeddingLLM, .gemma4LLMOnly, .gemma4TwoStage:
+                case .qwen3LLMOnly, .embeddingLLM, .providerLLM, .gemma4LLMOnly, .gemma4TwoStage:
                     rerankerInst = self.resolvedJudgeInstruction
                 default:
                     rerankerInst = self.resolvedRerankerInstruction
@@ -208,6 +279,9 @@ extension AppState {
                     }
                 )
                 try Task.checkCancellation()
+                if let advancedLease {
+                    try self.advancedFeatureGate.validate(advancedLease)
+                }
                 guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
 
                 // Collect API tier + token usage from Haiku pipeline
@@ -226,7 +300,7 @@ extension AppState {
                 // Capture state needed for branching before modifying @Published properties
                 let userWasAway = await MainActor.run { self.userNavigatedAwayDuringMatching }
                 try Task.checkCancellation()
-                let pipelineType = await MainActor.run { self.selectedPipelineType }
+                let completedPipelineType = pipelineType
                 let userMatchThresh = await MainActor.run { self.userMatchThreshold }
                 let userRejectThresh = await MainActor.run { self.userRejectThreshold }
                 let autoMatchFloor = await MainActor.run { self.autoMatchScoreFloor }
@@ -278,12 +352,12 @@ extension AppState {
                         let profile = AppState.effectiveProfile(
                             userMatchThreshold: userMatchThresh,
                             userRejectThreshold: userRejectThresh,
-                            pipelineType: pipelineType
+                            pipelineType: completedPipelineType
                         )
                         let triage = AppState.computeTriageDecisions(
                             results: matchResults,
                             existingDecisions: [:],
-                            pipelineType: pipelineType,
+                            pipelineType: completedPipelineType,
                             userMatchThreshold: userMatchThresh,
                             userRejectThreshold: userRejectThresh,
                             autoMatchScoreFloor: autoMatchFloor,
@@ -464,13 +538,18 @@ extension AppState {
         rerankerKey: String = "qwen3-reranker-0.6b",
         generativeKey: String = "qwen3-judge-4b-4bit",
         judgeResponseFormat: JudgeResponseFormat = .letter,
-        allowThinking: Bool = false
+        allowThinking: Bool = false,
+        providerProfile: ProviderProfile? = nil,
+        providerCredential: String? = nil,
+        advancedLease: AdvancedFeatureLease? = nil
     ) async throws -> any MatchingPipelineProtocol {
         switch type {
         case .gteLargeEmbedding:
             return EmbeddingOnlyPipeline(type: .gteLargeEmbedding, engine: engine)
         case .qwen3Embedding:
             return EmbeddingOnlyPipeline(type: .qwen3Embedding, engine: engine)
+        case .nomicEmbedding:
+            return EmbeddingOnlyPipeline(type: .nomicEmbedding, engine: engine)
         case .qwen3Reranker:
             let reranker = try await modelManager.loadRerankerModel(key: rerankerKey)
             return RerankerOnlyPipeline(reranker: reranker, engine: engine)
@@ -523,6 +602,18 @@ extension AppState {
                 engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .embeddingLLM),
                 responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
+        case .providerLLM:
+            guard let providerProfile, let advancedLease else {
+                throw AppError.matchingFailed("Select a provider profile before starting this run.")
+            }
+            return ProviderRerankerPipeline(
+                engine: engine,
+                profile: providerProfile,
+                credential: providerCredential,
+                topK: effectiveHardwareConfig(for: .providerLLM).topKForReranking,
+                authorizationGate: advancedFeatureGate,
+                authorizationLease: advancedLease
+            )
         case .gemma4TwoStage:
             let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
             return EmbeddingLLMPipeline(
@@ -531,6 +622,20 @@ extension AppState {
                 responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
         }
+    }
+
+    func approveProviderTransferAndRun(profileID: UUID) {
+        guard pendingProviderTransferProfile?.id == profileID else { return }
+        approvedProviderTransferProfileID = profileID
+        pendingProviderTransferProfile = nil
+        showProviderTransferConfirmation = false
+        runMatching()
+    }
+
+    func cancelProviderTransferConfirmation() {
+        pendingProviderTransferProfile = nil
+        showProviderTransferConfirmation = false
+        approvedProviderTransferProfileID = nil
     }
 
     func cancelMatching() {

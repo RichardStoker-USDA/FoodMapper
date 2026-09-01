@@ -41,6 +41,8 @@ test_temporary_root="${derived_data}/Temporary"
 test_symroot="${derived_data}/Symroot"
 test_objroot="${derived_data}/Objroot"
 defaults_suite="app.foodmapper.FoodMapper.tests.${test_id}"
+fixture_target_path="${FOODMAPPER_TEST_TARGET_PATH:-}"
+fixture_input_path="${FOODMAPPER_TEST_INPUT_PATH:-}"
 live_support="${HOME:?HOME is required}/Library/Application Support/FoodMapper"
 live_preferences="${HOME:?HOME is required}/Library/Preferences/app.foodmapper.FoodMapper.plist"
 if [ -n "$runner_temp" ]; then
@@ -74,11 +76,42 @@ require_swiftpm_paths() {
     done
 }
 
+require_fixture_paths() {
+    if [ -z "$fixture_target_path" ] && [ -z "$fixture_input_path" ]; then
+        return 0
+    fi
+    if [ -z "$fixture_target_path" ] || [ -z "$fixture_input_path" ]; then
+        printf '%s\n' "Set both FOODMAPPER_TEST_TARGET_PATH and FOODMAPPER_TEST_INPUT_PATH." >&2
+        return 1
+    fi
+    case "$fixture_target_path" in /*) ;; *) return 1 ;; esac
+    case "$fixture_input_path" in /*) ;; *) return 1 ;; esac
+    [ -f "$fixture_target_path" ] && [ ! -L "$fixture_target_path" ] || return 1
+    [ -f "$fixture_input_path" ] && [ ! -L "$fixture_input_path" ] || return 1
+}
+
+prepare_fixture_paths() {
+    [ -n "$fixture_target_path" ] || return 0
+
+    local target_copy="${temporary_root}/foodmapper-fixture-target-${test_id}.csv"
+    local input_copy="${temporary_root}/foodmapper-fixture-input-${test_id}.csv"
+    cp -X "$fixture_target_path" "$target_copy"
+    cp -X "$fixture_input_path" "$input_copy"
+    xattr -c "$target_copy" "$input_copy"
+    chmod 600 "$target_copy" "$input_copy"
+    cmp -s "$fixture_target_path" "$target_copy" || return 1
+    cmp -s "$fixture_input_path" "$input_copy" || return 1
+    fixture_target_path="$target_copy"
+    fixture_input_path="$input_copy"
+}
+
 is_generated_path() {
     case "$1" in
         "${test_artifact_root}"/foodmapper-xctest-????????-????-????-????-????????????|\
         "${test_artifact_root}"/foodmapper-derived-data-????????-????-????-????-????????????|\
         "${test_artifact_root}"/foodmapper-preferences-????????-????-????-????-????????????|\
+        "${temporary_root}"/foodmapper-fixture-target-????????-????-????-????-????????????.csv|\
+        "${temporary_root}"/foodmapper-fixture-input-????????-????-????-????-????????????.csv|\
         "${temporary_root}"/foodmapper-ci-self-test-????????-????-????-????-????????????)
             return 0
             ;;
@@ -289,6 +322,8 @@ cleanup() {
     remove_generated_path "${test_root:-}"
     remove_generated_path "${derived_data:-}"
     remove_generated_path "${preferences_root:-}"
+    remove_generated_path "${fixture_target_path:-}"
+    remove_generated_path "${fixture_input_path:-}"
 }
 
 validate_ad_hoc_bundle() {
@@ -453,10 +488,12 @@ esac
 
 require_no_running_foodmapper
 require_xcode_26_6
+require_fixture_paths
 prepare_swiftpm_paths
 
 mkdir -m 700 "$test_root" "$derived_data" "$preferences_root"
 mkdir -m 700 "$test_temporary_root" "$test_symroot" "$test_objroot"
+prepare_fixture_paths
 require_private_directory "$test_root"
 require_private_directory "$derived_data"
 require_private_directory "$preferences_root"
@@ -508,6 +545,10 @@ run_test_workflow() {
     set_test_environment_value "$xctestrun_file" "FOODMAPPER_TEST_DEFAULTS_SUITE" "$defaults_suite" || return 1
     set_test_environment_value "$xctestrun_file" "TMPDIR" "$test_temporary_root" || return 1
     set_test_environment_value "$xctestrun_file" "CFFIXED_USER_HOME" "$preferences_root" || return 1
+    if [ -n "$fixture_target_path" ]; then
+        set_test_environment_value "$xctestrun_file" "FOODMAPPER_TEST_TARGET_PATH" "$fixture_target_path" || return 1
+        set_test_environment_value "$xctestrun_file" "FOODMAPPER_TEST_INPUT_PATH" "$fixture_input_path" || return 1
+    fi
 
     DEVELOPER_DIR="$DEVELOPER_DIR" \
     TMPDIR="$test_temporary_root" \

@@ -252,8 +252,10 @@ struct ActionCard: View {
                     .strokeBorder(
                         isHovered
                             ? Color.accentColor.opacity(colorScheme == .dark ? 0.3 : 0.2)
-                            : Color.cardBorder(for: colorScheme),
-                        lineWidth: isHovered ? 1.0 : (colorScheme == .dark ? 0.66 : 1.0)
+                            : (emphasis == .research
+                                ? Color.accentColor.opacity(colorScheme == .dark ? 0.22 : 0.16)
+                                : Color.cardBorder(for: colorScheme)),
+                        lineWidth: isHovered || emphasis == .research ? 1.0 : (colorScheme == .dark ? 0.66 : 1.0)
                     )
             }
             .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.06), radius: 1, y: 1)
@@ -267,13 +269,26 @@ struct ActionCard: View {
         case .standard:
             Image(systemName: icon)
                 .font(.system(size: 32))
-                .symbolRenderingMode(.multicolor)
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(Color.accentColor, .primary)
         case .research:
-            Image(systemName: icon)
-                .font(.system(size: 32))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.accentColor)
-                .symbolEffect(.bounce.up.byLayer, value: attentionValue)
+            ZStack {
+                Circle()
+                    .stroke(Color.accentColor.opacity(0.20), lineWidth: 1)
+                    .frame(width: 46, height: 46)
+                    .scaleEffect(attentionValue == 0 ? 0.78 : 1.18)
+                    .opacity(attentionValue == 0 ? 0.34 : 0)
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: 1.4).repeatCount(2, autoreverses: false),
+                        value: attentionValue
+                    )
+
+                Image(systemName: icon)
+                    .font(.system(size: 32))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(width: 46, height: 46)
         }
     }
 }

@@ -1,7 +1,11 @@
 import SwiftUI
 
-/// Sheet shown when a user selects a pipeline that requires models not yet downloaded.
-/// Presents the missing models with sizes and a single action to download all.
+struct ModelInstallRequest: Identifiable {
+    let id = UUID()
+    let models: [RegisteredModel]
+}
+
+/// Reviews and installs the exact model snapshots needed by an optional workflow.
 struct ModelDownloadSheet: View {
     let models: [RegisteredModel]
     @ObservedObject var modelManager: ModelManager
@@ -13,141 +17,243 @@ struct ModelDownloadSheet: View {
     @State private var downloadError: String?
     @State private var downloadTask: Task<Void, Never>?
     @State private var cancellationTask: Task<Void, Never>?
-    @State private var completedKeys: Set<String> = []
+
+    private var installableModels: [RegisteredModel] {
+        models.filter(\.isInstallable)
+    }
 
     private var totalDownloadSize: Int64 {
-        models.compactMap(\.downloadSize).reduce(0, +)
+        installableModels
+            .filter { !modelManager.state(for: $0.key).isAvailable }
+            .compactMap(\.downloadSize)
+            .reduce(0, +)
     }
 
     private var allDownloaded: Bool {
-        models.allSatisfy { modelManager.state(for: $0.key).isAvailable }
+        !models.isEmpty && models.allSatisfy { modelManager.state(for: $0.key).isAvailable }
     }
 
     var body: some View {
-        VStack(spacing: Spacing.xl) {
-            // Header
-            VStack(spacing: Spacing.md) {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            sheetHeader
+            Divider()
 
-                Text("Models Required")
-                    .font(.title3)
-                    .fontWeight(.semibold)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.lg) {
+                    modelList
 
-                Text("This pipeline needs models that haven't been downloaded yet.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            // Model list
-            VStack(spacing: Spacing.xs) {
-                ForEach(models) { model in
-                    HStack {
-                        Text(model.displayName)
-                            .fontWeight(.medium)
-
-                        Spacer()
-
-                        if let size = model.downloadSize {
-                            Text(formatBytes(size))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        modelStatusIcon(for: model.key)
+                    if let downloadError {
+                        Label(downloadError, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel("Install error: \(downloadError)")
                     }
-                    .padding(.vertical, Spacing.xs)
-                    .padding(.horizontal, Spacing.md)
+
+                    Text(storageNote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .padding(.horizontal, Spacing.lg)
-
-            // Total size
-            Text("Total download: \(formatBytes(totalDownloadSize))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            // Error
-            if let error = downloadError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color.experimentalAmber)
+                .padding(Spacing.xl)
             }
 
-            // Actions
-            HStack(spacing: Spacing.md) {
-                Button("Cancel") {
-                    cancelDownloads()
-                    onCancel()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                if allDownloaded {
-                    Button("Continue") {
-                        onComplete()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                } else {
-                    Button(isCancelling ? "Finishing cancellation..." : (isDownloading ? "Downloading..." : "Download & Match")) {
-                        downloadAll()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isDownloading || isCancelling)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
+            Divider()
+            actionBar
         }
-        .padding(Spacing.xl)
-        .frame(width: 420)
-        .onAppear {
-            // If models finished downloading between sheet creation and display
-            if allDownloaded {
-                onComplete()
-            }
-        }
+        .frame(width: 640, height: min(620, 250 + CGFloat(models.count) * 104))
         .onDisappear {
             cancelDownloads()
         }
     }
 
-    @ViewBuilder
-    private func modelStatusIcon(for key: String) -> some View {
-        let state = modelManager.state(for: key)
-        switch state {
-        case .downloaded, .loaded:
-            Image(systemName: "checkmark.circle")
-                .foregroundStyle(.green)
-        case .downloading(let progress):
-            HStack(spacing: Spacing.xxs) {
-                ProgressView(value: progress)
-                    .frame(width: 40)
-                Text("\(Int(progress * 100))%")
-                    .font(.caption2)
-                    .monospacedDigit()
+    private var sheetHeader: some View {
+        HStack(alignment: .top, spacing: Spacing.md) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 28, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 36)
+
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(allDownloaded ? "Models Installed" : "Review Model Installation")
+                    .font(.title3.weight(.semibold))
+
+                Text(allDownloaded
+                     ? "The selected models passed their local file checks."
+                     : "FoodMapper will download the pinned files listed below and verify them before use.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        case .loading:
+
+            Spacer(minLength: Spacing.md)
+
+            if !allDownloaded, totalDownloadSize > 0 {
+                VStack(alignment: .trailing, spacing: Spacing.xxxs) {
+                    Text("DOWNLOAD")
+                        .technicalLabel()
+                    Text(formatBytes(totalDownloadSize))
+                        .font(.callout.weight(.medium))
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(Spacing.xl)
+    }
+
+    private var modelList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
+                modelRow(model)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.md)
+
+                if index < models.count - 1 {
+                    Divider()
+                        .padding(.leading, Spacing.md)
+                }
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 0.5)
+        }
+    }
+
+    private func modelRow(_ model: RegisteredModel) -> some View {
+        HStack(alignment: .top, spacing: Spacing.md) {
+            modelStateSymbol(model)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(model.displayName)
+                        .font(.headline)
+                    Spacer()
+                    Text(model.admission.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Grid(alignment: .leading, horizontalSpacing: Spacing.xl, verticalSpacing: Spacing.xxs) {
+                    GridRow {
+                        metadata("Publisher", model.publisher)
+                        metadata("Use", model.purpose.rawValue)
+                    }
+                    GridRow {
+                        metadata("License", model.licenseName)
+                        metadata("Files", model.downloadSize.map(formatBytes) ?? "Bundled")
+                    }
+                    if let revision = model.revision {
+                        GridRow {
+                            metadata("Revision", String(revision.prefix(12)))
+                                .gridCellColumns(2)
+                        }
+                    }
+                }
+
+                if case let .downloading(progress) = modelManager.state(for: model.key) {
+                    HStack(spacing: Spacing.sm) {
+                        ProgressView(value: min(max(progress, 0), 1))
+                            .progressViewStyle(.linear)
+                        Text(progress >= 0.995 ? "Verifying" : progress.formatted(.percent.precision(.fractionLength(0))))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .frame(width: 58, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    private func metadata(_ name: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+            Text(name)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 54, alignment: .leading)
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private func modelStateSymbol(_ model: RegisteredModel) -> some View {
+        switch modelManager.state(for: model.key) {
+        case .downloaded, .loaded:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .downloading, .loading:
             ProgressView()
                 .controlSize(.small)
         case .error:
-            Image(systemName: "exclamationmark.triangle")
+            Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
         case .notDownloaded:
-            if modelManager.retryState(for: key) == .cancelling {
-                ProgressView()
-                    .controlSize(.small)
+            if model.admission == .inventory {
+                Image(systemName: "lock.circle")
+                    .foregroundStyle(.secondary)
             } else {
                 Image(systemName: "arrow.down.circle")
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: Spacing.md) {
+            if isDownloading || isCancelling {
+                Text(isCancelling ? "Stopping installation..." : "Keep FoodMapper open while the files are checked.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isDownloading || isCancelling {
+                Button("Cancel Install") {
+                    cancelDownloads()
+                }
+                .disabled(isCancelling)
+            } else if !allDownloaded {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+
+            if allDownloaded {
+                Button("Done") {
+                    onComplete()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            } else {
+                Button("Install Models") {
+                    downloadAll()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isDownloading || isCancelling || installableModels.isEmpty)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(Spacing.lg)
+    }
+
+    private var storageNote: String {
+        if allDownloaded {
+            return "The verified files are ready in FoodMapper's application-support folder. The published matching method is unchanged."
+        }
+        if isDownloading || isCancelling {
+            return "FoodMapper stores verified model files in its application-support folder. The published matching method remains unchanged."
+        }
+        return "Models are stored in FoodMapper's application-support folder. No download starts until you select Install Models."
     }
 
     private func downloadAll() {
@@ -164,7 +270,8 @@ struct ModelDownloadSheet: View {
                     }
                 }
             }
-            for model in models {
+
+            for model in installableModels {
                 guard !Task.isCancelled else { return }
                 guard !modelManager.state(for: model.key).isAvailable else { continue }
                 do {
@@ -172,15 +279,9 @@ struct ModelDownloadSheet: View {
                 } catch {
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
-                        downloadError = "Failed to download \(model.displayName): \(error.localizedDescription)"
+                        downloadError = "\(model.displayName): \(error.localizedDescription)"
                     }
                     return
-                }
-            }
-
-            await MainActor.run {
-                if !Task.isCancelled, allDownloaded {
-                    onComplete()
                 }
             }
         }
@@ -188,14 +289,18 @@ struct ModelDownloadSheet: View {
 
     private func cancelDownloads() {
         guard !isCancelling else { return }
-        guard isDownloading || models.contains(where: { modelManager.retryState(for: $0.key) == .cancelling }) else { return }
+        guard isDownloading || installableModels.contains(where: {
+            modelManager.retryState(for: $0.key) == .cancelling
+        }) else { return }
+
         isCancelling = true
-        for model in models {
+        downloadTask?.cancel()
+        for model in installableModels {
             modelManager.cancelDownload(key: model.key)
         }
-        downloadTask?.cancel()
+
         cancellationTask = Task {
-            for model in models {
+            for model in installableModels {
                 await modelManager.cancelDownloadAndWait(key: model.key)
             }
             await MainActor.run {
@@ -208,61 +313,29 @@ struct ModelDownloadSheet: View {
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
-        if bytes >= 1_000_000_000 {
-            return String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
-        } else {
-            return String(format: "%d MB", bytes / 1_000_000)
-        }
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 
-#Preview("Download Sheet - Two Models") {
+#Preview("Model Installation") {
     ModelDownloadSheet(
         models: [
             RegisteredModel(
-                key: "qwen3-emb-4b-4bit",
-                displayName: "Qwen3-Embedding 4B",
-                modelFamily: .qwen3Embedding,
-                sizeCategory: .medium,
-                repoId: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
-                downloadSize: 2_280_000_000,
-                gpuMemoryUsage: 2_500_000_000,
-                minimumProfile: .base
-            ),
-            RegisteredModel(
-                key: "qwen3-reranker-0.6b",
-                displayName: "Qwen3-Reranker 0.6B",
-                modelFamily: .qwen3Reranker,
-                sizeCategory: .small,
-                repoId: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
-                downloadSize: 1_200_000_000,
-                gpuMemoryUsage: 1_200_000_000,
-                minimumProfile: .base
-            ),
+                key: "nomic-embed-text-v1.5",
+                displayName: "Nomic Embed Text v1.5",
+                modelFamily: .nomicEmbedding,
+                sizeCategory: .compact,
+                repoId: NomicEmbeddingModel.repository,
+                revision: NomicEmbeddingModel.revision,
+                downloadSize: 547_886_235,
+                publisher: "Nomic AI",
+                licenseName: "Apache 2.0",
+                purpose: .embedding,
+                admission: .evaluation
+            )
         ],
         modelManager: ModelManager(hardwareConfig: .detect()),
         onComplete: {},
         onCancel: {}
     )
-}
-
-#Preview("Download Sheet - Dark") {
-    ModelDownloadSheet(
-        models: [
-            RegisteredModel(
-                key: "qwen3-emb-4b-4bit",
-                displayName: "Qwen3-Embedding 4B",
-                modelFamily: .qwen3Embedding,
-                sizeCategory: .medium,
-                repoId: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
-                downloadSize: 2_280_000_000,
-                gpuMemoryUsage: 2_500_000_000,
-                minimumProfile: .base
-            ),
-        ],
-        modelManager: ModelManager(hardwareConfig: .detect()),
-        onComplete: {},
-        onCancel: {}
-    )
-    .preferredColorScheme(.dark)
 }

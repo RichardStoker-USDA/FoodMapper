@@ -255,13 +255,36 @@ struct ContentView: View {
                 onComplete: {
                     appState.showModelDownloadSheet = false
                     appState.pendingDownloadModels = []
-                    appState.runMatching()
                 },
                 onCancel: {
                     appState.showModelDownloadSheet = false
                     appState.pendingDownloadModels = []
                 }
             )
+        }
+        .confirmationDialog(
+            "Send match candidates to this provider?",
+            isPresented: Binding(
+                get: {
+                    appState.showProviderTransferConfirmation
+                        && appState.pendingProviderTransferProfile != nil
+                },
+                set: { isPresented in
+                    if !isPresented, appState.showProviderTransferConfirmation {
+                        appState.cancelProviderTransferConfirmation()
+                    }
+                }
+            ),
+            presenting: appState.pendingProviderTransferProfile
+        ) { profile in
+            Button("Start Provider Run") {
+                appState.approveProviderTransferAndRun(profileID: profile.id)
+            }
+            Button("Cancel", role: .cancel) {
+                appState.cancelProviderTransferConfirmation()
+            }
+        } message: { profile in
+            Text(providerConfirmationMessage(profile))
         }
         .alert(
             "Error",
@@ -369,6 +392,22 @@ struct ContentView: View {
         default:             return false
         }
     }
+
+    private func providerConfirmationMessage(_ profile: ProviderProfile) -> String {
+        let inputCount: Int
+        if let file = appState.inputFile, let column = appState.selectedColumn {
+            inputCount = file.values(for: column).count
+        } else {
+            inputCount = 0
+        }
+        let configuredCandidateCount = appState.effectiveHardwareConfig(for: .providerLLM).topKForReranking
+        let candidateCount = min(max(1, configuredCandidateCount), AdvancedRunLimits.maximum.candidateCount)
+        let selectedField = appState.selectedColumn ?? "selected description"
+        let transport = profile.kind == .openAI
+            ? "\(profile.baseURL) over HTTPS. The selected values leave this Mac."
+            : "\(profile.baseURL) over loopback HTTP. The selected values stay on this Mac."
+        return "FoodMapper will send \(inputCount) values from \(selectedField) and up to \(candidateCount) candidates per value to \(profile.name), using \(profile.model) at \(transport) It will make at most \(inputCount) requests. Each request is limited to 16 KB; each response is limited to 128 tokens and 64 KB. Other imported columns are not included."
+    }
 }
 
 /// Main content area -- routes based on sidebar selection
@@ -465,6 +504,8 @@ struct MainContent: View {
                 PipelineOverviewView()
             case .pipelineConfig:
                 PipelineConfigurationView()
+            case .providerProfiles:
+                ProviderProfilesView()
             case nil:
                 WelcomeLandingView()
             }

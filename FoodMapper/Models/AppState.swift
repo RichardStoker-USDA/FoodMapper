@@ -13,6 +13,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     case history
     case pipelineOverview
     case pipelineConfig
+    case providerProfiles
 
     var id: String { rawValue }
 
@@ -22,8 +23,9 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         case .inputFiles: return "Input Files"
         case .databases: return "Databases"
         case .history: return "History"
-        case .pipelineOverview: return "Overview"
-        case .pipelineConfig: return "Configuration"
+        case .pipelineOverview: return "Runs"
+        case .pipelineConfig: return "Benchmarks"
+        case .providerProfiles: return "Providers"
         }
     }
 
@@ -33,15 +35,16 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         case .inputFiles: return "doc.on.doc"
         case .databases: return "internaldrive"
         case .history: return "clock"
-        case .pipelineOverview: return "list.bullet.rectangle"
-        case .pipelineConfig: return "slider.horizontal.3"
+        case .pipelineOverview: return "play.rectangle"
+        case .pipelineConfig: return "chart.bar.xaxis"
+        case .providerProfiles: return "network"
         }
     }
 
     /// Whether this item is visible in simple mode
     var isVisibleInSimpleMode: Bool {
         switch self {
-        case .pipelineOverview, .pipelineConfig: return false
+        case .pipelineOverview, .pipelineConfig, .providerProfiles: return false
         default: return true
         }
     }
@@ -49,7 +52,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     /// Whether this item belongs to the Pipelines section
     var isPipelineItem: Bool {
         switch self {
-        case .pipelineOverview, .pipelineConfig: return true
+        case .pipelineOverview, .pipelineConfig, .providerProfiles: return true
         default: return false
         }
     }
@@ -61,7 +64,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
 
     /// Items that appear in the Pipelines section (advanced mode only)
     static var pipelineItems: [NavigationItem] {
-        [.pipelineOverview, .pipelineConfig]
+        [.pipelineOverview, .pipelineConfig, .providerProfiles]
     }
 }
 
@@ -338,13 +341,52 @@ final class AppState: ObservableObject {
     // Model management
     @Published var modelManager: ModelManager
 
+    /// Authorization boundary for optional model, provider, and benchmark work.
+    let advancedFeatureGate = AdvancedFeatureGate()
+
+    @Published var benchmarkRuns: [BenchmarkRun] = []
+    @Published var benchmarkProgress: Double?
+    @Published var benchmarkError: String?
+    @Published var selectedBenchmarkModelKey = "gte-large"
+    var benchmarkTask: Task<Void, Never>?
+
+    @Published var providerProfiles: [ProviderProfile] = []
+    @Published var selectedProviderProfileID: UUID?
+    @Published var providerProbeState: ProviderProbeState = .idle
+    var providerProbeTask: Task<Void, Never>?
+    @Published var pendingProviderTransferProfile: ProviderProfile?
+    @Published var showProviderTransferConfirmation = false
+    var approvedProviderTransferProfileID: UUID?
+
+    var selectedProviderProfile: ProviderProfile? {
+        providerProfiles.first { $0.id == selectedProviderProfileID }
+    }
+
     // Simple/Advanced toggle (persisted via UserDefaults)
     @Published var isAdvancedMode: Bool = FoodMapperStorage.defaults.bool(forKey: "isAdvancedMode") {
         didSet {
             FoodMapperStorage.defaults.set(isAdvancedMode, forKey: "isAdvancedMode")
+            advancedFeatureGate.setEnabled(isAdvancedMode)
             // Navigate away from advanced-only pages when switching to simple mode
             if !isAdvancedMode, let sel = sidebarSelection, !sel.isVisibleInSimpleMode {
                 sidebarSelection = .home
+            }
+            if !isAdvancedMode {
+                cancelBenchmark()
+                cancelProviderProbe()
+                pendingProviderTransferProfile = nil
+                showProviderTransferConfirmation = false
+                approvedProviderTransferProfileID = nil
+                if isProcessing, selectedPipelineType.isExperimental {
+                    cancelMatching()
+                }
+            }
+            if !isAdvancedMode,
+               selectedPipelineType.isExperimental || selectedPipelineType.admission == .unavailable {
+                selectedPipelineType = .gteLargeEmbedding
+                selectedPipelineMode = .standard
+                pendingDownloadModels = []
+                showModelDownloadSheet = false
             }
         }
     }
@@ -429,8 +471,9 @@ final class AppState: ObservableObject {
     /// this accounts for the user's model size selections.
     var requiredModelKeysForCurrentPipeline: [String] {
         switch selectedPipelineType {
-        case .gteLargeEmbedding: return ["gte-large"]
+        case .gteLargeEmbedding, .providerLLM: return ["gte-large"]
         case .qwen3Embedding: return [selectedEmbeddingModelKey]
+        case .nomicEmbedding: return ["nomic-embed-text-v1.5"]
         case .qwen3Reranker: return [selectedRerankerModelKey]
         case .qwen3TwoStage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
         case .gteLargeHaiku, .gteLargeHaikuV2: return ["gte-large"]
@@ -445,9 +488,10 @@ final class AppState: ObservableObject {
     /// Embedding model key for the current pipeline + selected sizes
     var embeddingModelKeyForCurrentPipeline: String? {
         switch selectedPipelineType {
-        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
+        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM: return "gte-large"
         case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return selectedEmbeddingModelKey
+        case .nomicEmbedding: return "nomic-embed-text-v1.5"
         case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
@@ -456,6 +500,10 @@ final class AppState: ObservableObject {
     @Published var selectedPipelineMode: PipelineMode? = .standard
     @Published var selectedPipelineType: PipelineType = .gteLargeEmbedding {
         didSet {
+            if (!isAdvancedMode && selectedPipelineType.isExperimental) || selectedPipelineType.admission == .unavailable {
+                selectedPipelineType = .gteLargeEmbedding
+                return
+            }
             guard !isSyncingPipeline else { return }
             isSyncingPipeline = true
             if selectedPipelineType == .gteLargeHaiku {
@@ -600,9 +648,10 @@ final class AppState: ObservableObject {
     /// Embedding model key for a given pipeline type (accounts for selected model sizes)
     func embeddingModelKeyForPipeline(_ pipeline: PipelineType) -> String? {
         switch pipeline {
-        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2: return "gte-large"
+        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM: return "gte-large"
         case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
             return selectedEmbeddingModelKey
+        case .nomicEmbedding: return "nomic-embed-text-v1.5"
         case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
         }
     }
@@ -815,6 +864,10 @@ final class AppState: ObservableObject {
         }
         if selectedPipelineType == .gteLargeHaiku || selectedPipelineType == .gteLargeHaikuV2 {
             return allAvailable && hasAnthropicAPIKey
+        }
+        if selectedPipelineType.requiresProviderProfile {
+            return allAvailable
+                && selectedProviderProfile.map { hasCurrentProviderProbe(for: $0) } == true
         }
         return allAvailable
     }
@@ -1035,6 +1088,7 @@ final class AppState: ObservableObject {
         hardwareConfig = hw
         hw.applyMLXCacheLimit()
         modelManager = ModelManager(hardwareConfig: hw)
+        advancedFeatureGate.setEnabled(isAdvancedMode)
 
         modelManager.onGTELargeProgress = { [weak self] progress, written, total in
             guard let self = self else { return }
@@ -1098,6 +1152,8 @@ final class AppState: ObservableObject {
         loadCustomDatabases()
         loadStoredInputFiles()
         loadTargetDatabaseSample()
+        loadBenchmarkRuns()
+        loadProviderProfiles()
 
         // Observe UserDefaults changes for settings synced via @AppStorage in SettingsView
         settingsObserver = NotificationCenter.default.addObserver(

@@ -613,11 +613,21 @@ final class TargetSnapshotTests: XCTestCase {
 
         let target = try await CSVParser.parse(url: targetURL)
         let input = try await CSVParser.parse(url: inputURL)
+        let importedTargetURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("foodmapper-supplied-target-\(UUID().uuidString).csv")
         let root = FoodMapperStorage.privateDirectory(["TargetSnapshots", "supplied-\(UUID().uuidString)"])
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer {
+            try? FileManager.default.removeItem(at: importedTargetURL)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try Data(contentsOf: targetURL).write(to: importedTargetURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: SecureFileAccess.privateFilePermissions],
+            ofItemAtPath: importedTargetURL.path
+        )
         let store = TargetSnapshotStore(root: root)
         let snapshot = try await store.capture(
-            sourceURL: targetURL, databaseIdentity: "fndds0304food", displayName: "FNDDS",
+            sourceURL: importedTargetURL, databaseIdentity: "fndds0304food", displayName: "FNDDS",
             sourceKind: .custom, textColumn: "fooddesc0304", idColumn: "foodcode0304", requireSourceOwner: true
         )
         let reportedInput = "SOUP,BROCCOLI CHS,CND,COND,COMM"
@@ -1132,7 +1142,7 @@ final class ModelSnapshotTests: XCTestCase {
         let url = try XCTUnwrap(ResourceBundle.bundle.url(
             forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"
         ))
-        let manifest = try JSONDecoder().decode(TrustedQwenSnapshotManifest.self, from: Data(contentsOf: url))
+        let manifest = try JSONDecoder().decode(TrustedModelSnapshotManifest.self, from: Data(contentsOf: url))
         XCTAssertEqual(manifest.version, 1)
         XCTAssertEqual(manifest.models.count, 7)
         XCTAssertEqual(manifest.models.flatMap(\.artifacts).count, 63)

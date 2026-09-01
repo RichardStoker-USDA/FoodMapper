@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Navigation sidebar -- main items always visible, Pipelines section in advanced mode.
+/// Navigation sidebar. Experimental tools only appear after Advanced mode is enabled.
 struct Sidebar: View {
     @EnvironmentObject var appState: AppState
 
@@ -11,9 +11,9 @@ struct Sidebar: View {
                 sidebarLabel(for: item)
             }
 
-            // Pipelines section (advanced mode only)
+            // Experimental section (advanced mode only)
             if appState.isAdvancedMode {
-                Section("Pipelines") {
+                Section("Experimental") {
                     ForEach(NavigationItem.pipelineItems) { item in
                         sidebarLabel(for: item)
                     }
