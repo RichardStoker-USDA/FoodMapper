@@ -235,8 +235,17 @@ struct ContentView: View {
 
             // Match state machine (instant swap, no animation -- toolbar layout
             // fights SwiftUI transitions causing slide-off-screen artifacts).
-            ToolbarItem(placement: .primaryAction) {
-                matchToolbarContent
+            if #available(macOS 26, *) {
+                ToolbarItem(placement: .primaryAction) {
+                    matchToolbarContent
+                }
+                .sharedBackgroundVisibility(
+                    appState.toolbarMatchState == .match ? .hidden : .automatic
+                )
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    matchToolbarContent
+                }
             }
         }
         .sheet(isPresented: $appState.showModelDownloadSheet) {
@@ -925,42 +934,69 @@ private struct MatchButton: View {
     let disabled: Bool
 
     var body: some View {
-        Group {
-            if #available(macOS 26, *) {
-                runButton
-                    .buttonStyle(.glassProminent)
-            } else {
-                runButton
-                    .buttonStyle(.borderedProminent)
+        Button(action: action) {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text("Run Match")
+                    .font(.body.weight(.semibold))
             }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+            .fixedSize()
+            .contentShape(Capsule())
         }
-        .buttonBorderShape(.capsule)
-        .controlSize(.regular)
-        .contentShape(Capsule())
+        .buttonStyle(MatchButtonStyle())
         .accessibilityLabel("Run Match")
         .disabled(disabled)
     }
+}
 
-    private var runButton: some View {
-        Button(action: action) {
-            runButtonLabel
+/// Keeps the toolbar action accented when its window is inactive.
+private struct MatchButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    private let accent = Color(nsColor: .controlAccentColor)
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isEnabled ? Color.white : Color.secondary)
+            .background {
+                Capsule()
+                    .fill(isEnabled ? accent : Color.secondary.opacity(0.16))
+            }
+            .overlay {
+                Capsule()
+                    .strokeBorder(
+                        isEnabled
+                            ? Color.white.opacity(isHovering ? 0.62 : 0.30)
+                            : Color.secondary.opacity(0.22),
+                        lineWidth: 0.66
+                    )
+            }
+            .shadow(
+                color: isEnabled ? accent.opacity(isHovering ? 0.28 : 0.18) : .clear,
+                radius: isHovering ? 5 : 3,
+                y: 2
+            )
+            .brightness(isEnabled && isHovering ? 0.035 : 0)
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.99 : 1)
+            .contentShape(Capsule())
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
+            .onHover { hovering in
+                isHovering = hovering && isEnabled
+            }
+            .onChange(of: isEnabled) { _, enabled in
+                if !enabled {
+                    isHovering = false
+                }
+            }
         }
-        .contentShape(Capsule())
-    }
-
-    private var runButtonLabel: some View {
-        HStack(spacing: Spacing.xs) {
-            Image(systemName: "play.fill")
-                .font(.system(size: 13, weight: .semibold))
-
-            Text("Run Match")
-                .font(.body.weight(.semibold))
-        }
-        .padding(.horizontal, Spacing.xs)
-        .padding(.vertical, 3)
-        .fixedSize()
-        .contentShape(Capsule())
-    }
 }
 
 /// Completion action shown after a matching run.
