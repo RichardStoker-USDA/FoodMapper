@@ -370,7 +370,7 @@ struct PreMatchPreviewView: View {
 
                 inlineConfigBar
 
-                Text("Click Match to start.")
+                Text("Click Run Match to start.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -383,7 +383,7 @@ struct PreMatchPreviewView: View {
                 Text("Preview")
                     .font(.headline)
 
-                Text("Verify the correct input column and target database are selected, then click Match to begin.")
+                Text("Verify the correct input column and target database are selected, then click Run Match to begin.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
