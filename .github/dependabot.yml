@@ -2,15 +2,22 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /site
+    target-branch: dev
     schedule:
       interval: weekly
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
 
   - package-ecosystem: swift
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      swift-packages:
+        patterns:
+          - "*"
