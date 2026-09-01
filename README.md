@@ -37,7 +37,7 @@ Nutrition researchers collect food descriptions from study participants through 
 3. **Launch.** Search "FoodMapper" in Spotlight (Cmd+Space) or open it from ~/Applications. Download the GTE-Large model when prompted (~640 MiB, one-time).
 4. **Walk through the tutorial.** It runs automatically on first launch. You can restart it later from the Help menu.
 5. **Load a CSV or TSV** with food descriptions. Drag and drop or use the file picker. A template is available on the match setup page if you need to format your data.
-6. **Pick your description column**, choose a target database, click Match.
+6. **Pick your description column**, choose a target database, then click Run Match.
 7. **Review results.** Confirm correct matches, select another target row when needed, add notes, and export.
 
 ## System Requirements

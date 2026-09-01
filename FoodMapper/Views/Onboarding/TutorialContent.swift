@@ -74,7 +74,7 @@ enum TutorialSteps {
         TutorialStep(
             id: 6,
             title: "Start Matching",
-            body: "Click the Match button in the toolbar and FoodMapper will match your food descriptions against DFG2 using local semantic similarity. This tutorial uses the default local path. The optional Anthropic path sends the text and candidate entries needed for that run only after you configure and select it.",
+            body: "Click Run Match in the toolbar and FoodMapper will match your food descriptions against DFG2 using local semantic similarity. This tutorial uses the default local path. The optional Anthropic path sends the text and candidate entries needed for that run only after you configure and select it.",
             icon: "play.circle",
             highlightAnchors: [],
             coachMarkPosition: .below,
