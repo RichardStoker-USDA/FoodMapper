@@ -35,7 +35,7 @@ struct AdvancedSettingsTab: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("Advanced options are experimental features under active development. They may produce unexpected results.")
+            Text("Advanced options are evaluation features. Keep the published GTE-Large result and review any comparison before research use.")
         }
         .alert("Reset FoodMapper?", isPresented: $showingResetConfirmation) {
             Button("Continue", role: .destructive) {
@@ -43,7 +43,7 @@ struct AdvancedSettingsTab: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This will permanently remove:\n\n- Downloaded models\n- Saved sessions and review decisions\n- Custom databases and cached embeddings\n- Stored input files and FoodMapper preferences\n\nYour Anthropic API key stays in your Mac's Keychain. Export any results you want to keep before continuing.")
+            Text("This will permanently remove:\n\n- Downloaded models\n- Saved sessions, benchmark records, and review decisions\n- Custom databases and cached embeddings\n- Stored input files and FoodMapper preferences\n- Provider profiles and their Keychain credentials\n\nYour Anthropic API key stays in your Mac's Keychain. Export any results you want to keep before continuing.")
         }
         .alert("Are you sure?", isPresented: $showingFinalConfirmation) {
             Button("Reset and Restart", role: .destructive) {
@@ -82,7 +82,7 @@ struct AdvancedSettingsTab: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
-            Text("Enables additional models, pipeline configurations, and performance details. These features are under active development and may produce unexpected results.")
+            Text("Shows evaluation runs, benchmarks, provider profiles, optional models, and related help. Turning it off cancels experimental work and returns pipeline selection to GTE-Large.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

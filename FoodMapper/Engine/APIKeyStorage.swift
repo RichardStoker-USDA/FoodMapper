@@ -7,6 +7,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "api-key-stor
 enum APIKeyStorage {
     private static let service = "com.foodmapper.api-keys"
     private static let account = "anthropic-api-key"
+    private static let providerAccountPrefix = "provider-profile-"
 
     // FoodMapper 0.1.x stored this value in UserDefaults. Keep the name only
     // long enough to move an existing value into Keychain and remove it.
@@ -60,6 +61,41 @@ enum APIKeyStorage {
 
         logger.info("Anthropic API key deleted")
         return true
+    }
+
+    // MARK: - Advanced Provider Credentials
+
+    @discardableResult
+    static func setProviderCredential(_ credential: String, profileID: UUID) -> Bool {
+        guard let data = credential.data(using: .utf8), !data.isEmpty else { return false }
+        return FoodMapperStorage.credentialStore.set(
+            data,
+            service: service,
+            account: providerAccountPrefix + profileID.uuidString.lowercased(),
+            label: "FoodMapper provider credential"
+        )
+    }
+
+    static func getProviderCredential(profileID: UUID) -> String? {
+        guard let data = FoodMapperStorage.credentialStore.value(
+            service: service,
+            account: providerAccountPrefix + profileID.uuidString.lowercased()
+        ), let value = String(data: data, encoding: .utf8), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    static func hasProviderCredential(profileID: UUID) -> Bool {
+        getProviderCredential(profileID: profileID) != nil
+    }
+
+    @discardableResult
+    static func deleteProviderCredential(profileID: UUID) -> Bool {
+        FoodMapperStorage.credentialStore.remove(
+            service: service,
+            account: providerAccountPrefix + profileID.uuidString.lowercased()
+        )
     }
 
     // MARK: - Migration

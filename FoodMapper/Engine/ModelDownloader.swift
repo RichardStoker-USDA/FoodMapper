@@ -72,7 +72,7 @@ struct VerifiedLocalModelSnapshot: @unchecked Sendable {
     }
 }
 
-struct TrustedQwenSnapshotManifest: Decodable {
+struct TrustedModelSnapshotManifest: Decodable {
     struct Model: Decodable {
         struct Artifact: Decodable {
             let path: String
@@ -170,18 +170,69 @@ actor ModelDownloader {
         logger.info("Downloading model: \(repoId)")
 
         let repo = Hub.Repo(id: repoId)
-        let stagingName = ".qwen-download-\(UUID().uuidString)"
+        let stagingName = ".model-download-\(UUID().uuidString)"
         let stagingBase = modelsBase.appendingPathComponent(stagingName, isDirectory: true)
         try SecureFileAccess.createPrivateDirectory(stagingName, in: modelsBase)
         defer { try? FileManager.default.removeItem(at: stagingBase) }
 
         let stagingHub = HubApi(downloadBase: stagingBase)
-        let stagedURL = try await stagingHub.snapshot(from: repo, revision: revision) { progress in
-            onProgress(progress.fractionCompleted)
+        guard let trusted = Self.trustedModel(repository: repoId, revision: revision) else {
+            throw ModelDownloaderError.untrustedRevision
         }
-        try Self.hardenSnapshotTree(stagedURL)
-        try writeManifest(repository: repoId, revision: revision, directory: stagedURL)
-        try replaceSnapshot(stagedURL, at: localPath(for: repoId))
+        let stagedURL = try Self.createPrivateDirectoryChain(
+            ["models"] + repoId.split(separator: "/").map(String.init),
+            under: stagingBase
+        )
+        guard Self.sameSnapshotPath(stagedURL, stagingHub.localRepoLocation(repo)) else {
+            throw ModelDownloaderError.validationStage("staging path")
+        }
+        let progress = TrustedModelDownloadProgress(
+            artifacts: trusted.artifacts,
+            onProgress: onProgress
+        )
+        let transport = URLSessionGTELargeDownloadTransport()
+        for artifact in trusted.artifacts.sorted(by: { $0.path < $1.path }) {
+            try Task.checkCancellation()
+            guard let destination = Self.safeArtifactURL(directory: stagedURL, path: artifact.path) else {
+                throw ModelDownloaderError.validationStage("artifact path")
+            }
+            guard let source = Self.sourceURL(
+                    repository: repoId,
+                    revision: revision,
+                    artifactPath: artifact.path
+                  ) else {
+                throw ModelDownloaderError.validationStage("artifact source")
+            }
+            _ = try Self.createPrivateDirectoryChain(
+                artifact.path.split(separator: "/").dropLast().map(String.init),
+                under: stagedURL
+            )
+            try await transport.download(
+                from: source,
+                to: destination,
+                expectedSize: artifact.byteSize
+            ) { written in
+                progress.update(path: artifact.path, written: written)
+            }
+        }
+        onProgress(1)
+        do {
+            try Self.hardenSnapshotTree(stagedURL)
+        } catch {
+            throw ModelDownloaderError.validationStage("file permissions")
+        }
+        do {
+            try writeManifest(repository: repoId, revision: revision, directory: stagedURL)
+        } catch let error as ModelDownloaderError {
+            throw error
+        } catch {
+            throw ModelDownloaderError.validationStage("artifact manifest write")
+        }
+        do {
+            try replaceSnapshot(stagedURL, at: localPath(for: repoId))
+        } catch {
+            throw ModelDownloaderError.validationStage("installation")
+        }
         let localURL = localPath(for: repoId)
         guard Self.isCompleteSnapshot(at: localURL, repository: repoId, revision: revision) else {
             throw ModelDownloaderError.invalidSnapshot
@@ -276,10 +327,14 @@ actor ModelDownloader {
             throw ModelDownloaderError.invalidSnapshot
         }
         let artifacts = try Dictionary(uniqueKeysWithValues: expected.artifacts.map { artifact -> (String, String) in
-            guard let url = Self.safeArtifactURL(directory: directory, path: artifact.path),
-                  try Self.fileSize(url, under: directory) == artifact.byteSize,
-                  try Self.digestFile(url, under: directory) == artifact.sha256 else {
-                throw ModelDownloaderError.invalidSnapshot
+            guard let url = Self.safeArtifactURL(directory: directory, path: artifact.path) else {
+                throw ModelDownloaderError.validationStage("artifact path")
+            }
+            guard try Self.fileSize(url, under: directory) == artifact.byteSize else {
+                throw ModelDownloaderError.validationStage("artifact size")
+            }
+            guard try Self.digestFile(url, under: directory) == artifact.sha256 else {
+                throw ModelDownloaderError.validationStage("artifact digest")
             }
             return (artifact.path, artifact.sha256)
         })
@@ -289,11 +344,15 @@ actor ModelDownloader {
             revision: revision,
             artifacts: artifacts
         )
-        try JSONEncoder().encode(manifest).write(
-            to: directory.appendingPathComponent("foodmapper_snapshot_manifest.json"), options: [.atomic]
+        let manifestURL = directory.appendingPathComponent("foodmapper_snapshot_manifest.json")
+        try JSONEncoder().encode(manifest).write(to: manifestURL, options: [.atomic])
+        try FileManager.default.setAttributes(
+            [.posixPermissions: SecureFileAccess.privateFilePermissions],
+            ofItemAtPath: manifestURL.path
         )
+        try SecureFileAccess.synchronize(directory, directory: true)
         guard Self.isCompleteSnapshot(at: directory, repository: repository, revision: revision) else {
-            throw ModelDownloaderError.invalidSnapshot
+            throw ModelDownloaderError.validationStage("snapshot structure")
         }
     }
 
@@ -307,13 +366,14 @@ actor ModelDownloader {
         }
         for case let url as URL in enumerator {
             var info = stat()
-            guard lstat(url.path, &info) == 0, info.st_uid == getuid(), info.st_nlink == 1 else {
+            guard lstat(url.path, &info) == 0, info.st_uid == getuid() else {
                 throw ModelDownloaderError.invalidSnapshot
             }
             switch info.st_mode & S_IFMT {
             case S_IFDIR:
                 try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.storageDirectoryPermissions], ofItemAtPath: url.path)
             case S_IFREG:
+                guard info.st_nlink == 1 else { throw ModelDownloaderError.invalidSnapshot }
                 try FileManager.default.setAttributes([.posixPermissions: SecureFileAccess.privateFilePermissions], ofItemAtPath: url.path)
             default:
                 throw ModelDownloaderError.invalidSnapshot
@@ -321,18 +381,67 @@ actor ModelDownloader {
         }
     }
 
-    nonisolated private static func trustedModel(repository: String, revision: String) -> TrustedQwenSnapshotManifest.Model? {
-        guard let url = ResourceBundle.bundle.url(forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"),
-              let data = try? Data(contentsOf: url),
-              let manifest = try? JSONDecoder().decode(TrustedQwenSnapshotManifest.self, from: data),
-              manifest.version == 1 else { return nil }
-        return manifest.models.first { $0.repo == repository && $0.revision == revision }
+    nonisolated static func sourceURL(
+        repository: String,
+        revision: String,
+        artifactPath: String
+    ) -> URL? {
+        guard repository.split(separator: "/").count == 2,
+              revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
+              isSafeRelativePath(artifactPath),
+              var url = URL(string: "https://huggingface.co") else {
+            return nil
+        }
+        for component in repository.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        url.appendPathComponent("resolve")
+        url.appendPathComponent(revision)
+        for component in artifactPath.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        return GTELargeDownloadURLPolicy.accepts(url) ? url : nil
     }
 
-    nonisolated private static func isSafeRelativePath(_ path: String) -> Bool {
-        !path.isEmpty && !path.hasPrefix("/") && URL(fileURLWithPath: path).pathComponents.allSatisfy {
-            $0 != "." && $0 != ".." && $0 != "/"
+    nonisolated private static func createPrivateDirectoryChain(
+        _ components: [String],
+        under root: URL
+    ) throws -> URL {
+        var directory = root
+        for component in components {
+            guard isSafeRelativePath(component), !component.contains("/") else {
+                throw ModelDownloaderError.invalidSnapshot
+            }
+            try SecureFileAccess.createPrivateDirectory(component, in: directory)
+            directory.appendPathComponent(component, isDirectory: true)
         }
+        return directory
+    }
+
+    nonisolated private static func trustedModel(repository: String, revision: String) -> TrustedModelSnapshotManifest.Model? {
+        for resource in ["qwen_snapshot_manifest", "nomic_snapshot_manifest"] {
+            guard let url = ResourceBundle.bundle.url(
+                forResource: resource, withExtension: "json", subdirectory: "Models"
+            ), let data = try? Data(contentsOf: url),
+               let manifest = try? JSONDecoder().decode(TrustedModelSnapshotManifest.self, from: data),
+               manifest.version == 1 else { continue }
+            if let model = manifest.models.first(where: {
+                $0.repo == repository && $0.revision == revision
+            }) {
+                return model
+            }
+        }
+        return nil
+    }
+
+    nonisolated static func isSafeRelativePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        return components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
+    nonisolated static func sameSnapshotPath(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
     }
 
     nonisolated fileprivate static func safeArtifactURL(directory: URL, path: String) -> URL? {
@@ -369,14 +478,16 @@ actor ModelDownloader {
     }
 
     nonisolated private static func validateSnapshotStructure(
-        _ expected: TrustedQwenSnapshotManifest.Model, in directory: URL
+        _ expected: TrustedModelSnapshotManifest.Model, in directory: URL
     ) -> Bool {
         guard let configArtifact = expected.artifacts.first(where: { $0.path == "config.json" }),
               let configURL = safeArtifactURL(directory: directory, path: configArtifact.path),
               let configData = try? readVerifiedFile(configURL, under: directory, maximumSize: 8 * 1_048_576),
               let config = try? JSONSerialization.jsonObject(with: configData) as? [String: Any],
               let modelType = config["model_type"] as? String,
-              modelType.lowercased().hasPrefix("qwen"),
+              ["qwen3", "qwen2", "nomic_bert"].contains(where: {
+                  modelType.lowercased().hasPrefix($0)
+              }),
               let hiddenSize = config["hidden_size"] as? NSNumber,
               hiddenSize.intValue > 0,
               let layers = config["num_hidden_layers"] as? NSNumber,
@@ -541,14 +652,45 @@ actor ModelDownloader {
     }
 }
 
+private final class TrustedModelDownloadProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private let expectedBytes: [String: Int64]
+    private let totalBytes: Int64
+    private let onProgress: @Sendable (Double) -> Void
+    private var writtenBytes: [String: Int64] = [:]
+
+    init(
+        artifacts: [TrustedModelSnapshotManifest.Model.Artifact],
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) {
+        expectedBytes = Dictionary(uniqueKeysWithValues: artifacts.map { ($0.path, $0.byteSize) })
+        totalBytes = artifacts.reduce(0) { $0 + $1.byteSize }
+        self.onProgress = onProgress
+    }
+
+    func update(path: String, written: Int64) {
+        lock.lock()
+        guard let expected = expectedBytes[path], totalBytes > 0 else {
+            lock.unlock()
+            return
+        }
+        writtenBytes[path] = min(max(writtenBytes[path] ?? 0, written), expected)
+        let completed = writtenBytes.values.reduce(Int64.zero, +)
+        lock.unlock()
+        onProgress(min(max(Double(completed) / Double(totalBytes), 0), 1))
+    }
+}
+
 enum ModelDownloaderError: LocalizedError {
     case invalidSnapshot
     case untrustedRevision
+    case validationStage(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidSnapshot: return "Downloaded model files are incomplete or changed."
         case .untrustedRevision: return "This model revision is not approved for installation."
+        case .validationStage(let stage): return "Model validation failed during \(stage)."
         }
     }
 }
