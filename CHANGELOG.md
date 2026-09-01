@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.7 (2026-08-31)
+
+macOS interface fixes.
+
+### Fixes
+- Appearance changes apply to the app and Settings window immediately
+- Settings keeps the selected tab when its window gains focus
+- Pipeline Configuration keeps model status text clear of the size selector
+- The full Run Match capsule responds to clicks and stays accented when the window is inactive
+
+### Improvements
+- Restored the blue plus symbols for New Match and Custom Database
+- Behind the Research uses one subtle icon cue per app session
+
+---
+
 ## 0.1.6 (2026-08-31)
 
 Manual Override, model setup, and data handling fixes.

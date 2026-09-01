@@ -780,7 +780,7 @@ private struct HelpGettingStartedContent: View {
 
                 HelpStep(number: 4, title: "Choose a reference database", description: "FooDB has 9,913 individual food entries. DFG2 has 256 commonly consumed foods from the Davis Food Glycopedia 2.0. You can also add your own.")
 
-                HelpStep(number: 5, title: "Run matching", description: "Click Match in the toolbar. FoodMapper retrieves candidate database entries for each description and selects a target when the leading result meets the eligibility floor.")
+                HelpStep(number: 5, title: "Run matching", description: "Click Run Match in the toolbar. FoodMapper retrieves candidate database entries for each description and selects a target when the leading result meets the eligibility floor.")
 
                 HelpStep(number: 6, title: "Review results", description: "Results are categorized as Match, Needs Review, or No Match. Use the inspector panel to confirm, reject, or override matches.")
 
