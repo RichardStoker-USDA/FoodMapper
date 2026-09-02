@@ -789,7 +789,7 @@ struct MatchSetupView: View {
             }
 
             VStack(alignment: .leading, spacing: Spacing.xxxs) {
-                Text("Hybrid matching uses Claude Haiku via the Batches API, which runs at 50% off standard pricing. Matching ~2,700 food items costs roughly $0.15\u{2013}0.20.")
+                Text("Anthropic sets model availability and charges. The paper's Claude 3 Haiku model was retired on April 20, 2026. Check the provider's current documentation before a comparison run.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

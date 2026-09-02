@@ -18,7 +18,7 @@ struct PipelineSection: View {
                 subtitle: "Combining semantic search with LLM judgment"
             )
 
-            Text("The published Hybrid Haiku (K=5) method uses two stages. Semantic embedding retrieves candidates, then an LLM selects a candidate or no match. It reported 65.4% overall accuracy in the NHANES-to-DFG2 comparison.")
+            Text("The published Hybrid Haiku (K=5) method used GTE-Large followed by claude-3-haiku-20240307. Semantic embedding retrieves candidates, then the language model selects a candidate or no match. It reported 65.4% overall accuracy in the NHANES-to-DFG2 comparison. Anthropic retired that Claude model on April 20, 2026.")
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
                 .scrollReveal()
@@ -76,7 +76,7 @@ struct PipelineSection: View {
                 pipelineArrow(afterIndex: 2)
                 pipelinePill(label: "Top-5", icon: "list.number", index: 3)
                 pipelineArrow(afterIndex: 3)
-                pipelinePill(label: "Claude Haiku", icon: "cloud", index: 4)
+                pipelinePill(label: "Claude 3 Haiku", icon: "cloud", index: 4)
                 pipelineArrow(afterIndex: 4)
                 pipelinePill(label: "Result", icon: "checkmark.circle", index: 5)
             }

@@ -844,7 +844,7 @@ private struct HelpPipelineModesContent: View {
                         .font(.headline)
                 }
 
-                Text("GTE-Large Embedding is the default local pipeline. GTE-Large + Haiku v2 sends the run's input text and candidate entries to Anthropic for optional verification.")
+                Text("GTE-Large Embedding is the default local pipeline. The paper's Hybrid Haiku path used claude-3-haiku-20240307, which Anthropic retired on April 20, 2026. A supported Claude model selected in Advanced mode is a separate comparison.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
@@ -866,11 +866,11 @@ private struct HelpPipelineModesContent: View {
                         .font(.headline)
                 }
 
-                Text("Presents the paper's methods and an NHANES-to-DFG2 demonstration. It uses GTE-Large retrieval with optional Claude Haiku verification when you configure and select that path.")
+                Text("Presents the paper's methods and an NHANES-to-DFG2 demonstration. The local GTE-Large stage can still be rerun. The exact Claude model used by the paper is retained as provenance but is no longer available from Anthropic.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
 
-                Text("Use this mode when you need results that match the paper's methodology, or to explore how semantic food matching works.")
+                Text("Use this mode to inspect the published method or rerun its local embedding stage. A run with a newer Claude model does not reproduce the published Hybrid Haiku result.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.62 : 0.78))
             }
@@ -902,7 +902,7 @@ private struct HelpPipelineModesContent: View {
     private var pipelineList: some View {
         let pipelines: [(String, String)] = [
             ("GTE-Large Embedding", "The paper's embedding model. Symmetric, no instructions. Default pipeline."),
-            ("GTE-Large + Haiku v2", "GTE-Large retrieval + Claude Haiku verification with prompt caching. Requires Anthropic API key."),
+            ("GTE-Large + Haiku v2", "The v2 suffix names a FoodMapper prompt and caching revision, not a Claude model version. Anthropic retired the Claude model used by the paper. Newer models are comparisons."),
         ]
 
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -1464,7 +1464,7 @@ private struct HelpSettingsContent: View {
                     Text("API Keys")
                         .font(.headline)
                 }
-                Text("Store your Anthropic API key for the Claude Haiku pipeline. The key is validated when you save it. Includes step-by-step instructions for getting a key from console.anthropic.com.")
+                Text("Store an Anthropic API key for supported Claude comparisons. The key is validated when you save it. The exact Claude 3 Haiku model used in the paper has been retired.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
             }
@@ -1508,7 +1508,7 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("What Are Experimental Features?")
                     .font(.headline)
 
-                Text("Experimental features are separate from the default GTE-Large path. Their artifacts and outputs have not completed the project's research qualification process.")
+                Text("Experimental features are separate from the default GTE-Large path. Their artifacts and outputs have not completed the project's research qualification process. A newer provider model is a comparison, not a replacement for the retired paper model.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1861,7 +1861,7 @@ private struct HelpTroubleshootingContent: View {
 
                 HelpTroubleshootItem(
                     problem: "Haiku pipeline not available",
-                    solution: "The GTE-Large + Haiku pipeline requires an Anthropic API key. Add one in Settings > API Keys. The key is validated on save. You'll need credits on your Anthropic account."
+                    solution: "An API key does not restore claude-3-haiku-20240307. Anthropic retired the paper model on April 20, 2026. Advanced mode can select a supported Claude model for a separate comparison."
                 )
             }
         }
