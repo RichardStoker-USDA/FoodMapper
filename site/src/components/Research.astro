@@ -16,6 +16,11 @@ const researchRepositoryURL = 'https://github.com/dglemay/USDA-Food-Mapping';
           study includes ASA24-to-FooDB and NHANES-to-DFG2 tasks. The
           NHANES-to-DFG2 task includes descriptions with no valid DFG2 entry.
         </p>
+        <p class="research-note">
+          The published hybrid run used <code>claude-3-haiku-20240307</code>.
+          Anthropic retired that model on April 20, 2026. Runs with newer models
+          are separate comparisons.
+        </p>
 
         <div class="research-links">
           <a href={publicationURL} target="_blank" rel="noopener">
@@ -86,6 +91,19 @@ const researchRepositoryURL = 'https://github.com/dglemay/USDA-Food-Mapping';
     color: var(--text-secondary);
     font-size: 17px;
     line-height: 1.6;
+  }
+
+  .research-note {
+    max-width: 600px;
+    margin-top: var(--space-lg);
+    color: var(--text-tertiary);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .research-note code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
   }
 
   .research-links {

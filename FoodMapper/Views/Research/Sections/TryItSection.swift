@@ -425,7 +425,7 @@ struct TryItSection: View {
             if appState.isAdvancedMode {
                 LabeledContent("Claude Model") {
                     Picker("", selection: $tourModelSelection) {
-                        Text("Haiku 3 (Paper)").tag(ClaudeModelVersion.haiku3)
+                        Text("Haiku 3 (Paper, retired)").tag(ClaudeModelVersion.haiku3)
                         Text("Haiku 4.5").tag(ClaudeModelVersion.haiku45)
                         Text("Sonnet 4.5").tag(ClaudeModelVersion.sonnet45)
                     }
@@ -439,6 +439,13 @@ struct TryItSection: View {
                         text: "Model availability and charges are set by Anthropic. Check the provider before a run."
                     )
                 }
+            }
+
+            if tourModelSelection == .haiku3 {
+                Text("Anthropic retired claude-3-haiku-20240307 on April 20, 2026. Enable Advanced mode and select a supported model for a comparison; that run will not reproduce the paper's Hybrid Haiku result.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -894,7 +901,7 @@ struct TryItSection: View {
                 
                 VStack(alignment: .leading, spacing: Spacing.md) {
                     onboardingStep(number: 1, text: "Create a free account at console.anthropic.com")
-                    onboardingStep(number: 2, text: "Add credits to your account ($5 minimum)")
+                    onboardingStep(number: 2, text: "Add credits to your account")
                     onboardingStep(number: 3, text: "Generate an API key from Settings > API Keys")
                 }
 

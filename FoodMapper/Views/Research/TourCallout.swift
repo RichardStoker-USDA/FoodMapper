@@ -218,8 +218,8 @@ struct TourTechnicalDetail<Content: View>: View {
 #Preview("Info Lines - Light") {
     VStack(spacing: Spacing.md) {
         TourInfoLine(icon: "info.circle", text: "The tour uses the NHANES-to-DFG2 benchmark: 1,304 food descriptions matched to a database of 256 foods.")
-        TourInfoLine(icon: "lock.shield", text: "All processing runs locally on your Mac. No data leaves your device.")
-        TourInfoLine(icon: "dollarsign.circle", text: "Hybrid Haiku with Batches API: ~$0.72 for 1,304 items.", secondaryText: "About $0.0006 per item.")
+        TourInfoLine(icon: "lock.shield", text: "GTE-Large embedding runs locally on your Mac.")
+        TourInfoLine(icon: "dollarsign.circle", text: "Anthropic sets model availability and charges.", secondaryText: "Check the provider before a comparison run.")
     }
     .padding(Spacing.xxl)
     .frame(width: 680)

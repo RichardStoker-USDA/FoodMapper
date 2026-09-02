@@ -89,7 +89,7 @@ enum ClaudeModelVersion: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
-        case .haiku3: return "Claude 3 Haiku"
+        case .haiku3: return "Claude 3 Haiku (retired)"
         case .haiku45: return "Claude Haiku 4.5"
         case .sonnet45: return "Claude Sonnet 4.5"
         }
@@ -97,7 +97,7 @@ enum ClaudeModelVersion: String, CaseIterable, Identifiable, Codable {
 
     var shortName: String {
         switch self {
-        case .haiku3: return "Haiku 3"
+        case .haiku3: return "Haiku 3 (retired)"
         case .haiku45: return "Haiku 4.5"
         case .sonnet45: return "Sonnet 4.5"
         }
@@ -106,25 +106,6 @@ enum ClaudeModelVersion: String, CaseIterable, Identifiable, Codable {
     /// Whether this is the model used in the published paper
     var isPaperModel: Bool { self == .haiku3 }
 
-    /// Standard API pricing per million tokens
-    var inputPricePerMillion: Double {
-        switch self {
-        case .haiku3: return 0.25
-        case .haiku45: return 1.00
-        case .sonnet45: return 3.00
-        }
-    }
-    var outputPricePerMillion: Double {
-        switch self {
-        case .haiku3: return 1.25
-        case .haiku45: return 5.00
-        case .sonnet45: return 15.00
-        }
-    }
-
-    /// Batch API pricing (50% discount)
-    var batchInputPricePerMillion: Double { inputPricePerMillion / 2 }
-    var batchOutputPricePerMillion: Double { outputPricePerMillion / 2 }
 }
 
 /// HTTP client for Anthropic Messages API + Message Batches API.
