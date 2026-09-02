@@ -1508,7 +1508,7 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("Separate from the Published Method")
                     .font(.headline)
 
-                Text("The default GTE-Large and optional Anthropic path remain unchanged. Advanced mode adds evaluation tools beside that method. Turning Advanced mode off hides these topics, returns pipeline selection to GTE-Large, and cancels active experimental work.")
+                Text("Advanced mode adds evaluation tools beside the published GTE-Large control. Turning Advanced mode off hides these topics, returns pipeline selection to GTE-Large, and cancels active experimental work. A newer provider model is a comparison, not a replacement for the retired paper model.")
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.68 : 0.82))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1522,7 +1522,7 @@ private struct HelpExperimentalFeaturesContent: View {
 
                 HelpItem(title: "Choose a Pipeline", content: "Runs lists the published methods and the current evaluation pipelines. Select model sizes and matching context before opening a new match.")
                 HelpItem(title: "Install from the Pipeline", content: "Review Install shows publisher, license, pinned revision, exact file size, and install state. A model is not downloaded until you confirm that sheet.")
-                HelpItem(title: "Current Model Set", content: "Nomic Embed Text v1.5 and admitted Qwen3 artifacts are available for evaluation. Models marked Under review cannot be installed or used.")
+                HelpItem(title: "Current Model Set", content: "The current Nomic and Qwen3 entries are unqualified development comparisons. They are scheduled for removal from active selection before the candidate search restarts. Models marked Under review cannot be installed or used.")
             }
         }
 
