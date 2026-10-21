@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.8 (2026-10-21)
+
+Claude model availability and API key fixes.
+
+### Fixes
+- Saving an API key no longer rejects a valid key and removes it from the Keychain
+- A key check that can't reach the provider keeps the saved key
+- Hybrid matching stops before sending any data when the selected Claude model is retired
+- A hybrid run where every Claude request fails reports the error instead of finishing with embedding-only results
+
+### Improvements
+- Claude 3 Haiku (`claude-3-haiku-20240307`), the model used in the paper, is marked retired as of April 20, 2026. FoodMapper keeps the identifier for provenance and does not substitute another model
+- Claude model menus show retirement dates. Claude Sonnet 4.5 retires November 30, 2026
+- Removed fixed API cost estimates
+
+---
+
 ## 0.1.7 (2026-08-31)
 
 macOS interface fixes.
