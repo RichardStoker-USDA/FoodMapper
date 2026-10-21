@@ -456,6 +456,7 @@ struct TryItSection: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
                 .disabled(tourModelSelection.isRetired())
+                .help(tourModelSelection.unavailableReason() ?? "Run GTE-Large retrieval, then send candidates to \(tourModelSelection.displayName)")
                 Spacer()
             }
 

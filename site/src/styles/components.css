@@ -287,7 +287,7 @@
   border: var(--border-width) solid var(--badge-neutral-stroke);
   border-radius: 50%;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   cursor: pointer;
   transition:
     background 0.2s ease,
@@ -358,13 +358,13 @@
 .footer-authors {
   margin-top: var(--space-md);
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .footer-license {
   margin-top: var(--space-xs);
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 /* ============================================================
