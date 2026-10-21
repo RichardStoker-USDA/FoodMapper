@@ -1,4 +1,22 @@
 ---
+// The release line reads the newest Sparkle feed item, so the page and the
+// in-app updater always name the same version. Publishing a feed item and
+// rebuilding the site updates it; no hand edit is needed.
+import appcast from '../../public/appcast.xml?raw';
+
+const latestItem = appcast.match(/<item>([\s\S]*?)<\/item>/)?.[1] ?? '';
+const feedField = (name: string) =>
+  latestItem.match(new RegExp(`<sparkle:${name}>([^<]+)</sparkle:${name}>`))?.[1]?.trim();
+
+const latestVersion = feedField('shortVersionString');
+const releaseNotesURL = feedField('releaseNotesLink');
+const minimumSystem = feedField('minimumSystemVersion');
+const hardware = feedField('hardwareRequirements');
+if (!latestVersion || !releaseNotesURL || !minimumSystem) {
+  throw new Error('site/public/appcast.xml needs a complete newest item for the hero release line.');
+}
+const releaseNotesPath = new URL(releaseNotesURL).pathname;
+const macOSMajor = minimumSystem.split('.')[0];
 ---
 
 <section class="hero section">
@@ -20,8 +38,8 @@
     </p>
 
     <p class="hero-subtext text-secondary">
-      Designed for nutrition research. Run matching entirely on-device, or
-      enable the optional hybrid pipeline.
+      Designed for nutrition research. Matching runs on your Mac, and the
+      installer needs no administrator password.
     </p>
 
     <div class="hero-cta">
@@ -37,6 +55,11 @@
       </a>
     </div>
 
+    <p class="hero-release">
+      <a href={releaseNotesPath}>What's new in {latestVersion}</a>
+      <span>macOS {macOSMajor} or later{hardware === 'arm64' && ' on Apple Silicon'}</span>
+    </p>
+
     <a
       class="hero-publication"
       href="https://doi.org/10.1016/j.tjnut.2026.101678"
@@ -46,11 +69,6 @@
       Published in <em>The Journal of Nutrition</em>
       <span aria-hidden="true">↗</span>
     </a>
-
-    <div class="hero-badges">
-      <span class="badge">Apple Silicon</span>
-      <span class="badge">macOS 14+</span>
-    </div>
 
     <div class="hero-screenshot-wrapper">
       <figure class="screenshot-card hero-screenshot">
@@ -147,14 +165,53 @@
   }
 
   .hero-cta {
-    margin-bottom: var(--space-lg);
+    margin-bottom: var(--space-md);
+  }
+
+  .hero-release {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    margin: 0 auto var(--space-xl);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hero-release > * {
+    white-space: nowrap;
+  }
+
+  .hero-release > * + *::before {
+    content: '\00B7';
+    content: '\00B7' / '';
+    margin-inline: var(--space-sm);
+    color: var(--text-tertiary, var(--text-secondary));
+  }
+
+  .hero-release a {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-decoration-color: var(--border-card);
+    text-underline-offset: 3px;
+  }
+
+  .hero-release a:hover {
+    color: var(--text-primary);
+    text-decoration-color: var(--text-secondary);
+  }
+
+  .hero-release a:focus-visible {
+    border-radius: var(--corner-radius-sm);
   }
 
   .hero-publication {
     display: inline-flex;
     align-items: center;
     gap: var(--space-xs);
-    margin-bottom: var(--space-xxl);
+    margin-bottom: var(--space-section-sm, 48px);
     color: var(--text-secondary);
     font-size: 14px;
     text-decoration: underline;
@@ -169,14 +226,6 @@
 
   .hero-publication:focus-visible {
     border-radius: var(--corner-radius-sm);
-  }
-
-  .hero-badges {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-sm);
-    flex-wrap: wrap;
-    margin-bottom: var(--space-section-sm, 48px);
   }
 
   .hero-screenshot-wrapper {
@@ -213,6 +262,16 @@
   @media (max-width: 480px) {
     .hero-title {
       font-size: 30px;
+    }
+
+    .hero-release {
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-xxs, 2px);
+    }
+
+    .hero-release > * + *::before {
+      content: none;
     }
 
     .hero-tagline {
