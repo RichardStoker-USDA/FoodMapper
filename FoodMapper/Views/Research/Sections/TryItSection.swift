@@ -189,7 +189,10 @@ struct TryItSection: View {
                     .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.84))
                     .fixedSize(horizontal: false, vertical: true)
 
-                if appState.cachedHasAPIKey || apiKeySaved {
+                if !appState.isAdvancedMode && tourModelSelection.isRetired() {
+                    // Without advanced options only the paper model is offered, and it no longer runs.
+                    tourModelStatusNote
+                } else if appState.cachedHasAPIKey || apiKeySaved {
                     hybridReadyContent
                 } else {
                     apiKeyOnboardingContent
@@ -425,15 +428,15 @@ struct TryItSection: View {
             if appState.isAdvancedMode {
                 LabeledContent("Claude Model") {
                     Picker("", selection: $tourModelSelection) {
-                        Text("Haiku 3 (Paper, retired)").tag(ClaudeModelVersion.haiku3)
-                        Text("Haiku 4.5").tag(ClaudeModelVersion.haiku45)
-                        Text("Sonnet 4.5").tag(ClaudeModelVersion.sonnet45)
+                        ForEach(ClaudeModelVersion.allCases) { version in
+                            Text(tourPickerLabel(for: version)).tag(version)
+                        }
                     }
                     .labelsHidden()
-                    .frame(width: 180)
+                    .frame(width: 260)
                 }
 
-                if tourModelSelection == .sonnet45 {
+                if !tourModelSelection.isPaperModel && !tourModelSelection.isRetired() {
                     TourInfoLine(
                         icon: "dollarsign.circle",
                         text: "Model availability and charges are set by Anthropic. Check the provider before a run."
@@ -441,12 +444,7 @@ struct TryItSection: View {
                 }
             }
 
-            if tourModelSelection == .haiku3 {
-                Text("Anthropic retired claude-3-haiku-20240307 on April 20, 2026. Enable Advanced mode and select a supported model for a comparison; that run will not reproduce the paper's Hybrid Haiku result.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            tourModelStatusNote
 
             HStack {
                 Spacer()
@@ -457,6 +455,7 @@ struct TryItSection: View {
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
+                .disabled(tourModelSelection.isRetired())
                 Spacer()
             }
 
@@ -1169,6 +1168,35 @@ struct TryItSection: View {
         RunActionButtonSurface(title: title, width: runActionButtonWidth)
     }
 
+    @ViewBuilder
+    private var tourModelStatusNote: some View {
+        if let reason = tourModelSelection.unavailableReason() {
+            Text(tourModelStatusText(reason: reason))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let note = tourModelSelection.upcomingRetirementNote() {
+            Text(note)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func tourModelStatusText(reason: String) -> String {
+        guard tourModelSelection.isPaperModel else {
+            return "\(reason) Choose another Claude model."
+        }
+        let next = appState.isAdvancedMode
+            ? "Choose a current Claude model for a comparison run. It won't reproduce the paper's Hybrid Haiku result."
+            : "Turn on advanced options in Settings to compare with a current Claude model. That run won't reproduce the paper's Hybrid Haiku result."
+        return "\(reason) The local GTE-Large stage above still runs. \(next)"
+    }
+
+    private func tourPickerLabel(for version: ClaudeModelVersion) -> String {
+        let label = version.pickerLabel()
+        return version.isPaperModel ? "\(label), paper model" : label
+    }
+
     // MARK: - Actions
 
     private func runEmbeddingMatch() {
@@ -1213,8 +1241,7 @@ struct TryItSection: View {
             appState.refreshAPIKeyState()
 
             do {
-                let client = AnthropicAPIClient()
-                let isValid = try await client.validateAPIKey(trimmed)
+                let isValid = try await AnthropicAPIClient.validateAPIKey(trimmed)
 
                 await MainActor.run {
                     apiKeyValidating = false
@@ -1293,6 +1320,7 @@ private struct RunActionButtonSurface: View {
     @State private var isHovered = false
     @State private var hoverLocation: CGPoint = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
@@ -1331,11 +1359,13 @@ private struct RunActionButtonSurface: View {
                 .allowsHitTesting(false)
         }
         .scaleEffect(isHovered ? 1.004 : 1.0)
+        .opacity(isEnabled ? 1 : 0.45)
         .contentShape(Rectangle())
         .animation(Animate.standard, value: isHovered)
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
+                guard isEnabled else { return }
                 isHovered = true
                 hoverLocation = location
             case .ended:

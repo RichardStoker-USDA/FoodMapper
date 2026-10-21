@@ -482,6 +482,9 @@ extension AppState {
             let triageConfig = effectiveHardwareConfig(for: .qwen3SmartTriage)
             return SmartTriagePipeline(engine: engine, reranker: reranker, topK: triageConfig.topKForReranking)
         case .gteLargeHaiku:
+            guard !selectedClaudeModel.isRetired() else {
+                throw AppError.claudeModelRetired(selectedClaudeModel)
+            }
             guard let apiKey = APIKeyStorage.getAnthropicAPIKey(), !apiKey.isEmpty else {
                 throw AppError.apiKeyRequired
             }
@@ -493,6 +496,9 @@ extension AppState {
                 promptStrategy: .production
             )
         case .gteLargeHaikuV2:
+            guard !selectedClaudeModel.isRetired() else {
+                throw AppError.claudeModelRetired(selectedClaudeModel)
+            }
             guard let apiKey = APIKeyStorage.getAnthropicAPIKey(), !apiKey.isEmpty else {
                 throw AppError.apiKeyRequired
             }

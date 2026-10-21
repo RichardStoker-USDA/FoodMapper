@@ -245,6 +245,10 @@ final class HaikuRerankerPipeline: MatchingPipelineProtocol {
             apiKey: apiKey
         )
 
+        if let failure = AnthropicAPIClient.batchFailure(for: batchResults, model: modelVersion) {
+            throw failure
+        }
+
         // Build a lookup map from custom_id to result
         var resultMap: [String: BatchRequestResult] = [:]
         for result in batchResults {

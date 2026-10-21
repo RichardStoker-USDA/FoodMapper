@@ -234,6 +234,10 @@ final class HaikuRerankerV2Pipeline: MatchingPipelineProtocol {
             apiKey: apiKey
         )
 
+        if let failure = AnthropicAPIClient.batchFailure(for: batchResults, model: modelVersion) {
+            throw failure
+        }
+
         var resultMap: [String: BatchRequestResult] = [:]
         var totalCacheRead = 0
         var totalCacheCreation = 0

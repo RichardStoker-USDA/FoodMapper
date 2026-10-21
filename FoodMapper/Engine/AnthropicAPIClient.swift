@@ -68,6 +68,9 @@ struct BatchRequestResult: Sendable {
     let outputTokens: Int
     let cacheReadInputTokens: Int
     let cacheCreationInputTokens: Int
+    /// Anthropic error type and message for an errored request, such as "not_found_error".
+    var errorType: String? = nil
+    var errorMessage: String? = nil
 }
 
 /// Result from a Haiku reranking call (kept for single-query mode)
@@ -89,7 +92,7 @@ enum ClaudeModelVersion: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
-        case .haiku3: return "Claude 3 Haiku (retired)"
+        case .haiku3: return "Claude 3 Haiku"
         case .haiku45: return "Claude Haiku 4.5"
         case .sonnet45: return "Claude Sonnet 4.5"
         }
@@ -97,7 +100,7 @@ enum ClaudeModelVersion: String, CaseIterable, Identifiable, Codable {
 
     var shortName: String {
         switch self {
-        case .haiku3: return "Haiku 3 (retired)"
+        case .haiku3: return "Haiku 3"
         case .haiku45: return "Haiku 4.5"
         case .sonnet45: return "Sonnet 4.5"
         }
@@ -106,6 +109,58 @@ enum ClaudeModelVersion: String, CaseIterable, Identifiable, Codable {
     /// Whether this is the model used in the published paper
     var isPaperModel: Bool { self == .haiku3 }
 
+    /// Anthropic's retirement date for the Claude API, from
+    /// https://platform.claude.com/docs/en/about-claude/model-deprecations (checked 2026-10-20).
+    /// Requests to a retired model fail. Update this table when Anthropic announces a retirement.
+    var retirementDate: Date? {
+        switch self {
+        case .haiku3: return Self.utcDay(year: 2026, month: 4, day: 20)
+        case .haiku45: return nil
+        case .sonnet45: return Self.utcDay(year: 2026, month: 11, day: 30)
+        }
+    }
+
+    func isRetired(asOf date: Date = Date()) -> Bool {
+        guard let retirementDate else { return false }
+        return date >= retirementDate
+    }
+
+    /// Picker label that shows a retired or scheduled retirement state.
+    func pickerLabel(asOf date: Date = Date()) -> String {
+        guard let retirementDate else { return displayName }
+        if isRetired(asOf: date) {
+            return "\(displayName) (retired)"
+        }
+        return "\(displayName) (retires \(Self.formatted(retirementDate, style: .short)))"
+    }
+
+    /// Why this model can't run, or nil when Anthropic still serves it.
+    func unavailableReason(asOf date: Date = Date()) -> String? {
+        guard isRetired(asOf: date), let retirementDate else { return nil }
+        return "Anthropic retired \(displayName) (\(rawValue)) on \(Self.formatted(retirementDate, style: .long))."
+    }
+
+    /// Scheduled retirement for a model that still runs, or nil.
+    func upcomingRetirementNote(asOf date: Date = Date()) -> String? {
+        guard !isRetired(asOf: date), let retirementDate else { return nil }
+        return "Anthropic retires this model on \(Self.formatted(retirementDate, style: .long))."
+    }
+
+    private enum DateStyle { case short, long }
+
+    private static func utcDay(year: Int, month: Int, day: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))!
+    }
+
+    private static func formatted(_ date: Date, style: DateStyle) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = style == .short ? "MMM d, yyyy" : "MMMM d, yyyy"
+        return formatter.string(from: date)
+    }
 }
 
 /// HTTP client for Anthropic Messages API + Message Batches API.
@@ -123,7 +178,7 @@ actor AnthropicAPIClient {
     private var activeBatchId: String?
     private(set) var detectedTier: APITier = .unknown
 
-    init(modelVersion: ClaudeModelVersion = .haiku3) {
+    init(modelVersion: ClaudeModelVersion) {
         self.modelVersion = modelVersion
     }
 
@@ -207,7 +262,11 @@ actor AnthropicAPIClient {
         case 500, 502, 503:
             throw HaikuError.serverError(httpResponse.statusCode)
         default:
-            let body = String(data: data, encoding: .utf8) ?? ""
+            let detail = Self.apiErrorDetail(from: data)
+            if httpResponse.statusCode == 404, detail?.type == "not_found_error" {
+                throw HaikuError.modelUnavailable(modelVersion)
+            }
+            let body = detail?.message ?? String(data: data, encoding: .utf8) ?? ""
             throw HaikuError.unexpectedStatus(httpResponse.statusCode, body)
         }
     }
@@ -311,6 +370,8 @@ actor AnthropicAPIClient {
             let resultType = result?["type"] as? String ?? "errored"
 
             var messageText: String?
+            var errorType: String?
+            var errorMessage: String?
             var inputTokens = 0
             var outputTokens = 0
             var cacheReadInputTokens = 0
@@ -332,6 +393,12 @@ actor AnthropicAPIClient {
                 }
             }
 
+            if resultType == "errored", let errorObject = result?["error"] as? [String: Any] {
+                let detail = Self.apiErrorDetail(from: errorObject)
+                errorType = detail?.type
+                errorMessage = detail?.message
+            }
+
             results.append(BatchRequestResult(
                 customId: customId,
                 resultType: resultType,
@@ -339,7 +406,9 @@ actor AnthropicAPIClient {
                 inputTokens: inputTokens,
                 outputTokens: outputTokens,
                 cacheReadInputTokens: cacheReadInputTokens,
-                cacheCreationInputTokens: cacheCreationInputTokens
+                cacheCreationInputTokens: cacheCreationInputTokens,
+                errorType: errorType,
+                errorMessage: errorMessage
             ))
         }
 
@@ -383,36 +452,68 @@ actor AnthropicAPIClient {
 
     // MARK: - Validation
 
-    /// Validate an API key with a minimal request.
-    func validateAPIKey(_ key: String) async throws -> Bool {
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 1,
-            "messages": [
-                ["role": "user", "content": "hi"]
-            ]
-        ]
-
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: URL(string: "\(baseURL)/messages")!)
-        request.httpMethod = "POST"
-        request.httpBody = jsonData
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
+    /// Check an API key by listing models. This depends on no model ID and uses no tokens.
+    /// Returns false only when Anthropic rejects the key. Other failures throw, so callers
+    /// keep a stored key when the check itself could not complete.
+    static func validateAPIKey(_ key: String) async throws -> Bool {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models?limit=1")!)
+        request.httpMethod = "GET"
         request.setValue(key, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.timeoutInterval = requestTimeout
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.timeoutInterval = 30
 
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return false
-            }
-            if httpResponse.statusCode == 401 { return false }
-            return httpResponse.statusCode == 200
-        } catch {
-            return false
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw HaikuError.invalidResponse
         }
+        switch httpResponse.statusCode {
+        case 200:
+            return true
+        case 401, 403:
+            return false
+        case 429:
+            throw HaikuError.rateLimited
+        case 500...599:
+            throw HaikuError.serverError(httpResponse.statusCode)
+        default:
+            let body = apiErrorDetail(from: data)?.message ?? ""
+            throw HaikuError.unexpectedStatus(httpResponse.statusCode, body)
+        }
+    }
+
+    // MARK: - Error Detail
+
+    /// Reads Anthropic's error body: {"type":"error","error":{"type":"...","message":"..."}}.
+    static func apiErrorDetail(from data: Data) -> (type: String, message: String)? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return apiErrorDetail(from: json)
+    }
+
+    /// Accepts either the outer error envelope or the inner error object.
+    static func apiErrorDetail(from json: [String: Any]) -> (type: String, message: String)? {
+        if let inner = json["error"] as? [String: Any] {
+            return apiErrorDetail(from: inner)
+        }
+        guard let type = json["type"] as? String, type != "error" else { return nil }
+        return (type, json["message"] as? String ?? "")
+    }
+
+    /// A batch that returned no successful response cannot stand in for a Claude run.
+    /// Returns the error to raise, or nil when at least one request succeeded.
+    static func batchFailure(
+        for results: [BatchRequestResult],
+        model: ClaudeModelVersion
+    ) -> HaikuError? {
+        guard !results.contains(where: { $0.resultType == "succeeded" }) else { return nil }
+        let errored = results.filter { $0.resultType == "errored" }
+        guard !errored.isEmpty else { return nil }
+        if errored.contains(where: { $0.errorType == "not_found_error" }) {
+            return .modelUnavailable(model)
+        }
+        let detail = errored.lazy.compactMap { $0.errorMessage }.first(where: { !$0.isEmpty })
+        return .allRequestsFailed(detail ?? "Anthropic returned no successful responses.")
     }
 
     // MARK: - Cancellation
@@ -463,6 +564,8 @@ enum HaikuError: LocalizedError {
     case unexpectedStatus(Int, String)
     case invalidResponse
     case cancelled
+    case modelUnavailable(ClaudeModelVersion)
+    case allRequestsFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -478,6 +581,11 @@ enum HaikuError: LocalizedError {
             return "Invalid response from Anthropic API"
         case .cancelled:
             return "API request cancelled"
+        case .modelUnavailable(let model):
+            let reason = model.unavailableReason() ?? "Anthropic no longer serves \(model.displayName) (\(model.rawValue))."
+            return "\(reason) No Claude results were produced."
+        case .allRequestsFailed(let detail):
+            return "Anthropic returned an error for every item, so no Claude results were produced: \(detail)"
         }
     }
 }

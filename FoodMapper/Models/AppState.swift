@@ -814,9 +814,15 @@ final class AppState: ObservableObject {
             modelManager.state(for: key).isAvailable
         }
         if selectedPipelineType == .gteLargeHaiku || selectedPipelineType == .gteLargeHaikuV2 {
-            return allAvailable && hasAnthropicAPIKey
+            return allAvailable && hasAnthropicAPIKey && !selectedClaudeModel.isRetired()
         }
         return allAvailable
+    }
+
+    /// Why the selected Claude model can't run a hybrid match, or nil when it can.
+    /// The paper model stays selected after retirement; FoodMapper never swaps in another model.
+    var selectedClaudeModelUnavailableReason: String? {
+        selectedClaudeModel.unavailableReason()
     }
 
     /// Whether a valid Anthropic API key is stored
@@ -1310,6 +1316,7 @@ enum AppError: LocalizedError, Identifiable {
     case modelNotFound
     case modelLoadFailed(String)
     case apiKeyRequired
+    case claudeModelRetired(ClaudeModelVersion)
 
     var id: String {
         switch self {
@@ -1319,6 +1326,7 @@ enum AppError: LocalizedError, Identifiable {
         case .modelNotFound: return "model_not_found"
         case .modelLoadFailed(let msg): return "model_load_\(msg)"
         case .apiKeyRequired: return "api_key_required"
+        case .claudeModelRetired(let model): return "claude_model_retired_\(model.rawValue)"
         }
     }
 
@@ -1330,6 +1338,9 @@ enum AppError: LocalizedError, Identifiable {
         case .modelNotFound: return "Embedding model not found"
         case .modelLoadFailed(let msg): return "Failed to load model: \(msg)"
         case .apiKeyRequired: return "Anthropic API key required. Add your key in Settings > API Keys."
+        case .claudeModelRetired(let model):
+            let reason = model.unavailableReason() ?? "Anthropic no longer serves \(model.displayName)."
+            return "\(reason) Hybrid matching can't run with it."
         }
     }
 }
