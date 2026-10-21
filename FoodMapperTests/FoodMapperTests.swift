@@ -795,6 +795,124 @@ final class HaikuBatchSubmissionTests: XCTestCase {
     }
 }
 
+final class ClaudeModelLifecycleTests: XCTestCase {
+    private func utc(_ text: String) -> Date {
+        ISO8601DateFormatter().date(from: text)!
+    }
+
+    func testPaperModelKeepsItsPublishedIdentifier() {
+        XCTAssertEqual(ClaudeModelVersion.haiku3.rawValue, "claude-3-haiku-20240307")
+        XCTAssertTrue(ClaudeModelVersion.haiku3.isPaperModel)
+        XCTAssertEqual(ClaudeModelVersion.allCases.filter(\.isPaperModel), [.haiku3])
+    }
+
+    func testPaperModelRetiresOnAnthropicsPublishedDate() {
+        let model = ClaudeModelVersion.haiku3
+        XCTAssertFalse(model.isRetired(asOf: utc("2026-04-19T23:59:59Z")))
+        XCTAssertTrue(model.isRetired(asOf: utc("2026-04-20T00:00:00Z")))
+        XCTAssertEqual(
+            model.unavailableReason(asOf: utc("2026-10-20T00:00:00Z")),
+            "Anthropic retired Claude 3 Haiku (claude-3-haiku-20240307) on April 20, 2026."
+        )
+        XCTAssertEqual(model.pickerLabel(asOf: utc("2026-10-20T00:00:00Z")), "Claude 3 Haiku (retired)")
+        XCTAssertNil(model.upcomingRetirementNote(asOf: utc("2026-10-20T00:00:00Z")))
+    }
+
+    func testScheduledRetirementIsShownBeforeTheDateAndBlocksAfterIt() {
+        let model = ClaudeModelVersion.sonnet45
+        let before = utc("2026-10-20T00:00:00Z")
+        let after = utc("2026-11-30T00:00:00Z")
+        XCTAssertFalse(model.isRetired(asOf: before))
+        XCTAssertNil(model.unavailableReason(asOf: before))
+        XCTAssertEqual(model.pickerLabel(asOf: before), "Claude Sonnet 4.5 (retires Nov 30, 2026)")
+        XCTAssertEqual(model.upcomingRetirementNote(asOf: before), "Anthropic retires this model on November 30, 2026.")
+        XCTAssertTrue(model.isRetired(asOf: after))
+        XCTAssertEqual(model.pickerLabel(asOf: after), "Claude Sonnet 4.5 (retired)")
+    }
+
+    func testActiveModelWithoutAnnouncedRetirement() {
+        let model = ClaudeModelVersion.haiku45
+        XCTAssertNil(model.retirementDate)
+        XCTAssertFalse(model.isRetired(asOf: utc("2030-01-01T00:00:00Z")))
+        XCTAssertEqual(model.pickerLabel(), "Claude Haiku 4.5")
+    }
+
+    func testAnthropicErrorBodyParsing() {
+        let envelope = Data(#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-3-haiku-20240307"}}"#.utf8)
+        let detail = AnthropicAPIClient.apiErrorDetail(from: envelope)
+        XCTAssertEqual(detail?.type, "not_found_error")
+        XCTAssertEqual(detail?.message, "model: claude-3-haiku-20240307")
+
+        let inner: [String: Any] = ["type": "invalid_request_error", "message": "credit balance too low"]
+        XCTAssertEqual(AnthropicAPIClient.apiErrorDetail(from: inner)?.type, "invalid_request_error")
+        XCTAssertNil(AnthropicAPIClient.apiErrorDetail(from: Data("not json".utf8)))
+    }
+
+    private func result(_ type: String, errorType: String? = nil, message: String? = nil) -> BatchRequestResult {
+        BatchRequestResult(
+            customId: UUID().uuidString, resultType: type, messageText: type == "succeeded" ? "1" : nil,
+            inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+            errorType: errorType, errorMessage: message
+        )
+    }
+
+    func testBatchWithNoSuccessfulResponseFailsTheRun() {
+        let missingModel = AnthropicAPIClient.batchFailure(
+            for: [result("errored", errorType: "not_found_error", message: "model: x")],
+            model: .haiku45
+        )
+        guard case .modelUnavailable(let model)? = missingModel else {
+            return XCTFail("Expected modelUnavailable, got \(String(describing: missingModel))")
+        }
+        XCTAssertEqual(model, .haiku45)
+
+        let otherError = AnthropicAPIClient.batchFailure(
+            for: [result("errored", errorType: "invalid_request_error", message: "credit balance too low")],
+            model: .haiku45
+        )
+        guard case .allRequestsFailed(let detail)? = otherError else {
+            return XCTFail("Expected allRequestsFailed, got \(String(describing: otherError))")
+        }
+        XCTAssertEqual(detail, "credit balance too low")
+    }
+
+    func testPartialOrCanceledBatchesKeepTheExistingFallback() {
+        XCTAssertNil(AnthropicAPIClient.batchFailure(
+            for: [result("succeeded"), result("errored", errorType: "overloaded_error")],
+            model: .haiku45
+        ))
+        XCTAssertNil(AnthropicAPIClient.batchFailure(for: [result("canceled")], model: .haiku45))
+        XCTAssertNil(AnthropicAPIClient.batchFailure(for: [], model: .haiku45))
+    }
+}
+
+@MainActor
+final class RetiredClaudeModelRunTests: XCTestCase {
+    override func setUpWithError() throws {
+        try FoodMapperStorage.bootstrap()
+    }
+
+    func testRetiredPaperModelBlocksHybridRunsWithoutSubstitution() async throws {
+        let state = AppState()
+        state.selectedClaudeModel = .haiku3
+        state.enableHaikuVerification = true
+        XCTAssertEqual(state.selectedPipelineType, .gteLargeHaiku)
+        XCTAssertFalse(state.canRunSelectedPipeline)
+        XCTAssertNotNil(state.selectedClaudeModelUnavailableReason)
+
+        let engine = try await MatchingEngine()
+        for pipeline in [PipelineType.gteLargeHaiku, .gteLargeHaikuV2] {
+            do {
+                _ = try await state.createPipeline(type: pipeline, engine: engine)
+                XCTFail("A retired Claude model must not create a pipeline")
+            } catch AppError.claudeModelRetired(let model) {
+                XCTAssertEqual(model, .haiku3)
+            }
+        }
+        XCTAssertEqual(state.selectedClaudeModel, .haiku3)
+    }
+}
+
 final class CustomDatabaseValidationTests: XCTestCase {
     override func setUpWithError() throws {
         try FoodMapperStorage.bootstrap()

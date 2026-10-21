@@ -132,7 +132,11 @@ extension AppState {
     }
 
     /// Run the showcase hybrid match (full NHANES vs DFG2 using GTE-Large + Claude verification).
-    func runTourHybridMatch(modelVersion: ClaudeModelVersion = .haiku3) {
+    func runTourHybridMatch(modelVersion: ClaudeModelVersion) {
+        if let reason = modelVersion.unavailableReason() {
+            tourHybridError = reason
+            return
+        }
         let operationID = UUID()
         guard beginEngineOperation(.researchTour(operationID)) else {
             tourHybridError = "Wait for the current operation to finish."

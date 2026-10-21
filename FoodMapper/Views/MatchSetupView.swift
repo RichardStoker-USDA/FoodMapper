@@ -623,9 +623,9 @@ struct MatchSetupView: View {
                     VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text("**Off** -- On-device semantic matching only. An AI model on your Mac compares food descriptions to the database and returns the closest matches by meaning.")
 
-                        Text("**On** -- Adds a cloud verification step. After on-device matching returns up to five candidates, Claude Haiku selects a candidate or no match.")
+                        Text("**On** -- Adds a cloud verification step. After on-device matching returns up to five candidates, a Claude model selects a candidate or no match.")
 
-                        Text("In the published NHANES-to-DFG2 comparison, Hybrid Haiku (K=5) reported 65.4% overall accuracy.")
+                        Text("In the published NHANES-to-DFG2 comparison, Hybrid Haiku (K=5) reported 65.4% overall accuracy. Anthropic retired that Claude model on April 20, 2026.")
                             .foregroundStyle(.secondary)
                     }
                     .font(.callout)
@@ -657,6 +657,7 @@ struct MatchSetupView: View {
     @ViewBuilder
     private var haikuAPIKeySection: some View {
         if appState.enableHaikuVerification || appState.selectedPipelineType.requiresAPIKey {
+            claudeModelStatusNote
             if appState.cachedHasAPIKey && inlineAPIKeyStatus != .invalid("Invalid key") && inlineAPIKeyStatus != .invalid("Validation failed") {
                 // Key is stored and valid
                 VStack(spacing: Spacing.xs) {
@@ -686,7 +687,7 @@ struct MatchSetupView: View {
                                 .foregroundStyle(.secondary)
                             Picker("", selection: $appState.selectedClaudeModel) {
                                 ForEach(ClaudeModelVersion.allCases) { version in
-                                    Text(version.displayName).tag(version)
+                                    Text(version.pickerLabel()).tag(version)
                                 }
                             }
                             .labelsHidden()
@@ -763,6 +764,40 @@ struct MatchSetupView: View {
         }
     }
 
+    // MARK: - Claude Model Status
+
+    /// Availability of the selected Claude model. FoodMapper never swaps in a different model,
+    /// so a retired selection blocks the run and says why.
+    @ViewBuilder
+    private var claudeModelStatusNote: some View {
+        if let text = claudeModelStatusText {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                Image(systemName: appState.selectedClaudeModel.isRetired() ? "exclamationmark.circle" : "info.circle")
+                    .font(.caption)
+                Text(text)
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var claudeModelStatusText: String? {
+        let model = appState.selectedClaudeModel
+        if let reason = model.unavailableReason() {
+            guard model.isPaperModel else {
+                return "\(reason) Choose another Claude model in Advanced mode."
+            }
+            let next = appState.isAdvancedMode
+                ? "Choose a current Claude model for a comparison run."
+                : "Turn on advanced options in Settings to compare with a current Claude model."
+            return "\(reason) It is the model used in the paper, so the published hybrid result can't be rerun. \(next)"
+        }
+        guard !model.isPaperModel else { return nil }
+        let comparison = "Uses \(model.displayName). This is a comparison with a newer model, not the paper's Hybrid Haiku method."
+        return [comparison, model.upcomingRetirementNote()].compactMap { $0 }.joined(separator: " ")
+    }
+
     // MARK: - API Key Help Popover
 
     private var apiKeyHelpPopover: some View {
@@ -821,8 +856,7 @@ struct MatchSetupView: View {
             appState.refreshAPIKeyState()
 
             do {
-                let client = AnthropicAPIClient()
-                let isValid = try await client.validateAPIKey(key)
+                let isValid = try await AnthropicAPIClient.validateAPIKey(key)
 
                 await MainActor.run {
                     isValidatingInlineKey = false

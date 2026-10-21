@@ -254,8 +254,7 @@ struct APIKeysSettingsTab: View {
             appState.refreshAPIKeyState()
 
             do {
-                let client = AnthropicAPIClient()
-                let isValid = try await client.validateAPIKey(key)
+                let isValid = try await AnthropicAPIClient.validateAPIKey(key)
 
                 await MainActor.run {
                     isValidating = false
