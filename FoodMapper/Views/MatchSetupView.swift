@@ -378,11 +378,10 @@ struct MatchSetupView: View {
         )
     }
 
-    /// Whether the selected pipeline has a model availability issue (not an API key issue)
+    /// Whether the selected pipeline is missing a local model download.
+    /// API key and Claude model availability are shown in the hybrid section, not here.
     private var showModelsRequiredWarning: Bool {
-        // Don't show "Models required" for .gteLargeHaiku -- the API key section handles that
-        guard appState.selectedPipelineType != .gteLargeHaiku else { return false }
-        return !appState.canRunSelectedPipeline
+        !missingModels.isEmpty
     }
 
     /// Models that need downloading for the current pipeline
