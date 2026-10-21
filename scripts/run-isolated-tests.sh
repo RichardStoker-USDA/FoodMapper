@@ -469,10 +469,12 @@ after_metadata="${derived_data}/live-after.metadata"
 capture_live_metadata "$before_metadata"
 
 run_test_workflow() {
+    # The build step runs no FoodMapper code, so it keeps the real preferences domain.
+    # Xcode 27 reads its downloaded Metal toolchain from there; CFFIXED_USER_HOME hides it.
+    # The test step below still runs with isolated preferences.
     DEVELOPER_DIR="$DEVELOPER_DIR" \
     TMPDIR="$test_temporary_root" \
     HOME="$swiftpm_home" \
-    CFFIXED_USER_HOME="$preferences_root" \
     arch -arm64 "$DEVELOPER_DIR/usr/bin/xcodebuild" build-for-testing \
         -project "$repo_root/FoodMapper.xcodeproj" \
         -scheme FoodMapper \
