@@ -3,6 +3,9 @@ set -euo pipefail
 umask 077
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+# The single Xcode release used for tests, CI, and release builds. CI reads it
+# with --required-xcode-version. Change it here when the project moves Xcode.
+required_xcode_version="27.1"
 runner_temp="${RUNNER_TEMP:-}"
 if [ -n "$runner_temp" ]; then
     temporary_root="${runner_temp%/}"
@@ -250,33 +253,28 @@ assert_test_environment_value() {
     done
 }
 
-is_xcode_26_6_version() {
-    case "$1" in
-        "Xcode 26.6") ;;
-        *)
-            return 1
-            ;;
-    esac
+is_required_xcode_version() {
+    [ "$1" = "Xcode ${required_xcode_version}" ]
 }
 
-require_xcode_26_6() {
+require_pinned_xcode() {
     local version version_output
-    : "${DEVELOPER_DIR:?Set DEVELOPER_DIR to the Xcode 26.6 developer directory.}"
+    : "${DEVELOPER_DIR:?Set DEVELOPER_DIR to the Xcode ${required_xcode_version} developer directory.}"
     case "$DEVELOPER_DIR" in
-        /Applications/Xcode.app/Contents/Developer|/Applications/Xcode_26.6.app/Contents/Developer) ;;
+        /Applications/Xcode.app/Contents/Developer|"/Applications/Xcode_${required_xcode_version}.app/Contents/Developer") ;;
         *)
-            printf '%s\n' "The isolated test suite requires Xcode 26.6 from /Applications/Xcode.app or /Applications/Xcode_26.6.app." >&2
+            printf '%s\n' "The isolated test suite requires Xcode ${required_xcode_version} from /Applications/Xcode.app or /Applications/Xcode_${required_xcode_version}.app." >&2
             return 1
             ;;
     esac
     [ -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ] || {
-        printf '%s\n' "Xcode 26.6 is not available at DEVELOPER_DIR." >&2
+        printf '%s\n' "Xcode ${required_xcode_version} is not available at DEVELOPER_DIR." >&2
         return 1
     }
     version_output="$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version)" || return 1
     version="${version_output%%$'\n'*}"
-    if ! is_xcode_26_6_version "$version"; then
-        printf '%s\n' "Expected Xcode 26.6, found ${version}." >&2
+    if ! is_required_xcode_version "$version"; then
+        printf '%s\n' "Expected Xcode ${required_xcode_version}, found ${version}." >&2
         return 1
     fi
 }
@@ -406,11 +404,11 @@ run_self_test() (
     ! is_foodmapper_executable "/tmp/FoodMapperTools.app/Contents/MacOS/Tool" || status=1
     ! is_foodmapper_executable "/tmp/space path/FoodMapperHelper" || status=1
     ! is_foodmapper_executable "/usr/bin/echo" || status=1
-    is_xcode_26_6_version "Xcode 26.6" || status=1
-    ! is_xcode_26_6_version "Xcode 26.6 beta" || status=1
-    ! is_xcode_26_6_version "Xcode 26.6.1" || status=1
-    ! is_xcode_26_6_version "Xcode 26.5" || status=1
-    ! is_xcode_26_6_version "Xcode 27 beta" || status=1
+    is_required_xcode_version "Xcode ${required_xcode_version}" || status=1
+    ! is_required_xcode_version "Xcode ${required_xcode_version} beta" || status=1
+    ! is_required_xcode_version "Xcode ${required_xcode_version}.1" || status=1
+    ! is_required_xcode_version "Xcode 26.6" || status=1
+    ! is_required_xcode_version "Xcode" || status=1
     printf '%s\n' '  123 /tmp/FoodMapper.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q '^123 ' || status=1
     ! printf '%s\n' '124 /tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable' | matching_foodmapper_processes | grep -q . || status=1
     ! printf '%s\n' '125 /bin/echo /tmp/FoodMapper.app/Contents/MacOS/FoodMapper' | matching_foodmapper_processes | grep -q . || status=1
@@ -425,7 +423,7 @@ run_self_test() (
 )
 
 usage() {
-    printf '%s\n' "Usage: scripts/run-isolated-tests.sh [--self-test]"
+    printf '%s\n' "Usage: scripts/run-isolated-tests.sh [--self-test | --required-xcode-version]"
     printf '%s\n' "Debug test products are signed ad hoc; no Apple signing credentials are used."
 }
 
@@ -441,6 +439,10 @@ case "${1:-}" in
         run_self_test
         exit 0
         ;;
+    --required-xcode-version)
+        printf '%s\n' "$required_xcode_version"
+        exit 0
+        ;;
     --help|-h)
         usage
         exit 0
@@ -452,7 +454,7 @@ case "${1:-}" in
 esac
 
 require_no_running_foodmapper
-require_xcode_26_6
+require_pinned_xcode
 prepare_swiftpm_paths
 
 mkdir -m 700 "$test_root" "$derived_data" "$preferences_root"
