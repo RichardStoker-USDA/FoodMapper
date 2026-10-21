@@ -11,10 +11,9 @@ permissions:
 
 jobs:
   validate:
-    runs-on: macos-26
+    # The runner label must provide the Xcode named in scripts/run-isolated-tests.sh.
+    runs-on: xcode-27
     timeout-minutes: 40
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -23,9 +22,12 @@ jobs:
 
       - name: Check runner toolchain
         run: |
+          xcode_version="$(scripts/run-isolated-tests.sh --required-xcode-version)"
+          developer_dir="/Applications/Xcode_${xcode_version}.app/Contents/Developer"
           test "$(uname -m)" = arm64
-          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
-          test "$("$DEVELOPER_DIR/usr/bin/xcodebuild" -version | head -n 1)" = "Xcode 26.6"
+          test -x "$developer_dir/usr/bin/xcodebuild"
+          test "$("$developer_dir/usr/bin/xcodebuild" -version | head -n 1)" = "Xcode ${xcode_version}"
+          printf 'DEVELOPER_DIR=%s\n' "$developer_dir" >> "$GITHUB_ENV"
 
       - name: Install secret scanner
         env:
@@ -111,7 +113,7 @@ jobs:
             CODE_SIGN_IDENTITY=""
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
@@ -123,6 +125,8 @@ jobs:
           npm ci
           npm run build -- --outDir "$RUNNER_TEMP/foodmapper-site"
           npm audit --audit-level=low
+          # Pages serves the committed docs/ tree, so it must match a fresh build.
+          diff -r "$RUNNER_TEMP/foodmapper-site" ../docs
 
       - name: Check repository state
         run: |
