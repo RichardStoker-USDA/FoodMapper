@@ -876,6 +876,22 @@ final class ClaudeModelLifecycleTests: XCTestCase {
         XCTAssertEqual(detail, "credit balance too low")
     }
 
+    func testSubmissionRefusesARetiredModelBeforeAnyRequest() async {
+        let client = AnthropicAPIClient(modelVersion: .haiku3)
+        do {
+            _ = try await client.submitBatch(
+                tasks: [(customId: "task-0", userMessage: "bread")],
+                systemPrompt: "test",
+                apiKey: "not-a-real-key"
+            )
+            XCTFail("A retired model must not reach the network")
+        } catch HaikuError.modelUnavailable(let model) {
+            XCTAssertEqual(model, .haiku3)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testPartialOrCanceledBatchesKeepTheExistingFallback() {
         XCTAssertNil(AnthropicAPIClient.batchFailure(
             for: [result("succeeded"), result("errored", errorType: "overloaded_error")],

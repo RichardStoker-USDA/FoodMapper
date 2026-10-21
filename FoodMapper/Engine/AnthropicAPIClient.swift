@@ -197,6 +197,9 @@ actor AnthropicAPIClient {
         try Task.checkCancellation()
         guard !isCancelled else { throw HaikuError.cancelled }
         guard !tasks.isEmpty else { throw HaikuError.invalidResponse }
+        // A run can start before a retirement date and reach submission after it.
+        // Check again here so no input leaves the Mac for a retired model.
+        guard !modelVersion.isRetired() else { throw HaikuError.modelUnavailable(modelVersion) }
 
         // System field: plain string or array-with-cache-control for prompt caching
         let systemField: Any
@@ -453,8 +456,8 @@ actor AnthropicAPIClient {
     // MARK: - Validation
 
     /// Check an API key by listing models. This depends on no model ID and uses no tokens.
-    /// Returns false only when Anthropic rejects the key. Other failures throw, so callers
-    /// keep a stored key when the check itself could not complete.
+    /// Returns false only for an authentication failure (401). A permission error (403),
+    /// rate limit, server error, or network failure throws, so callers keep the stored key.
     static func validateAPIKey(_ key: String) async throws -> Bool {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models?limit=1")!)
         request.httpMethod = "GET"
@@ -469,7 +472,7 @@ actor AnthropicAPIClient {
         switch httpResponse.statusCode {
         case 200:
             return true
-        case 401, 403:
+        case 401:
             return false
         case 429:
             throw HaikuError.rateLimited
