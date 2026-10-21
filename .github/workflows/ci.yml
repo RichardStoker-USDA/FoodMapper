@@ -29,6 +29,14 @@ jobs:
           test "$("$developer_dir/usr/bin/xcodebuild" -version | head -n 1)" = "Xcode ${xcode_version}"
           printf 'DEVELOPER_DIR=%s\n' "$developer_dir" >> "$GITHUB_ENV"
 
+      - name: Install Metal toolchain
+        # MLX compiles Metal shaders. Xcode 27 runner images do not ship the toolchain.
+        run: |
+          if ! xcrun metal --version >/dev/null 2>&1; then
+            "$DEVELOPER_DIR/usr/bin/xcodebuild" -downloadComponent MetalToolchain
+          fi
+          xcrun metal --version
+
       - name: Install secret scanner
         env:
           GITLEAKS_VERSION: 8.30.1
