@@ -1331,7 +1331,11 @@ private struct HelpCustomDatabasesContent: View {
         )
 
         HelpCard {
-            HelpItem(title: "File Format", content: "UTF-8 encoded CSV or TSV with a header row. Needs at least one column with text descriptions to match against. An optional ID column provides unique identifiers for matched items.")
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                HelpItem(title: "File Format", content: "UTF-8 encoded CSV or TSV with a header row. Needs at least one column with text descriptions to match against. An optional ID column provides unique identifiers for matched items.")
+
+                HelpItem(title: "FoodData Central", content: "To match against USDA FoodData Central, download a CSV dataset from fdc.nal.usda.gov (Foundation, SR Legacy, FNDDS, or Branded) and unzip it. In Add Database, choose Import FoodData Central Folder and pick the folder. FoodMapper builds one table with each food's FDC ID, description, data type, category, and seven nutrients per 100 g: energy, protein, fat, carbohydrate, fiber, total sugars, and sodium. Energy is the reported value, or the Atwater general or specific value when the source has only those. Laboratory samples and acquisitions are left out, and a nutrient the source does not report stays empty. FoodMapper does not download anything for this.")
+            }
         }
 
         HelpCard {

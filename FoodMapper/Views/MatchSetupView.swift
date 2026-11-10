@@ -63,8 +63,8 @@ struct MatchSetupView: View {
             }
         }
         .sheet(isPresented: $showingAddDatabase) {
-            AddDatabaseSheet { database in
-                appState.addCustomDatabase(database)
+            AddDatabaseSheet { database, recordedSourcePath in
+                appState.addCustomDatabase(database, recordedSourcePath: recordedSourcePath)
             }
         }
     }

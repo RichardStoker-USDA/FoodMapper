@@ -183,8 +183,8 @@ struct DatabaseManagementView: View {
             }
         }
         .sheet(isPresented: $showingAddDatabase) {
-            AddDatabaseSheet { database in
-                appState.addCustomDatabase(database)
+            AddDatabaseSheet { database, recordedSourcePath in
+                appState.addCustomDatabase(database, recordedSourcePath: recordedSourcePath)
             }
         }
         .sheet(item: $showingDatabaseInfo) { database in

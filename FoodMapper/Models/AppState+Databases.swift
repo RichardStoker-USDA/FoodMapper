@@ -458,7 +458,10 @@ extension AppState {
 
     /// Register a custom database first. Pre-embedding is optional and only starts
     /// after the selected embedding model has been explicitly downloaded.
-    func addCustomDatabase(_ database: CustomDatabase) {
+    ///
+    /// `recordedSourcePath` replaces the saved source path when the imported file is a
+    /// temporary table built from something else, such as a FoodData Central folder.
+    func addCustomDatabase(_ database: CustomDatabase, recordedSourcePath: String? = nil) {
         guard canModifyDatabases else {
             databaseEmbeddingStatus = .error("Wait for the current matching or database operation to finish.")
             return
@@ -471,6 +474,7 @@ extension AppState {
                 url: stagedSourceURL, textColumn: database.textColumn, idColumn: database.idColumn
             )
             var finalDatabase = database
+            if let recordedSourcePath { finalDatabase.csvPath = recordedSourcePath }
             finalDatabase.fileFormat = validated.fileFormat
             finalDatabase.itemCount = validated.entries.count
             finalDatabase.sampleValues = Array(validated.entries.prefix(10).map(\.text))

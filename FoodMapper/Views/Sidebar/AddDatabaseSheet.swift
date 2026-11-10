@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 struct AddDatabaseSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var appState: AppState
-    let onAdd: (CustomDatabase) -> Void
+    /// The second value is the source path to record when it differs from the imported file's path.
+    let onAdd: (CustomDatabase, String?) -> Void
 
     @State private var displayName = ""
     @State private var selectedFileURL: URL?
@@ -20,6 +21,10 @@ struct AddDatabaseSheet: View {
     @State private var isEmbedding = false  // Track if we started embedding
     @State private var showLargeDatabaseWarning = false
     @State private var showOversizedConfirmation = false
+    @State private var fdcSummary: FDCBundleImportSummary?
+    @State private var fdcSourceFolder: URL?
+    @State private var temporaryImportFolder: URL?
+    @State private var importTask: Task<Void, Never>?
 
     private var canAdd: Bool {
         !displayName.trimmingCharacters(in: .whitespaces).isEmpty &&
@@ -117,6 +122,7 @@ struct AddDatabaseSheet: View {
                     Section {
                         FileSelectionRow(
                             url: selectedFileURL,
+                            sourceFolder: fdcSourceFolder,
                             isLoading: isLoading,
                             onSelect: selectFile
                         )
@@ -129,6 +135,16 @@ struct AddDatabaseSheet: View {
                     // Import option (shown when no file loaded yet)
                     if columns.isEmpty && !isLoading {
                         Section {
+                            Button {
+                                selectFDCFolder()
+                            } label: {
+                                Label("Import FoodData Central Folder...", systemImage: "folder")
+                            }
+                        } footer: {
+                            Text("Download a CSV dataset from fdc.nal.usda.gov, unzip it, and choose the folder. Foundation, SR Legacy, FNDDS, and Branded downloads work. FoodMapper builds one table with each food's category and seven nutrients per 100 g.")
+                        }
+
+                        Section {
                             Button {} label: {
                                 Label("Import Database...", systemImage: "square.and.arrow.down")
                             }
@@ -140,6 +156,18 @@ struct AddDatabaseSheet: View {
 
                     // Step 2: Configuration (shown after file loaded)
                     if !columns.isEmpty {
+                        if let summary = fdcSummary {
+                            Section {
+                                LabeledContent("Foods imported", value: summary.foods.formatted())
+                                LabeledContent("Rows left out", value: summary.excludedFoods.formatted())
+                                LabeledContent("Foods without nutrient values", value: summary.foodsWithoutNutrients.formatted())
+                            } header: {
+                                Label("FoodData Central", systemImage: "tablecells")
+                            } footer: {
+                                Text("Laboratory samples, acquisitions, and repeated identifiers are left out. A nutrient the source does not report stays empty. Matching uses the description column.")
+                            }
+                        }
+
                         Section {
                             TextField("Name", text: $displayName, prompt: Text("e.g., My Food Database"))
                         } header: {
@@ -328,6 +356,8 @@ struct AddDatabaseSheet: View {
             if isEmbedding && appState.databaseEmbeddingStatus.isEmbedding {
                 appState.cancelEmbedding()
             }
+            importTask?.cancel()
+            removeTemporaryImport()
         }
         .alert(
             "Embed \(itemCount.formatted()) Items?",
@@ -487,6 +517,14 @@ struct AddDatabaseSheet: View {
         Task { @MainActor in
             do {
                 let file = try await CSVParser.parse(url: url)
+                if fdcSummary != nil {
+                    // Replacing a FoodData Central import: its column choices do not carry over.
+                    textColumn = ""
+                    idColumn = ""
+                    fdcSummary = nil
+                    fdcSourceFolder = nil
+                    removeTemporaryImport()
+                }
                 selectedFileURL = url
                 columns = file.columns
                 itemCount = file.rowCount
@@ -499,6 +537,75 @@ struct AddDatabaseSheet: View {
                 isLoading = false
             }
         }
+    }
+
+    private func selectFDCFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose an unzipped FoodData Central CSV folder"
+        panel.prompt = "Import"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            importFDCFolder(url)
+        }
+    }
+
+    /// Builds one target table from a FoodData Central CSV folder, then loads it like any other file.
+    private func importFDCFolder(_ folder: URL) {
+        isLoading = true
+        errorMessage = nil
+        let temporaryRoot = FoodMapperStorage.processTemporaryRootURL
+        let limit = appState.advancedSettings.allowLargeDatabases
+            ? FDCBundleImporter.maximumFoods
+            : appState.hardwareConfig.absoluteMaxDatabaseItems
+        importTask?.cancel()
+        importTask = Task { @MainActor in
+            do {
+                let worker = Task.detached(priority: .userInitiated) {
+                    try FDCBundleImporter.convertToTemporaryFile(
+                        bundle: folder, temporaryRoot: temporaryRoot, maximumFoods: limit
+                    )
+                }
+                let converted = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: converted.output.deletingLastPathComponent())
+                    return
+                }
+                removeTemporaryImport()
+                temporaryImportFolder = converted.output.deletingLastPathComponent()
+                let file = try await CSVParser.parse(url: converted.output)
+                selectedFileURL = converted.output
+                columns = file.columns
+                itemCount = file.rowCount
+                fileFormat = file.format
+                fileSize = CSVParser.getFileSize(url: converted.output) ?? 0
+                displayName = FDCBundleImporter.suggestedName(folder: folder, summary: converted.summary)
+                textColumn = FDCBundleImporter.textColumn
+                idColumn = FDCBundleImporter.idColumn
+                fdcSummary = converted.summary
+                fdcSourceFolder = folder
+                isLoading = false
+            } catch is CancellationError {
+                isLoading = false
+            } catch {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+
+    private func removeTemporaryImport() {
+        if let folder = temporaryImportFolder {
+            try? FileManager.default.removeItem(at: folder)
+        }
+        temporaryImportFolder = nil
     }
 
     private func addDatabase() {
@@ -515,7 +622,7 @@ struct AddDatabaseSheet: View {
 
         // Start embedding - don't dismiss until complete
         isEmbedding = true
-        onAdd(database)
+        onAdd(database, fdcSourceFolder?.path)
     }
 
     // MARK: - Helper Views
@@ -576,18 +683,20 @@ struct AddDatabaseSheet: View {
 /// File selection row in the add database sheet
 struct FileSelectionRow: View {
     let url: URL?
+    /// Set when the file was built from a folder; the row then names the folder.
+    var sourceFolder: URL? = nil
     let isLoading: Bool
     let onSelect: () -> Void
 
     var body: some View {
         HStack {
             if let url = url {
-                Image(systemName: "doc")
+                Image(systemName: sourceFolder == nil ? "doc" : "folder")
                     .foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: Spacing.xxxs) {
-                    Text(url.lastPathComponent)
+                    Text((sourceFolder ?? url).lastPathComponent)
                         .lineLimit(1)
-                    Text(url.deletingLastPathComponent().lastPathComponent)
+                    Text(sourceFolder == nil ? url.deletingLastPathComponent().lastPathComponent : "FoodData Central folder")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -609,12 +718,12 @@ struct FileSelectionRow: View {
 }
 
 #Preview("Add Database - Light") {
-    AddDatabaseSheet { _ in }
+    AddDatabaseSheet { _, _ in }
         .environmentObject(PreviewHelpers.emptyState())
 }
 
 #Preview("Add Database - Dark") {
-    AddDatabaseSheet { _ in }
+    AddDatabaseSheet { _, _ in }
         .environmentObject(PreviewHelpers.emptyState())
         .preferredColorScheme(.dark)
 }

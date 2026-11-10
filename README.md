@@ -14,7 +14,7 @@ Nutrition researchers collect food descriptions from study participants through 
 
 - **On-device matching:** The default GTE-Large embedding path runs through MLX on Apple Silicon. Input and target data stay on the Mac for that path.
 - **Guided review:** Confirm, reject, or override results with keyboard shortcuts or Guided Review, then export.
-- **Built-in reference databases:** FooDB (9,913 food items) and DFG2 (256 commonly consumed foods) ship with the app. You can also import a CSV or TSV target database.
+- **Built-in reference databases:** FooDB (9,913 food items) and DFG2 (256 commonly consumed foods) ship with the app. You can also import a CSV or TSV target database, or build one from a USDA FoodData Central CSV download (Foundation, SR Legacy, FNDDS, or Branded) with each food's category and seven nutrients per 100 g.
 - **Saved sessions:** Results and review decisions save as you work. A History export restores original input columns when the stored input file is still available and readable. Bulk History exports contain saved mapping rows.
 - **CSV and TSV support:** Import and export either format. FoodMapper detects the delimiter from the file header.
 - **Interactive tutorial:** The first-run walkthrough covers data loading, matching, review, and export.
