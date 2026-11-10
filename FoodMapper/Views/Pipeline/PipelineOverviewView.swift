@@ -235,7 +235,7 @@ struct PipelineOverviewView: View {
                     .frame(maxWidth: 420)
 
                     if let profile = appState.selectedProviderProfile {
-                        Text(profile.kind == .openAI
+                        Text(profile.kind.sendsDataOffDevice
                              ? "A confirmation is shown before each run sends descriptions and candidates to OpenAI."
                              : "This profile is restricted to a loopback address on this Mac.")
                             .font(.caption)

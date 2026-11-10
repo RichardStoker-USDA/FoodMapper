@@ -357,6 +357,15 @@ final class AppState: ObservableObject {
     @Published var pendingProviderTransferProfile: ProviderProfile?
     @Published var showProviderTransferConfirmation = false
     var approvedProviderTransferProfileID: UUID?
+    /// What the provider stage of the last run did: fallbacks, retries, and any stop reason.
+    @Published var lastProviderRunSummary: ProviderRunSummary?
+
+    @Published var chatGPTAccounts: [ChatGPTAccount] = []
+    @Published var chatGPTModels: [ChatGPTModel] = []
+    @Published var chatGPTSignInState: ChatGPTSignInState = .idle
+    /// Account whose first plan-use notice is waiting to be shown.
+    @Published var chatGPTPlanNoticeAccountID: UUID?
+    var chatGPTSignInTask: Task<Void, Never>?
 
     var selectedProviderProfile: ProviderProfile? {
         providerProfiles.first { $0.id == selectedProviderProfileID }
@@ -374,6 +383,7 @@ final class AppState: ObservableObject {
             if !isAdvancedMode {
                 cancelBenchmark()
                 cancelProviderProbe()
+                cancelChatGPTSignIn()
                 pendingProviderTransferProfile = nil
                 showProviderTransferConfirmation = false
                 approvedProviderTransferProfileID = nil
@@ -1083,6 +1093,7 @@ final class AppState: ObservableObject {
         loadTargetDatabaseSample()
         loadBenchmarkRuns()
         loadProviderProfiles()
+        loadChatGPTAccounts()
 
         // Observe UserDefaults changes for settings synced via @AppStorage in SettingsView
         settingsObserver = NotificationCenter.default.addObserver(

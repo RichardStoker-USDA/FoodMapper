@@ -92,14 +92,11 @@ extension AppState {
                 self.error = AppError.matchingFailed("Select a provider profile before starting this run.")
                 return
             }
-            let inputCount = file.values(for: column).count
-            guard inputCount <= 250 else {
-                self.error = AppError.matchingFailed("Provider-assisted runs are limited to 250 input rows.")
-                return
-            }
             let credential = APIKeyStorage.getProviderCredential(profileID: profile.id)
-            if profile.kind == .openAI, credential == nil {
-                self.error = AppError.matchingFailed("Add the provider API key before starting this run.")
+            guard hasCredential(for: profile) else {
+                self.error = AppError.matchingFailed(profile.kind == .chatGPTPlan
+                    ? "Sign in with ChatGPT before starting this run."
+                    : "Add the provider API key before starting this run.")
                 return
             }
             guard hasCurrentProviderProbe(for: profile) else {
@@ -280,6 +277,9 @@ extension AppState {
                     try self.advancedFeatureGate.validate(advancedLease)
                 }
                 guard self.isCurrentEngineOperation(operationID) else { throw CancellationError() }
+
+                let providerSummary = (pipeline as? ProviderRerankerPipeline)?.runSummary
+                await MainActor.run { self.lastProviderRunSummary = providerSummary }
 
                 // Collect API tier + token usage from Haiku pipeline
                 var apiTokensUsed: Int? = nil
@@ -567,7 +567,8 @@ extension AppState {
                 credential: providerCredential,
                 topK: effectiveHardwareConfig(for: .providerLLM).topKForReranking,
                 authorizationGate: advancedFeatureGate,
-                authorizationLease: advancedLease
+                authorizationLease: advancedLease,
+                credentialSource: credentialSource(for: providerProfile)
             )
         }
     }
