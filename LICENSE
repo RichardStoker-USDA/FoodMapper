@@ -47,17 +47,31 @@ texts are in THIRD_PARTY_NOTICES.
 
 --------------------------------------------------------------------------------
 
-mlx-swift
-Source: https://github.com/ml-explore/mlx-swift/tree/4dccaeda1d83cf8697f235d2786c2d72ad4bb925
+EventSource
+Source: https://github.com/mattt/EventSource/tree/bb4b61273b5a976bb571859c17f903ebc3439df1
 License: MIT License
-License text: https://github.com/ml-explore/mlx-swift/blob/4dccaeda1d83cf8697f235d2786c2d72ad4bb925/LICENSE
+License text: https://github.com/mattt/EventSource/blob/bb4b61273b5a976bb571859c17f903ebc3439df1/LICENSE.md
+
+--------------------------------------------------------------------------------
+
+mlx-swift
+Source: https://github.com/ml-explore/mlx-swift/tree/7ede4fd6d05f63305c1c0ebf4f8c1909a637c574
+License: MIT License
+License text: https://github.com/ml-explore/mlx-swift/blob/7ede4fd6d05f63305c1c0ebf4f8c1909a637c574/LICENSE
 
 --------------------------------------------------------------------------------
 
 Sparkle
-Source: https://github.com/sparkle-project/Sparkle/tree/21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2
+Source: https://github.com/sparkle-project/Sparkle/tree/ab7d71291238df6e0492143b120c9b696a35f603
 License: MIT License
-License text: https://github.com/sparkle-project/Sparkle/blob/21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2/LICENSE
+License text: https://github.com/sparkle-project/Sparkle/blob/ab7d71291238df6e0492143b120c9b696a35f603/LICENSE
+
+--------------------------------------------------------------------------------
+
+swift-asn1
+Source: https://github.com/apple/swift-asn1/tree/a9a5efd40eaf558a2bcd48d64b1d1646be686008
+License: Apache License 2.0
+License text: https://github.com/apple/swift-asn1/blob/a9a5efd40eaf558a2bcd48d64b1d1646be686008/LICENSE.txt
 
 --------------------------------------------------------------------------------
 
@@ -68,10 +82,24 @@ License text: https://github.com/apple/swift-collections/blob/7b847a3b7008b2dc2f
 
 --------------------------------------------------------------------------------
 
-swift-jinja
-Source: https://github.com/huggingface/swift-jinja/tree/d81197f35f41445bc10e94600795e68c6f5e94b0
+swift-crypto
+Source: https://github.com/apple/swift-crypto/tree/47d3869a7291f085c1fb9fb1e6d3b97a793f45c6
 License: Apache License 2.0
-License text: https://github.com/huggingface/swift-jinja/blob/d81197f35f41445bc10e94600795e68c6f5e94b0/LICENSE
+License text: https://github.com/apple/swift-crypto/blob/47d3869a7291f085c1fb9fb1e6d3b97a793f45c6/LICENSE.txt
+
+--------------------------------------------------------------------------------
+
+swift-huggingface
+Source: https://github.com/huggingface/swift-huggingface/tree/c30143a4616f3fa994ee3ab3e3464f752845c07c
+License: Apache License 2.0
+License text: https://github.com/huggingface/swift-huggingface/blob/c30143a4616f3fa994ee3ab3e3464f752845c07c/LICENSE
+
+--------------------------------------------------------------------------------
+
+swift-jinja
+Source: https://github.com/huggingface/swift-jinja/tree/66042420a9225c98ea9382d705e2285769dfdbe5
+License: Apache License 2.0
+License text: https://github.com/huggingface/swift-jinja/blob/66042420a9225c98ea9382d705e2285769dfdbe5/LICENSE
 
 --------------------------------------------------------------------------------
 
@@ -83,9 +111,16 @@ License text: https://github.com/apple/swift-numerics/blob/0c0290ff6b24942dadb83
 --------------------------------------------------------------------------------
 
 swift-transformers
-Source: https://github.com/huggingface/swift-transformers/tree/573e5c9036c2f136b3a8a071da8e8907322403d0
+Source: https://github.com/huggingface/swift-transformers/tree/402a8a1105f52038b0949d9596981fc9e32bed17
 License: Apache License 2.0
-License text: https://github.com/huggingface/swift-transformers/blob/573e5c9036c2f136b3a8a071da8e8907322403d0/LICENSE
+License text: https://github.com/huggingface/swift-transformers/blob/402a8a1105f52038b0949d9596981fc9e32bed17/LICENSE
+
+--------------------------------------------------------------------------------
+
+yyjson
+Source: https://github.com/ibireme/yyjson/tree/6447536015f3d600f3d65323b10976103b337ca7
+License: MIT License
+License text: https://github.com/ibireme/yyjson/blob/6447536015f3d600f3d65323b10976103b337ca7/LICENSE
 
 ================================================================================
 

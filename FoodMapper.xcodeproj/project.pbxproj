@@ -1057,7 +1057,7 @@
 			repositoryURL = "https://github.com/huggingface/swift-transformers";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 1.1.9;
+				minimumVersion = 1.4.0;
 			};
 		};
 		6F6F6E6DE50EF1962B87553C /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
@@ -1065,7 +1065,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.30.6;
+				minimumVersion = 0.33.0;
 			};
 		};
 		SPARKLE001PKGREF0000 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -1073,7 +1073,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.6;
+				minimumVersion = 2.10.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
