@@ -683,7 +683,8 @@ actor MatchingEngine {
         embeddingDimensions: Int
     ) async throws -> CustomDatabaseCacheMetadata {
         let modelFingerprint = try await modelArtifactFingerprint(
-            modelKey: modelKey, embeddingDimensions: embeddingDimensions
+            modelKey: modelKey, embeddingDimensions: embeddingDimensions,
+            seed: Self.cacheFingerprintSeed(texts: validated.entries.lazy.map(\.text))
         )
         return CustomDatabaseCacheMetadata(
             version: CustomDatabaseCacheMetadata.currentVersion,
@@ -710,7 +711,19 @@ actor MatchingEngine {
         }
     }
 
-    private func modelArtifactFingerprint(modelKey: String, embeddingDimensions: Int) async throws -> String {
+    /// Texts up to this many UTF-8 bytes cannot reach the model's 512-token limit, so the
+    /// way a long text is cut cannot have changed their vectors.
+    static let longTextBytes = 256
+
+    /// First part of the cache fingerprint. FoodMapper 0.2.0 changed how a text over 512 tokens
+    /// is cut (the closing token is now kept, as in the published code). A database with a text
+    /// long enough to be cut gets a new seed, so vectors cached by an earlier version are rebuilt
+    /// once. Every other database keeps the earlier seed and its cache.
+    nonisolated static func cacheFingerprintSeed<Texts: Sequence>(texts: Texts) -> String where Texts.Element == String {
+        texts.contains(where: { $0.utf8.count > longTextBytes }) ? "custom-cache-v3-closing-token" : "custom-cache-v2"
+    }
+
+    private func modelArtifactFingerprint(modelKey: String, embeddingDimensions: Int, seed: String) async throws -> String {
         guard let directory = MLXEmbeddingModel.modelDirectory else { throw MatchingError.modelNotLoaded }
         let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
         let artifacts = try paths.sorted().compactMap { path -> (String, URL)? in
@@ -724,7 +737,7 @@ actor MatchingEngine {
             let digest = try Self.digestFile(url)
             return "\(path)|\(digest)"
         }.joined(separator: "\n")
-        let fingerprint = CustomDatabaseValidator.digest("custom-cache-v2|\(modelKey)|\(embeddingDimensions)|\(descriptor)")
+        let fingerprint = CustomDatabaseValidator.digest("\(seed)|\(modelKey)|\(embeddingDimensions)|\(descriptor)")
         return fingerprint
     }
 

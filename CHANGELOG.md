@@ -13,7 +13,7 @@ More ways to load data, provider-assisted matching in Advanced mode, and a small
 - Advanced mode: a 20-case retrieval benchmark records top-1, top-5, top-10, and latency for the installed model
 
 ### Fixes
-- A description longer than 512 tokens is cut the way the published code cuts it, with the closing token kept. Descriptions that fit are unchanged
+- A description longer than 512 tokens is cut the way the published code cuts it, with the closing token kept. Descriptions that fit are unchanged. A custom database with descriptions long enough to be cut is embedded again the first time it is used
 
 ### Improvements
 - Advanced mode now lists GTE-Large, the provider pipeline, and the cached-prompt Claude pipeline. The Qwen3 and Gemma experiments are removed, and FoodMapper deletes their downloads and cached embeddings from its own folders at launch. GTE-Large, databases, sessions, and input files are not touched

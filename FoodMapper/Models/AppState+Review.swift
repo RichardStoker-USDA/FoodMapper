@@ -38,7 +38,8 @@ extension AppState {
         profile: ThresholdProfile,
         pipelineType: PipelineType,
         autoMatchScoreFloor: Double = 0.95,
-        autoMatchMinGap: Double = 0.01
+        autoMatchMinGap: Double = 0.01,
+        recordedByRemovedPipeline: Bool = false
     ) -> ReviewDecision {
         // Error results
         if result.status == .error {
@@ -66,7 +67,9 @@ extension AppState {
             // Auto-match only for GTE-Large pipelines (tuned for their score distribution).
             // Evaluation embedding models also produce cosineSimilarity, but their scores
             // are not calibrated for these thresholds, so everything goes to review.
-            let isGTEPipeline = (pipelineType == .gteLargeEmbedding ||
+            // A session recorded by a removed model reopens with GTE-Large selected, but its
+            // scores are that model's, so it is never accepted automatically.
+            let isGTEPipeline = !recordedByRemovedPipeline && (pipelineType == .gteLargeEmbedding ||
                                  pipelineType == .gteLargeHaiku ||
                                  pipelineType == .gteLargeHaikuV2)
             if isGTEPipeline,
@@ -97,6 +100,13 @@ extension AppState {
         return (accept, reject)
     }
 
+    /// True when the open results were recorded by a pipeline this version no longer has.
+    /// A new match makes a new session, so this turns false as soon as GTE-Large produces the results.
+    var openResultsCameFromRemovedPipeline: Bool {
+        guard let id = currentSessionId, let session = sessions.first(where: { $0.id == id }) else { return false }
+        return LegacyPipeline.isRemoved(recordedName: session.pipelineName)
+    }
+
     /// Compute triage decisions without touching @Published state.
     /// Safe to call from any thread. Returns a new decisions dictionary.
     nonisolated static func computeTriageDecisions(
@@ -106,7 +116,8 @@ extension AppState {
         userMatchThreshold: Double?,
         userRejectThreshold: Double?,
         autoMatchScoreFloor: Double = 0.95,
-        autoMatchMinGap: Double = 0.01
+        autoMatchMinGap: Double = 0.01,
+        recordedByRemovedPipeline: Bool = false
     ) -> [UUID: ReviewDecision] {
         var decisions = existingDecisions
         let profile = effectiveProfile(
@@ -124,7 +135,8 @@ extension AppState {
                 profile: profile,
                 pipelineType: pipelineType,
                 autoMatchScoreFloor: autoMatchScoreFloor,
-                autoMatchMinGap: autoMatchMinGap
+                autoMatchMinGap: autoMatchMinGap,
+                recordedByRemovedPipeline: recordedByRemovedPipeline
             )
         }
         return decisions
@@ -178,6 +190,7 @@ extension AppState {
         let userReject = userRejectThreshold
         let scoreFloor = autoMatchScoreFloor
         let minGap = autoMatchMinGap
+        let removedPipeline = openResultsCameFromRemovedPipeline
 
         if allResults.count > 2_000 {
             isSorting = true
@@ -189,7 +202,8 @@ extension AppState {
                     userMatchThreshold: userMatch,
                     userRejectThreshold: userReject,
                     autoMatchScoreFloor: scoreFloor,
-                    autoMatchMinGap: minGap
+                    autoMatchMinGap: minGap,
+                    recordedByRemovedPipeline: removedPipeline
                 )
                 await MainActor.run { [weak self] in
                     guard let self else { return }
@@ -212,7 +226,8 @@ extension AppState {
                     profile: profile,
                     pipelineType: pipelineType,
                     autoMatchScoreFloor: scoreFloor,
-                    autoMatchMinGap: minGap
+                    autoMatchMinGap: minGap,
+                    recordedByRemovedPipeline: removedPipeline
                 )
             }
             rebuildAllCategories()
@@ -432,7 +447,8 @@ extension AppState {
             profile: profile,
             pipelineType: selectedPipelineType,
             autoMatchScoreFloor: autoMatchScoreFloor,
-            autoMatchMinGap: autoMatchMinGap
+            autoMatchMinGap: autoMatchMinGap,
+            recordedByRemovedPipeline: openResultsCameFromRemovedPipeline
         )
         reviewDecisions[resultId] = newDecision
         reviewDecisionVersion += 1
@@ -556,6 +572,7 @@ extension AppState {
     func bulkReset(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         let profile = effectiveProfile()
+        let removedPipeline = openResultsCameFromRemovedPipeline
         for id in ids {
             guard let result = resultsByID[id] else { continue }
             let previous = reviewDecisions[id]
@@ -568,7 +585,8 @@ extension AppState {
                 profile: profile,
                 pipelineType: selectedPipelineType,
                 autoMatchScoreFloor: autoMatchScoreFloor,
-                autoMatchMinGap: autoMatchMinGap
+                autoMatchMinGap: autoMatchMinGap,
+                recordedByRemovedPipeline: removedPipeline
             )
             reviewDecisions[id] = newDecision
             cachedCategories[id] = MatchCategory.from(result: result, decision: newDecision, profile: profile)

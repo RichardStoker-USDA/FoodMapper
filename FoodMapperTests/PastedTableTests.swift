@@ -18,6 +18,19 @@ final class PastedTableTests: XCTestCase {
         XCTAssertEqual(DataFileFormat.detect(from: table.csv), .csv, "a comma inside a header cell must not confuse the delimiter")
     }
 
+    func testATabInsideAQuotedCellDoesNotMakeATable() throws {
+        // One quoted description with a tab in it, then a second description: a list, not a table.
+        let table = try PastedTable.table(from: "\"rice\tcooked\"\napple\n")
+        XCTAssertTrue(table.addedHeader, "the first description must not become the header")
+        XCTAssertEqual(table.columnCount, 1)
+        XCTAssertEqual(table.rowCount, 2)
+        XCTAssertEqual(try CSVParser.parseRecords(content: table.csv, delimiter: ","), [
+            ["description"], ["rice\tcooked"], ["apple"],
+        ])
+        // A tab outside quotes still makes a table.
+        XCTAssertFalse(try PastedTable.table(from: "food\tgrams\nrice\t100\n").addedHeader)
+    }
+
     func testAListGetsADescriptionHeader() throws {
         let table = try PastedTable.table(from: "\u{FEFF}boiled broccoli\n\n  \"Big\" burger, plain \nmilk, 2%\r\n")
         XCTAssertTrue(table.addedHeader)

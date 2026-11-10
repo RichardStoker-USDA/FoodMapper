@@ -46,6 +46,9 @@ test_objroot="${derived_data}/Objroot"
 defaults_suite="app.foodmapper.FoodMapper.tests.${test_id}"
 fixture_target_path="${FOODMAPPER_TEST_TARGET_PATH:-}"
 fixture_input_path="${FOODMAPPER_TEST_INPUT_PATH:-}"
+# Copies this run made. Cleanup removes these and never a path the caller supplied.
+generated_fixture_target=""
+generated_fixture_input=""
 live_support="${HOME:?HOME is required}/Library/Application Support/FoodMapper"
 live_preferences="${HOME:?HOME is required}/Library/Preferences/app.foodmapper.FoodMapper.plist"
 if [ -n "$runner_temp" ]; then
@@ -98,6 +101,8 @@ prepare_fixture_paths() {
 
     local target_copy="${temporary_root}/foodmapper-fixture-target-${test_id}.csv"
     local input_copy="${temporary_root}/foodmapper-fixture-input-${test_id}.csv"
+    generated_fixture_target="$target_copy"
+    generated_fixture_input="$input_copy"
     cp -X "$fixture_target_path" "$target_copy"
     cp -X "$fixture_input_path" "$input_copy"
     xattr -c "$target_copy" "$input_copy"
@@ -129,6 +134,11 @@ remove_generated_path() {
     if is_generated_path "$path" && [ -e "$path" -o -L "$path" ]; then
         rm -R -- "$path"
     fi
+}
+
+remove_generated_fixture_copies() {
+    remove_generated_path "${generated_fixture_target:-}"
+    remove_generated_path "${generated_fixture_input:-}"
 }
 
 require_private_directory() {
@@ -320,8 +330,7 @@ cleanup() {
     remove_generated_path "${test_root:-}"
     remove_generated_path "${derived_data:-}"
     remove_generated_path "${preferences_root:-}"
-    remove_generated_path "${fixture_target_path:-}"
-    remove_generated_path "${fixture_input_path:-}"
+    remove_generated_fixture_copies
 }
 
 validate_ad_hoc_bundle() {
@@ -432,6 +441,14 @@ run_self_test() (
     require_private_directory "$self_root" || status=1
     ! is_generated_path "$temporary_root" || status=1
     ! is_generated_path "${self_root}/nested" || status=1
+    # A caller's fixture file survives cleanup even when its name has the generated form.
+    supplied_fixture="${temporary_root}/foodmapper-fixture-target-${self_id}.csv"
+    : > "$supplied_fixture"
+    ( fixture_target_path="$supplied_fixture"; generated_fixture_target=""; generated_fixture_input=""; remove_generated_fixture_copies )
+    [ -f "$supplied_fixture" ] || status=1
+    ( generated_fixture_target="$supplied_fixture"; generated_fixture_input=""; remove_generated_fixture_copies )
+    [ ! -e "$supplied_fixture" ] || status=1
+    rm -f -- "$supplied_fixture"
     is_foodmapper_executable "/tmp/FoodMapper.app/Contents/MacOS/FoodMapper" || status=1
     is_foodmapper_executable "/tmp/space path/FoodMapper" || status=1
     ! is_foodmapper_executable "/tmp/FoodMapper Preview.app/Contents/MacOS/RenamedExecutable" || status=1

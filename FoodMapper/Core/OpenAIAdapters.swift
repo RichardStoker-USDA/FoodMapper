@@ -112,13 +112,26 @@ struct ProviderTokenUsage: Equatable, Sendable {
     var outputTokens = 0
     var reasoningTokens = 0
 
+    /// Counters come from the server, so the sum saturates instead of trapping on overflow.
     static func + (lhs: ProviderTokenUsage, rhs: ProviderTokenUsage) -> ProviderTokenUsage {
-        ProviderTokenUsage(
-            inputTokens: lhs.inputTokens + rhs.inputTokens,
-            cachedInputTokens: lhs.cachedInputTokens + rhs.cachedInputTokens,
-            outputTokens: lhs.outputTokens + rhs.outputTokens,
-            reasoningTokens: lhs.reasoningTokens + rhs.reasoningTokens
+        func sum(_ left: Int, _ right: Int) -> Int {
+            let (value, overflow) = left.addingReportingOverflow(right)
+            return overflow ? Int.max : value
+        }
+        return ProviderTokenUsage(
+            inputTokens: sum(lhs.inputTokens, rhs.inputTokens),
+            cachedInputTokens: sum(lhs.cachedInputTokens, rhs.cachedInputTokens),
+            outputTokens: sum(lhs.outputTokens, rhs.outputTokens),
+            reasoningTokens: sum(lhs.reasoningTokens, rhs.reasoningTokens)
         )
+    }
+
+    /// A token counter from a response. Anything that is not a whole number of zero or more reads as zero.
+    static func count(_ value: Any?) -> Int {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return 0 }
+        let double = number.doubleValue
+        guard double.isFinite, double >= 0, double < 9.0e18, double == double.rounded() else { return 0 }
+        return number.intValue
     }
 
     init(inputTokens: Int = 0, cachedInputTokens: Int = 0, outputTokens: Int = 0, reasoningTokens: Int = 0) {
@@ -133,10 +146,10 @@ struct ProviderTokenUsage: Equatable, Sendable {
         let inputDetails = usage["input_tokens_details"] as? [String: Any]
         let outputDetails = usage["output_tokens_details"] as? [String: Any]
         self.init(
-            inputTokens: (usage["input_tokens"] as? NSNumber)?.intValue ?? 0,
-            cachedInputTokens: (inputDetails?["cached_tokens"] as? NSNumber)?.intValue ?? 0,
-            outputTokens: (usage["output_tokens"] as? NSNumber)?.intValue ?? 0,
-            reasoningTokens: (outputDetails?["reasoning_tokens"] as? NSNumber)?.intValue ?? 0
+            inputTokens: Self.count(usage["input_tokens"]),
+            cachedInputTokens: Self.count(inputDetails?["cached_tokens"]),
+            outputTokens: Self.count(usage["output_tokens"]),
+            reasoningTokens: Self.count(outputDetails?["reasoning_tokens"])
         )
     }
 }
