@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.0 (2026-11-10)
+
+More ways to load data, provider-assisted matching in Advanced mode, and a smaller experimental model set.
+
+### Features
+- Paste from Clipboard on the setup screen. Cells copied from a spreadsheet load as a table with the first row as the header, and plain text loads as one description per line
+- Import a USDA FoodData Central CSV download (Foundation, SR Legacy, FNDDS, or Branded) as a target database, with each food's category and seven nutrients per 100 g. FoodMapper reads the folder you choose and downloads nothing
+- Advanced mode: provider runs. GTE-Large retrieves candidates on the Mac, then an OpenAI model or a model on a local OpenAI-compatible server chooses among them. FoodMapper names what will be sent and asks before every run. A run accepts up to 10,000 rows
+- Advanced mode: sign in with ChatGPT to run provider requests on a ChatGPT plan, or add an OpenAI API key. Sign-in tokens and keys are stored in the Keychain
+- Advanced mode: target field settings for provider runs. Add a context phrase to the local search, send up to 8 target columns with each candidate, and apply a lowest or highest rule to a numeric column among candidates the provider lists as the same food. A row where the rule replaces the provider's pick goes to Needs Review
+- Advanced mode: a 20-case retrieval benchmark records top-1, top-5, top-10, and latency for the installed model
+
+### Fixes
+- A description longer than 512 tokens is cut the way the published code cuts it, with the closing token kept. Descriptions that fit are unchanged
+
+### Improvements
+- Advanced mode now lists GTE-Large, the provider pipeline, and the cached-prompt Claude pipeline. The Qwen3 and Gemma experiments are removed, and FoodMapper deletes their downloads and cached embeddings from its own folders at launch. GTE-Large, databases, sessions, and input files are not touched
+- Sessions recorded with a removed pipeline still open and keep their recorded method name
+- "GTE-Large + Haiku v2" is renamed "GTE-Large + Claude (cached prompt)"
+- Provider runs send several requests at once, retry temporary failures, and stop at a plan or quota limit with the remaining rows left in Needs Review
+- Lower memory use during long runs on Macs with 64 GB or more
+- Updated MLX-Swift to 0.33.0, swift-transformers to 1.4.0, and Sparkle to 2.10.1. The swift-transformers update brings in yyjson 0.13.0, which fixes a stack-buffer overflow (GHSA-f4vc-345x-4mvm)
+- Status icons use outlined symbols, and the pipeline settings panels align
+
+---
+
 ## 0.1.8 (2026-10-21)
 
 Claude model availability and API key fixes.

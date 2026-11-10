@@ -16,7 +16,8 @@ Nutrition researchers collect food descriptions from study participants through 
 - **Guided review:** Confirm, reject, or override results with keyboard shortcuts or Guided Review, then export.
 - **Built-in reference databases:** FooDB (9,913 food items) and DFG2 (256 commonly consumed foods) ship with the app. You can also import a CSV or TSV target database, or build one from a USDA FoodData Central CSV download (Foundation, SR Legacy, FNDDS, or Branded) with each food's category and seven nutrients per 100 g.
 - **Saved sessions:** Results and review decisions save as you work. A History export restores original input columns when the stored input file is still available and readable. Bulk History exports contain saved mapping rows.
-- **CSV and TSV support:** Import and export either format. FoodMapper detects the delimiter from the file header.
+- **CSV and TSV support:** Import and export either format. FoodMapper detects the delimiter from the file header. You can also paste rows copied from a spreadsheet, or a plain list with one description per line.
+- **Advanced mode (optional, off by default):** Provider runs let an OpenAI model, or a model on a local OpenAI-compatible server, choose among the candidates GTE-Large retrieves. Use an OpenAI API key or sign in with ChatGPT. Hosted runs send the selected descriptions and candidate entries to OpenAI, and FoodMapper asks before each run.
 - **Interactive tutorial:** The first-run walkthrough covers data loading, matching, review, and export.
 - **Behind the Research:** The in-app section explains the paper's methods and includes a matching demonstration.
 - **In-app updates:** FoodMapper can check for updates automatically. You can also select FoodMapper > Check for Updates.
@@ -63,7 +64,7 @@ Both databases include their source rows in the app. After you approve the GTE-L
 
 ## How It Works
 
-FoodMapper converts each food description into an embedding with GTE-Large by default, then compares it with candidate database entries by cosine similarity. The default local path runs through MLX on Apple Silicon. If you configure and select the optional Anthropic path, FoodMapper sends the input descriptions and candidate entries needed for that verification run to Anthropic.
+FoodMapper converts each food description into an embedding with GTE-Large by default, then compares it with candidate database entries by cosine similarity. The default local path runs through MLX on Apple Silicon. If you configure and select the optional Anthropic path, FoodMapper sends the input descriptions and candidate entries needed for that verification run to Anthropic. An Advanced-mode provider run does the same with OpenAI, along with any target columns you choose to send. A provider profile that points at a local server on the same Mac sends nothing off the Mac.
 
 For default embedding matching, a fixed 0.50 eligibility floor determines whether the leading retrieval becomes the selected target. The floor does not remove retrieved candidate database entries from the review list. The separate Smart Auto-Match floor and score gap can mark a selected GTE-Large result for review or match. The optional Anthropic path requires an Anthropic API key.
 
@@ -111,8 +112,8 @@ Requires stable Xcode 26.6 or later and an Apple Silicon Mac. This is an Xcode p
 - Default local matching works offline after GTE-Large is installed.
 - No telemetry, no analytics, no tracking.
 - Data stored locally in `~/Library/Application Support/FoodMapper/`.
-- Optional Anthropic API keys are stored in the macOS Keychain.
-- **Requires internet for:** user-approved model downloads, automatic update checks (Sparkle), and the optional Anthropic verification path, which sends the input descriptions and candidate matches needed for verification after you provide your own key and select it.
+- Optional Anthropic and OpenAI API keys and ChatGPT sign-in tokens are stored in the macOS Keychain.
+- **Requires internet for:** user-approved model downloads, automatic update checks (Sparkle), the optional Anthropic verification path, which sends the input descriptions and candidate matches needed for verification after you provide your own key and select it, and optional OpenAI provider runs in Advanced mode, which send the selected descriptions, candidate entries, and any target columns you choose after you confirm the run.
 
 ## Research Background
 
