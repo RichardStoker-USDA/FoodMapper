@@ -61,6 +61,7 @@ enum ChatGPTSignInError: LocalizedError, Equatable {
     case identityMismatch
     case planNotGranted
     case listenerUnavailable
+    case browserUnavailable
     case timedOut
     case tokenRequestFailed(String?)
     case refreshRejected(String?)
@@ -79,6 +80,7 @@ enum ChatGPTSignInError: LocalizedError, Equatable {
         case .identityMismatch: return "That browser session belongs to a different ChatGPT account than the one selected."
         case .planNotGranted: return "ChatGPT plan use was not granted. Sign in again and allow it, or use an API key."
         case .listenerUnavailable: return "FoodMapper could not open a local sign-in callback on this Mac."
+        case .browserUnavailable: return "FoodMapper could not open your web browser. Check that a default browser is set, then try again."
         case .timedOut: return "Sign-in was not completed in time."
         case let .tokenRequestFailed(code): return "OpenAI did not issue credentials\(code.map { " (\($0))" } ?? "")."
         case let .refreshRejected(code): return "The saved ChatGPT sign-in is no longer valid\(code.map { " (\($0))" } ?? ""). Sign in again."

@@ -243,3 +243,25 @@ enum ProviderProfileError: LocalizedError, Equatable {
         }
     }
 }
+
+extension ProviderProfile {
+    /// The plan model FoodMapper's candidate selection was measured with. A new plan profile
+    /// starts on it when the account lists it, and on the account's first model otherwise.
+    static let measuredPlanModel = "gpt-6-luna"
+
+    /// Starting values for a new ChatGPT plan profile: the configuration measured on the
+    /// NHANES-to-DFG2 task. Reasoning effort none was as accurate as low and better than
+    /// medium, and eight simultaneous requests gave a linear speed-up with retries recovered.
+    static func planDefault(accountID: UUID, modelSlugs: [String]) -> ProviderProfile {
+        ProviderProfile(
+            name: "ChatGPT plan",
+            kind: .chatGPTPlan,
+            baseURL: ProviderKind.chatGPTPlan.fixedBaseURL?.absoluteString ?? "",
+            model: modelSlugs.first { $0 == measuredPlanModel } ?? modelSlugs.first ?? "",
+            interface: .responses,
+            reasoningEffort: ProviderReasoningEffort.none,
+            concurrency: ProviderKind.chatGPTPlan.maximumConcurrency,
+            accountID: accountID
+        )
+    }
+}

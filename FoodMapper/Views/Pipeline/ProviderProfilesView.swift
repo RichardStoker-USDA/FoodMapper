@@ -396,16 +396,9 @@ private struct ProviderEditorState: Identifiable {
     }
 
     static func planProfile(account: ChatGPTAccount, models: [ChatGPTModel]) -> ProviderEditorState {
-        ProviderEditorState(profile: ProviderProfile(
-            name: "ChatGPT plan",
-            kind: .chatGPTPlan,
-            baseURL: ProviderKind.chatGPTPlan.fixedBaseURL?.absoluteString ?? "",
-            model: models.first?.slug ?? "",
-            interface: .responses,
-            reasoningEffort: .low,
-            concurrency: 4,
-            accountID: account.id
-        ), models: models)
+        ProviderEditorState(
+            profile: .planDefault(accountID: account.id, modelSlugs: models.map(\.slug)), models: models
+        )
     }
 }
 
