@@ -6,10 +6,10 @@ struct AdvancedFeatureLease: Equatable, Sendable {
 
 struct AdvancedRunLimits: Equatable, Sendable {
     static let defaults = AdvancedRunLimits(
-        inputRows: 1_000,
+        inputRows: 10_000,
         inputBytes: 8 * 1_024 * 1_024,
         candidateCount: 5,
-        resultRecords: 1_000,
+        resultRecords: 10_000,
         fieldBytes: 4 * 1_024
     )
 

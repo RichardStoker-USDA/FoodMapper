@@ -49,7 +49,10 @@ extension AppState {
                 var hint: String?
                 if let account { hint = await store.idTokenHint(accountID: account.id) }
                 let url = attempt.authorizationURL(hostID: hostID, idTokenHint: hint, loginHint: account?.email)
-                await MainActor.run { _ = NSWorkspace.shared.open(url) }
+                // Without this check a browser that never opened looks like a five-minute wait.
+                guard await MainActor.run(body: { NSWorkspace.shared.open(url) }) else {
+                    throw ChatGPTSignInError.browserUnavailable
+                }
 
                 let target = try await listener.waitForCallback(timeout: 300)
                 try gate.validate(lease)

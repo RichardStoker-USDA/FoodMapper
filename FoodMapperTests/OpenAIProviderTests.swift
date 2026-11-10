@@ -252,6 +252,25 @@ final class OpenAIAdapterTests: XCTestCase {
         )
     }
 
+    func testNewPlanProfileStartsOnTheMeasuredConfiguration() throws {
+        let account = UUID()
+        let listed = ProviderProfile.planDefault(accountID: account, modelSlugs: ["flagship", ProviderProfile.measuredPlanModel, "other"])
+        XCTAssertEqual(listed.model, ProviderProfile.measuredPlanModel)
+        XCTAssertEqual(listed.reasoningEffort, ProviderReasoningEffort.none)
+        XCTAssertEqual(listed.concurrency, ProviderKind.chatGPTPlan.maximumConcurrency)
+        XCTAssertEqual(listed.interface, .responses)
+        XCTAssertEqual(listed.accountID, account)
+        XCTAssertEqual(try listed.validated().reasoningEffort, ProviderReasoningEffort.none)
+        // An account that does not list the measured model starts on its first model.
+        XCTAssertEqual(ProviderProfile.planDefault(accountID: account, modelSlugs: ["flagship", "other"]).model, "flagship")
+        XCTAssertEqual(ProviderProfile.planDefault(accountID: account, modelSlugs: []).model, "")
+    }
+
+    func testProviderRunsAcceptTenThousandRows() throws {
+        XCTAssertEqual(try AdvancedRunLimits.defaults.validated().inputRows, 10_000)
+        XCTAssertEqual(AdvancedRunLimits.defaults.inputRows, AdvancedRunLimits.maximum.inputRows)
+    }
+
     func testChatCompletionsSendsReasoningEffortOnlyWhenSet() throws {
         func body(_ effort: ProviderReasoningEffort?) throws -> [String: Any] {
             let profile = ProviderProfile(
