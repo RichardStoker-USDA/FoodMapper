@@ -403,10 +403,17 @@ struct ContentView: View {
         let configuredCandidateCount = appState.effectiveHardwareConfig(for: .providerLLM).topKForReranking
         let candidateCount = min(max(1, configuredCandidateCount), AdvancedRunLimits.maximum.candidateCount)
         let selectedField = appState.selectedColumn ?? "selected description"
-        let transport = profile.kind == .openAI
-            ? "\(profile.baseURL) over HTTPS. The selected values leave this Mac."
-            : "\(profile.baseURL) over loopback HTTP. The selected values stay on this Mac."
-        return "FoodMapper will send \(inputCount) values from \(selectedField) and up to \(candidateCount) candidates per value to \(profile.name), using \(profile.model) at \(transport) It will make at most \(inputCount) requests. Each request is limited to 16 KB; each response is limited to 128 tokens and 64 KB. Other imported columns are not included."
+        let transport: String
+        switch profile.kind {
+        case .openAI:
+            transport = "\(profile.baseURL) over HTTPS with your API key. The selected values leave this Mac."
+        case .chatGPTPlan:
+            transport = "\(profile.baseURL) over HTTPS, billed to your ChatGPT plan. The selected values leave this Mac."
+        case .localOpenAICompatible:
+            transport = "\(profile.baseURL) over loopback HTTP. The selected values stay on this Mac."
+        }
+        let workers = profile.concurrency == 1 ? "one request at a time" : "up to \(profile.concurrency) requests at a time"
+        return "FoodMapper will send \(inputCount) values from \(selectedField) and up to \(candidateCount) candidates per value to \(profile.name), using \(profile.model) at \(transport) It will send \(workers) and retry a failed request up to \(ProviderRetryPolicy.maximumAttempts - 1) times. Each request is limited to 16 KB. Other imported columns are not included."
     }
 }
 

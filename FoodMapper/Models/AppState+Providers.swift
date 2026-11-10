@@ -105,10 +105,12 @@ extension AppState {
             do {
                 let lease = try self.advancedFeatureGate.issueLease()
                 let checked = try profile.validated()
-                let credential = APIKeyStorage.getProviderCredential(profileID: checked.id)
-                if checked.kind == .openAI, credential == nil {
-                    throw ProviderProfileStoreError.credentialMissing
+                guard self.hasCredential(for: checked) else {
+                    throw checked.kind == .chatGPTPlan
+                        ? ProviderProfileStoreError.signInMissing
+                        : ProviderProfileStoreError.credentialMissing
                 }
+                let credential = try await self.credentialSource(for: checked)()
                 let receipt = try await ProviderProbeClient.probe(profile: checked, credential: credential)
                 try Task.checkCancellation()
                 try self.advancedFeatureGate.validate(lease)
@@ -134,9 +136,9 @@ extension AppState {
     func hasCurrentProviderProbe(for profile: ProviderProfile, now: Date = Date()) -> Bool {
         guard case let .passed(receipt) = providerProbeState,
               receipt.profileID == profile.id,
-              receipt.adapterVersion == ProviderAdapterMetadata.version,
-              receipt.responseMode == ProviderAdapterMetadata.responseMode,
-              receipt.requestSchemaHash == (try? ProviderChatRequest.schemaHash(candidateIDs: ["c1", "c2"])),
+              receipt.adapterVersion == profile.interface.adapterVersion,
+              receipt.responseMode == profile.interface.responseMode,
+              receipt.requestSchemaHash == (try? ProviderProbeClient.requestSchemaHash(for: profile.interface)),
               receipt.profileFingerprint == (try? profile.nonsecretFingerprint()),
               now.timeIntervalSince(receipt.completedAt) >= 0,
               now.timeIntervalSince(receipt.completedAt) < 24 * 60 * 60 else {
@@ -160,6 +162,7 @@ enum ProviderProfileStoreError: LocalizedError {
     case credentialDeleteFailed
     case credentialRollbackFailed
     case credentialMissing
+    case signInMissing
 
     var errorDescription: String? {
         switch self {
@@ -167,18 +170,27 @@ enum ProviderProfileStoreError: LocalizedError {
         case .credentialDeleteFailed: return "The provider credential could not be removed from Keychain."
         case .credentialRollbackFailed: return "The provider profile could not be removed, and its Keychain credential could not be restored."
         case .credentialMissing: return "Add an API key before testing this provider."
+        case .signInMissing: return "Sign in with ChatGPT before testing this provider."
         }
     }
 }
 
 enum ProviderProbeClient {
-    static func probe(profile: ProviderProfile, credential: String?) async throws -> ProviderProbeReceipt {
+    private static let probeCandidateIDs = ["c1", "c2"]
+
+    /// A synthetic decision with one right answer. No user data is sent.
+    static func probe(
+        profile: ProviderProfile,
+        credential: String?,
+        transport: ProviderTransport = URLSessionProviderTransport()
+    ) async throws -> ProviderProbeReceipt {
         let selection = try await ProviderDecisionClient.selectCandidate(
             input: "boiled broccoli",
             candidates: ["Broccoli, raw", "Broccoli, cooked, boiled"],
             instruction: "Preparation form must match.",
             profile: profile,
-            credential: credential
+            credential: credential,
+            transport: transport
         )
         guard selection == 1 else {
             throw ProviderProbeError.invalidDecision
@@ -186,11 +198,25 @@ enum ProviderProbeClient {
         return ProviderProbeReceipt(
             profileID: profile.id,
             profileFingerprint: try profile.nonsecretFingerprint(),
-            adapterVersion: ProviderAdapterMetadata.version,
-            responseMode: ProviderAdapterMetadata.responseMode,
-            requestSchemaHash: try ProviderChatRequest.schemaHash(candidateIDs: ["c1", "c2"]),
+            adapterVersion: profile.interface.adapterVersion,
+            responseMode: profile.interface.responseMode,
+            requestSchemaHash: try requestSchemaHash(for: profile.interface),
             completedAt: Date()
         )
+    }
+
+    /// Hash of the response contract a route enforces, so a receipt expires when the contract changes.
+    static func requestSchemaHash(for interface: ProviderInterface) throws -> String {
+        switch interface {
+        case .chatCompletions:
+            return try ProviderChatRequest.schemaHash(candidateIDs: probeCandidateIDs)
+        case .responses:
+            return try OpenAIResponsesRequest.schemaHash(candidateIDs: probeCandidateIDs)
+        case .decisions:
+            let payload = try ProviderDecisionPayload(input: "probe", candidates: ["a", "b"], instruction: "probe")
+            let body = try OpenAIDecisionsRequest.data(model: "probe", payload: payload)
+            return CustomDatabaseValidator.digest(body)
+        }
     }
 }
 

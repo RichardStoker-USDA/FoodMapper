@@ -3,22 +3,48 @@ import Foundation
 
 enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
     case openAI
+    case chatGPTPlan
     case localOpenAICompatible
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .openAI: return "OpenAI"
+        case .openAI: return "OpenAI API key"
+        case .chatGPTPlan: return "ChatGPT plan"
         case .localOpenAICompatible: return "Local OpenAI-compatible"
         }
     }
 
     var fixedBaseURL: URL? {
         switch self {
-        case .openAI: return URL(string: "https://api.openai.com/v1")
+        case .openAI, .chatGPTPlan: return URL(string: "https://api.openai.com/v1")
         case .localOpenAICompatible: return nil
         }
+    }
+
+    /// Whether a run sends the selected values off this Mac.
+    var sendsDataOffDevice: Bool { self != .localOpenAICompatible }
+
+    var allowedInterfaces: [ProviderInterface] {
+        switch self {
+        case .openAI: return [.responses, .decisions, .chatCompletions]
+        case .chatGPTPlan: return [.responses]
+        case .localOpenAICompatible: return [.chatCompletions]
+        }
+    }
+
+    /// Upper bound on simultaneous requests for one run.
+    var maximumConcurrency: Int {
+        switch self {
+        case .openAI: return 16
+        case .chatGPTPlan: return 8
+        case .localOpenAICompatible: return 4
+        }
+    }
+
+    var billing: ProviderBilling {
+        self == .chatGPTPlan ? .chatGPTPlan : .apiKey
     }
 }
 
@@ -30,6 +56,14 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
     var model: String
     var maximumOutputTokens: Int
     var requestOptionsJSON: String
+    /// Request route. Profiles saved before this field existed use Chat Completions.
+    var interface: ProviderInterface
+    /// Responses route only. Nil leaves the model's default.
+    var reasoningEffort: ProviderReasoningEffort?
+    /// Simultaneous requests during a run.
+    var concurrency: Int
+    /// The ChatGPT registration a plan profile bills to.
+    var accountID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -38,7 +72,11 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         baseURL: String = "",
         model: String,
         maximumOutputTokens: Int = 128,
-        requestOptionsJSON: String = "{}"
+        requestOptionsJSON: String = "{}",
+        interface: ProviderInterface = .chatCompletions,
+        reasoningEffort: ProviderReasoningEffort? = nil,
+        concurrency: Int = 1,
+        accountID: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -47,6 +85,10 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         self.model = model
         self.maximumOutputTokens = maximumOutputTokens
         self.requestOptionsJSON = requestOptionsJSON
+        self.interface = interface
+        self.reasoningEffort = reasoningEffort
+        self.concurrency = concurrency
+        self.accountID = accountID
     }
 
     func validated() throws -> ProviderProfile {
@@ -55,6 +97,11 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         guard !trimmedName.isEmpty, trimmedName.count <= 80 else { throw ProviderProfileError.invalidName }
         guard !trimmedModel.isEmpty, trimmedModel.count <= 160 else { throw ProviderProfileError.invalidModel }
         guard maximumOutputTokens == 128 else { throw ProviderProfileError.invalidTokenLimit }
+        guard kind.allowedInterfaces.contains(interface) else { throw ProviderProfileError.interfaceNotAvailable }
+        guard (1...kind.maximumConcurrency).contains(concurrency) else {
+            throw ProviderProfileError.invalidConcurrency(kind.maximumConcurrency)
+        }
+        if kind == .chatGPTPlan, accountID == nil { throw ProviderProfileError.accountRequired }
 
         let url = try ProviderEndpointPolicy.canonicalURL(kind: kind, value: baseURL)
         var value = self
@@ -62,17 +109,21 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         value.model = trimmedModel
         value.baseURL = url.absoluteString
         value.requestOptionsJSON = try ProviderRequestOptions.normalizedJSON(requestOptionsJSON)
+        if interface != .responses { value.reasoningEffort = nil }
+        if kind != .chatGPTPlan { value.accountID = nil }
         return value
     }
 
+    /// Identifies everything that can change a decision except the credential.
     func nonsecretFingerprint() throws -> String {
         let checked = try validated()
         let record = [
-            "adapter": ProviderAdapterMetadata.version,
+            "adapter": checked.interface.adapterVersion,
+            "effort": checked.reasoningEffort?.rawValue ?? "default",
             "endpoint": checked.baseURL,
             "kind": checked.kind.rawValue,
             "model": checked.model,
-            "response_mode": ProviderAdapterMetadata.responseMode
+            "response_mode": checked.interface.responseMode,
         ]
         let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -80,7 +131,7 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, kind, baseURL, model, maximumOutputTokens, requestOptionsJSON
-        case legacyAllowsReasoning = "allowsReasoning"
+        case interface, reasoningEffort, concurrency, accountID
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +143,10 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         model = try values.decode(String.self, forKey: .model)
         maximumOutputTokens = 128
         requestOptionsJSON = try values.decodeIfPresent(String.self, forKey: .requestOptionsJSON) ?? "{}"
+        interface = try values.decodeIfPresent(ProviderInterface.self, forKey: .interface) ?? .chatCompletions
+        reasoningEffort = try values.decodeIfPresent(ProviderReasoningEffort.self, forKey: .reasoningEffort)
+        concurrency = try values.decodeIfPresent(Int.self, forKey: .concurrency) ?? 1
+        accountID = try values.decodeIfPresent(UUID.self, forKey: .accountID)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -103,6 +158,10 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         try values.encode(model, forKey: .model)
         try values.encode(maximumOutputTokens, forKey: .maximumOutputTokens)
         try values.encode(requestOptionsJSON, forKey: .requestOptionsJSON)
+        try values.encode(interface, forKey: .interface)
+        try values.encodeIfPresent(reasoningEffort, forKey: .reasoningEffort)
+        try values.encode(concurrency, forKey: .concurrency)
+        try values.encodeIfPresent(accountID, forKey: .accountID)
     }
 }
 
@@ -123,10 +182,6 @@ enum ProviderRequestOptions {
     }
 }
 
-enum ProviderAdapterMetadata {
-    static let version = "openai-chat-completions-v1"
-    static let responseMode = "strict-json-schema"
-}
 
 enum ProviderEndpointPolicy {
     static func canonicalURL(kind: ProviderKind, value: String) throws -> URL {
@@ -169,6 +224,9 @@ enum ProviderProfileError: LocalizedError, Equatable {
     case endpointNotAllowed
     case invalidRequestOptions
     case customRequestOptionsNotSupported
+    case interfaceNotAvailable
+    case invalidConcurrency(Int)
+    case accountRequired
 
     var errorDescription: String? {
         switch self {
@@ -178,6 +236,9 @@ enum ProviderProfileError: LocalizedError, Equatable {
         case .endpointNotAllowed: return "Local providers must use an exact http://127.0.0.1[:port]/v1 or http://[::1][:port]/v1 address."
         case .invalidRequestOptions: return "Request options must be an empty JSON object."
         case .customRequestOptionsNotSupported: return "Custom request fields are not available for automatic provider decisions."
+        case .interfaceNotAvailable: return "That request route is not available for this provider type."
+        case let .invalidConcurrency(maximum): return "Simultaneous requests must be between 1 and \(maximum) for this provider type."
+        case .accountRequired: return "Sign in with ChatGPT before saving a ChatGPT plan profile."
         }
     }
 }

@@ -133,6 +133,12 @@
 		TUTORIAL001STEP /* TutorialStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = TUTORIAL002STEP /* TutorialStep.swift */; };
 		UNIFSTATPILL01BUILD /* UnifiedStatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = UNIFSTATPILL02FREF /* UnifiedStatusPill.swift */; };
 		WELCOME001AB06705BEB2F2F60 /* WelcomeLandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WELCOME002A5867F164E2245D6 /* WelcomeLandingView.swift */; };
+		6A387B7C90D9A2A11772FD28 /* OpenAIAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546A94BCEA79FDECF525B578 /* OpenAIAdapters.swift */; };
+		F58189389AC55CEABA8A85B4 /* ChatGPTAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2152611658A607374C0AE9D /* ChatGPTAuthorization.swift */; };
+		14FBA9B73579F2F4254AE2A8 /* ProviderTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D521550BF39E7422E462DBB /* ProviderTransport.swift */; };
+		FB69162B6DB5EAC6354A7CC4 /* ChatGPTSignInService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1045B36B0314C524A12970B9 /* ChatGPTSignInService.swift */; };
+		0D2899749935F573A9FA8C17 /* AppState+ChatGPT.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D20EA7B7972357FFCE0DCFC /* AppState+ChatGPT.swift */; };
+		020867664D594A884A18CD8F /* OpenAIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -272,6 +278,12 @@
 		TUTORIAL002STEP /* TutorialStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialStep.swift; sourceTree = "<group>"; };
 		UNIFSTATPILL02FREF /* UnifiedStatusPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedStatusPill.swift; sourceTree = "<group>"; };
 		WELCOME002A5867F164E2245D6 /* WelcomeLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeLandingView.swift; sourceTree = "<group>"; };
+		546A94BCEA79FDECF525B578 /* OpenAIAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIAdapters.swift; sourceTree = "<group>"; };
+		E2152611658A607374C0AE9D /* ChatGPTAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGPTAuthorization.swift; sourceTree = "<group>"; };
+		5D521550BF39E7422E462DBB /* ProviderTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderTransport.swift; sourceTree = "<group>"; };
+		1045B36B0314C524A12970B9 /* ChatGPTSignInService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGPTSignInService.swift; sourceTree = "<group>"; };
+		6D20EA7B7972357FFCE0DCFC /* AppState+ChatGPT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+ChatGPT.swift"; sourceTree = "<group>"; };
+		8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -346,6 +358,8 @@
 		ADVCORE001GROUP /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				E2152611658A607374C0AE9D /* ChatGPTAuthorization.swift */,
+				546A94BCEA79FDECF525B578 /* OpenAIAdapters.swift */,
 				ADVCORE001FILEREF /* AdvancedFeatureGate.swift */,
 				ADVCORE002FILEREF /* BenchmarkCore.swift */,
 				ADVCORE003FILEREF /* ProviderProfile.swift */,
@@ -356,6 +370,7 @@
 		679FAC9DBCC446638850164E /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				6D20EA7B7972357FFCE0DCFC /* AppState+ChatGPT.swift */,
 				4EC3C22CF05A6A8E91295F17 /* AppSettings.swift */,
 				97A2B2D05965D4A245ACBD7B /* AppState.swift */,
 				AS001DBSFILEREF0000 /* AppState+Databases.swift */,
@@ -403,6 +418,8 @@
 		A2D73DE654A177934AD557E1 /* Engine */ = {
 			isa = PBXGroup;
 			children = (
+				1045B36B0314C524A12970B9 /* ChatGPTSignInService.swift */,
+				5D521550BF39E7422E462DBB /* ProviderTransport.swift */,
 				SPARKLE004FILEREF000 /* CheckForUpdatesView.swift */,
 				250D88C3658300D3F23B0660 /* CSVExporter.swift */,
 				DB34908844CB1D5096674C78 /* CSVParser.swift */,
@@ -453,6 +470,7 @@
 		F6766A8DA9D4EBC157B189C9 /* FoodMapperTests */ = {
 			isa = PBXGroup;
 			children = (
+				8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */,
 				A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */,
 				GTETEST001FILEREF /* GTELargeModelInstallTests.swift */,
 				9C986F783BF1FFE42121D453 /* FoodMapperTests.swift */,
@@ -648,6 +666,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				020867664D594A884A18CD8F /* OpenAIProviderTests.swift in Sources */,
 				DAE269FBCC22D19C44D342EC /* EmbeddingTests.swift in Sources */,
 				GTETEST001BUILD /* GTELargeModelInstallTests.swift in Sources */,
 				C1D152DF03474310C488A991 /* FoodMapperTests.swift in Sources */,
@@ -662,6 +681,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0D2899749935F573A9FA8C17 /* AppState+ChatGPT.swift in Sources */,
+				FB69162B6DB5EAC6354A7CC4 /* ChatGPTSignInService.swift in Sources */,
+				14FBA9B73579F2F4254AE2A8 /* ProviderTransport.swift in Sources */,
+				F58189389AC55CEABA8A85B4 /* ChatGPTAuthorization.swift in Sources */,
+				6A387B7C90D9A2A11772FD28 /* OpenAIAdapters.swift in Sources */,
 				F225E94D923C513FBB570158 /* AddDatabaseSheet.swift in Sources */,
 				21E6CAA6422D45958A1831D2 /* DatabaseInfoSheet.swift in Sources */,
 				DBABOUT001BF01A9CBC50FA0 /* BuiltInDatabaseAboutView.swift in Sources */,

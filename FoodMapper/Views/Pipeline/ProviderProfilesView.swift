@@ -16,6 +16,8 @@ struct ProviderProfilesView: View {
         VStack(spacing: 0) {
             pageHeader
             Divider()
+            chatGPTPanel
+            Divider()
 
             HSplitView {
                 profileList
@@ -28,7 +30,7 @@ struct ProviderProfilesView: View {
                         ContentUnavailableView(
                             "No Provider Profiles",
                             systemImage: "network",
-                            description: Text("Add OpenAI or a loopback OpenAI-compatible server.")
+                            description: Text("Sign in with ChatGPT above, or add an OpenAI API key or a loopback OpenAI-compatible server.")
                         )
                     }
                 }
@@ -50,7 +52,7 @@ struct ProviderProfilesView: View {
             )
         }
         .confirmationDialog(
-            "Test OpenAI connection?",
+            "Test this connection?",
             isPresented: Binding(
                 get: { profilePendingRemoteProbe != nil },
                 set: { if !$0 { profilePendingRemoteProbe = nil } }
@@ -63,7 +65,7 @@ struct ProviderProfilesView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("FoodMapper will send one synthetic food description and two synthetic candidates to OpenAI. No imported data is included.")
+            Text("FoodMapper will send one synthetic food description and two synthetic candidates to OpenAI. No imported data is included. A ChatGPT plan profile counts this request against your plan.")
         }
         .confirmationDialog(
             "Delete this provider profile?",
@@ -84,6 +86,17 @@ struct ProviderProfilesView: View {
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("The profile metadata and its Keychain credential will be removed.")
+        }
+        .alert(
+            "You're using your ChatGPT plan",
+            isPresented: Binding(
+                get: { appState.chatGPTPlanNoticeAccountID != nil },
+                set: { if !$0 { appState.acknowledgeChatGPTPlanUse() } }
+            )
+        ) {
+            Button("Got it") { appState.acknowledgeChatGPTPlanUse() }
+        } message: {
+            Text("Provider runs that use a ChatGPT plan profile count against your ChatGPT plan, not an API key. You can review and limit FoodMapper's usage in ChatGPT settings.")
         }
         .alert(
             "Provider Error",
@@ -116,11 +129,94 @@ struct ProviderProfilesView: View {
         .padding(.horizontal, Spacing.lg)
     }
 
+    /// ChatGPT sign-in state. Shown above the profiles because a plan profile needs it first.
+    private var chatGPTPanel: some View {
+        HStack(alignment: .center, spacing: Spacing.md) {
+            Image(systemName: "person.crop.circle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            if let account = appState.activeChatGPTAccount {
+                VStack(alignment: .leading, spacing: Spacing.xxxs) {
+                    Text(account.displayLabel)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    HStack(spacing: Spacing.xs) {
+                        Text(account.planUseGranted ? "Using ChatGPT plan" : "Signed in without plan use")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Link("Manage usage", destination: ChatGPTOAuth.usageURL)
+                            .font(.caption)
+                    }
+                }
+                Spacer()
+                if account.planUseGranted, !appState.providerProfiles.contains(where: { $0.accountID == account.id }) {
+                    Button("Add Plan Profile") {
+                        editor = ProviderEditorState.planProfile(account: account, models: appState.chatGPTModels)
+                    }
+                }
+                if !account.planUseGranted {
+                    Button("Allow Plan Use") { appState.startChatGPTSignIn(reauthorizing: account) }
+                }
+                Button("Sign Out") { appState.signOutChatGPT(account) }
+            } else {
+                VStack(alignment: .leading, spacing: Spacing.xxxs) {
+                    Text("Use your ChatGPT plan")
+                        .font(.callout.weight(.medium))
+                    Text(chatGPTStatusText)
+                        .font(.caption)
+                        .foregroundStyle(chatGPTStatusIsError ? .red : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                switch appState.chatGPTSignInState {
+                case .waitingForBrowser, .finishing:
+                    ProgressView().controlSize(.small)
+                    Button("Cancel") { appState.cancelChatGPTSignIn() }
+                case .idle, .failed:
+                    Button("Continue with ChatGPT") {
+                        appState.startChatGPTSignIn(
+                            reauthorizing: appState.chatGPTAccounts.first
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
+    }
+
+    private var chatGPTStatusText: String {
+        switch appState.chatGPTSignInState {
+        case .idle:
+            return "Sign in to run provider decisions on your ChatGPT plan, with no API key. Your browser opens to OpenAI."
+        case .waitingForBrowser:
+            return "Finish signing in in your browser."
+        case .finishing:
+            return "Verifying the sign-in."
+        case let .failed(message):
+            return message
+        }
+    }
+
+    private var chatGPTStatusIsError: Bool {
+        if case .failed = appState.chatGPTSignInState { return true }
+        return false
+    }
+
+    private func symbol(for kind: ProviderKind) -> String {
+        switch kind {
+        case .openAI: return "globe"
+        case .chatGPTPlan: return "person.crop.circle"
+        case .localOpenAICompatible: return "desktopcomputer"
+        }
+    }
+
     private var profileList: some View {
         List(selection: $appState.selectedProviderProfileID) {
             ForEach(appState.providerProfiles) { profile in
                 HStack(spacing: Spacing.sm) {
-                    Image(systemName: profile.kind == .openAI ? "globe" : "desktopcomputer")
+                    Image(systemName: symbol(for: profile.kind))
                         .foregroundStyle(.secondary)
                         .frame(width: Size.iconSmall)
                     VStack(alignment: .leading, spacing: Spacing.xxxs) {
@@ -169,8 +265,12 @@ struct ProviderProfilesView: View {
                         detailCell("Credential", credentialStatus(profile))
                     }
                     GridRow {
-                        detailCell("Output limit", "\(profile.maximumOutputTokens) tokens")
-                        detailCell("Response", "Strict JSON schema")
+                        detailCell("Request route", profile.interface.displayName)
+                        detailCell("Response", profile.interface == .decisions ? "Choice with probabilities" : "Strict JSON schema")
+                    }
+                    GridRow {
+                        detailCell("Reasoning effort", profile.interface == .responses ? (profile.reasoningEffort?.displayName ?? "Model default") : "Not used")
+                        detailCell("Simultaneous requests", "\(profile.concurrency)")
                     }
                 }
                 .padding(Spacing.lg)
@@ -193,7 +293,7 @@ struct ProviderProfilesView: View {
                             }
                         } else {
                             Button("Test Connection") {
-                                if profile.kind == .openAI {
+                                if profile.kind.sendsDataOffDevice {
                                     profilePendingRemoteProbe = profile
                                 } else {
                                     appState.probeProvider(profile)
@@ -206,7 +306,7 @@ struct ProviderProfilesView: View {
                 .padding(Spacing.lg)
                 .panelMaterialStyle(cornerRadius: 10)
 
-                Text("Remote profiles are stored without credentials. API keys stay in the macOS Keychain under the profile's random identifier. Local profiles are limited to loopback addresses.")
+                Text("Profiles are stored without credentials. API keys and ChatGPT sign-in tokens stay in the macOS Keychain. Local profiles are limited to loopback addresses.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -269,10 +369,14 @@ struct ProviderProfilesView: View {
     }
 
     private func credentialStatus(_ profile: ProviderProfile) -> String {
-        if APIKeyStorage.hasProviderCredential(profileID: profile.id) {
-            return "Stored in Keychain"
+        switch profile.kind {
+        case .chatGPTPlan:
+            return appState.hasCredential(for: profile) ? "ChatGPT sign-in" : "Sign-in needed"
+        case .openAI:
+            return APIKeyStorage.hasProviderCredential(profileID: profile.id) ? "Stored in Keychain" : "Missing"
+        case .localOpenAICompatible:
+            return APIKeyStorage.hasProviderCredential(profileID: profile.id) ? "Stored in Keychain" : "None"
         }
-        return profile.kind == .openAI ? "Missing" : "None"
     }
 
 }
@@ -280,6 +384,7 @@ struct ProviderProfilesView: View {
 private struct ProviderEditorState: Identifiable {
     let id = UUID()
     let profile: ProviderProfile
+    var models: [ChatGPTModel] = []
 
     static func newProfile() -> ProviderEditorState {
         ProviderEditorState(profile: ProviderProfile(
@@ -288,6 +393,19 @@ private struct ProviderEditorState: Identifiable {
             baseURL: "http://127.0.0.1:8000/v1",
             model: ""
         ))
+    }
+
+    static func planProfile(account: ChatGPTAccount, models: [ChatGPTModel]) -> ProviderEditorState {
+        ProviderEditorState(profile: ProviderProfile(
+            name: "ChatGPT plan",
+            kind: .chatGPTPlan,
+            baseURL: ProviderKind.chatGPTPlan.fixedBaseURL?.absoluteString ?? "",
+            model: models.first?.slug ?? "",
+            interface: .responses,
+            reasoningEffort: .low,
+            concurrency: 4,
+            accountID: account.id
+        ), models: models)
     }
 }
 
@@ -325,30 +443,67 @@ private struct ProviderEditorSheet: View {
             Form {
                 TextField("Name", text: $profile.name)
 
-                Picker("Type", selection: $profile.kind) {
-                    ForEach(ProviderKind.allCases) { kind in
-                        Text(kind.displayName).tag(kind)
+                if profile.kind == .chatGPTPlan {
+                    LabeledContent("Type", value: ProviderKind.chatGPTPlan.displayName)
+                } else {
+                    Picker("Type", selection: $profile.kind) {
+                        ForEach([ProviderKind.openAI, .localOpenAICompatible]) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .onChange(of: profile.kind) { _, kind in
+                        profile.baseURL = kind.fixedBaseURL?.absoluteString ?? "http://127.0.0.1:8000/v1"
+                        profile.interface = kind.allowedInterfaces[0]
+                        profile.concurrency = min(profile.concurrency, kind.maximumConcurrency)
                     }
                 }
-                .onChange(of: profile.kind) { _, kind in
-                    profile.baseURL = kind.fixedBaseURL?.absoluteString ?? "http://127.0.0.1:8000/v1"
+
+                if profile.kind == .localOpenAICompatible {
+                    TextField("Endpoint", text: $profile.baseURL, prompt: Text("http://127.0.0.1:8000/v1"))
+                } else {
+                    LabeledContent("Endpoint", value: profile.kind.fixedBaseURL?.absoluteString ?? "")
+                }
+
+                if profile.kind == .chatGPTPlan, !state.models.isEmpty {
+                    Picker("Model", selection: $profile.model) {
+                        ForEach(state.models) { model in
+                            Text(model.displayName).tag(model.slug)
+                        }
+                    }
+                } else {
+                    TextField("Model", text: $profile.model)
                 }
 
                 if profile.kind == .openAI {
-                    LabeledContent("Endpoint", value: ProviderKind.openAI.fixedBaseURL?.absoluteString ?? "")
-                } else {
-                    TextField("Endpoint", text: $profile.baseURL, prompt: Text("http://127.0.0.1:8000/v1"))
+                    SecureField("API key", text: $credential)
+                } else if profile.kind == .localOpenAICompatible {
+                    SecureField("Bearer token (optional)", text: $credential)
                 }
 
-                TextField("Model", text: $profile.model)
-                SecureField(
-                    profile.kind == .openAI ? "API key" : "Bearer token (optional)",
-                    text: $credential
+                if profile.kind.allowedInterfaces.count > 1 {
+                    Picker("Request route", selection: $profile.interface) {
+                        ForEach(profile.kind.allowedInterfaces) { interface in
+                            Text(interface.displayName).tag(interface)
+                        }
+                    }
+                }
+
+                if profile.interface == .responses {
+                    Picker("Reasoning effort", selection: $profile.reasoningEffort) {
+                        Text("Model default").tag(ProviderReasoningEffort?.none)
+                        ForEach(ProviderReasoningEffort.allCases) { effort in
+                            Text(effort.displayName).tag(Optional(effort))
+                        }
+                    }
+                }
+
+                Stepper(
+                    "Simultaneous requests: \(profile.concurrency)",
+                    value: $profile.concurrency,
+                    in: 1...profile.kind.maximumConcurrency
                 )
 
-                LabeledContent("Response", value: "Strict JSON schema · 128 tokens")
-
-                Text("FoodMapper controls the messages, output schema, streaming mode, token limit, and credentials for automatic decisions.")
+                Text("FoodMapper controls the messages, output schema, streaming mode, token limit, and credentials for automatic decisions. Decisions returns a choice with a probability for each candidate; Responses and Chat Completions return a strict JSON decision.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -374,7 +529,7 @@ private struct ProviderEditorSheet: View {
             }
             .padding(Spacing.lg)
         }
-        .frame(width: 600, height: 590)
+        .frame(width: 600, height: 640)
     }
 
     private func save() {
