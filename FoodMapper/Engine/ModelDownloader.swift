@@ -418,8 +418,17 @@ actor ModelDownloader {
         return directory
     }
 
+    /// Bundled manifest resources (without extension) that list admitted optional
+    /// models. Empty since the model reset: no optional local model is admitted,
+    /// so every download and snapshot check fails closed until a qualified model
+    /// adds its manifest here.
+    nonisolated static let trustedManifestResources: [String] = []
+
+    /// `model_type` prefixes accepted in an admitted model's `config.json`.
+    nonisolated static let admittedModelTypePrefixes: [String] = []
+
     nonisolated private static func trustedModel(repository: String, revision: String) -> TrustedModelSnapshotManifest.Model? {
-        for resource in ["qwen_snapshot_manifest", "nomic_snapshot_manifest"] {
+        for resource in trustedManifestResources {
             guard let url = ResourceBundle.bundle.url(
                 forResource: resource, withExtension: "json", subdirectory: "Models"
             ), let data = try? Data(contentsOf: url),
@@ -485,7 +494,7 @@ actor ModelDownloader {
               let configData = try? readVerifiedFile(configURL, under: directory, maximumSize: 8 * 1_048_576),
               let config = try? JSONSerialization.jsonObject(with: configData) as? [String: Any],
               let modelType = config["model_type"] as? String,
-              ["qwen3", "qwen2", "nomic_bert"].contains(where: {
+              admittedModelTypePrefixes.contains(where: {
                   modelType.lowercased().hasPrefix($0)
               }),
               let hiddenSize = config["hidden_size"] as? NSNumber,

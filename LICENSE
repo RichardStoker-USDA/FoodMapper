@@ -54,13 +54,6 @@ License text: https://github.com/ml-explore/mlx-swift/blob/4dccaeda1d83cf8697f23
 
 --------------------------------------------------------------------------------
 
-mlx-swift-lm
-Source: https://github.com/ml-explore/mlx-swift-lm/tree/360c5052b81cc154b04ee0933597a4ad6db4b8ae
-License: MIT License
-License text: https://github.com/ml-explore/mlx-swift-lm/blob/360c5052b81cc154b04ee0933597a4ad6db4b8ae/LICENSE
-
---------------------------------------------------------------------------------
-
 Sparkle
 Source: https://github.com/sparkle-project/Sparkle/tree/21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2
 License: MIT License
@@ -121,57 +114,6 @@ the user approves the model download. The artifact card revision updates
 license metadata only. Its six payload objects retain the manifest hashes from
 the historical conversion revision 0b7a78872ae6fd502fe2db3273b1b3e065a3d9db.
 The GTE provenance, payload hashes, and MIT notice are in THIRD_PARTY_NOTICES.
-
---------------------------------------------------------------------------------
-
-Qwen3-Embedding (0.6B / 4B / 8B)
-https://huggingface.co/Qwen/Qwen3-Embedding-0.6B
-
-Apache License 2.0
-
-Copyright (c) 2025 Alibaba Cloud / Qwen Team.
-
-These are optional experimental Advanced downloads when shown in the app.
-They are not part of the default local embedding path and have not been
-qualified for research use. Refer to the source model card and conversion
-repository for the exact artifact terms.
-
---------------------------------------------------------------------------------
-
-Qwen3-Reranker (0.6B / 4B)
-https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
-
-Apache License 2.0
-
-Copyright (c) 2025 Alibaba Cloud / Qwen Team.
-
-These are optional experimental Advanced downloads when shown in the app.
-They are not part of the default local embedding path and have not been
-qualified for research use. Refer to the source model card and conversion
-repository for the exact artifact terms.
-
---------------------------------------------------------------------------------
-
-Qwen3 (0.6B / 4B) -- Generative Judge
-https://huggingface.co/Qwen/Qwen3-0.6B
-
-Apache License 2.0
-
-Copyright (c) 2025 Alibaba Cloud / Qwen Team.
-
-These are optional experimental Advanced downloads when shown in the app.
-They are not part of the default local embedding path and have not been
-qualified for research use. Refer to the source model card and conversion
-repository for the exact artifact terms.
-
---------------------------------------------------------------------------------
-
-Gemma artifacts
-https://ai.google.dev/gemma
-
-Gemma artifact entries, if shown in Advanced mode, are optional experimental
-downloads. They are not part of the default local embedding path and have not
-been qualified for research use. Their source license and access terms apply.
 
 ================================================================================
 

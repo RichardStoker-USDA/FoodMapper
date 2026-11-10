@@ -113,7 +113,7 @@ enum PreviewHelpers {
     static func readyToMatchAdvancedState() -> AppState {
         let state = readyToMatchState()
         state.isAdvancedMode = true
-        state.selectedPipelineType = .qwen3TwoStage
+        state.selectedPipelineType = .providerLLM
         state.selectedInstructionPreset = .bestMatch
         return state
     }
@@ -183,7 +183,7 @@ enum PreviewHelpers {
     static func resultsAdvancedState() -> AppState {
         let state = resultsState()
         state.isAdvancedMode = true
-        state.selectedPipelineType = .qwen3TwoStage
+        state.selectedPipelineType = .providerLLM
         return state
     }
 

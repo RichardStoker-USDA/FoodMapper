@@ -54,12 +54,6 @@ struct HardwareConfig: Codable, Equatable {
         }
     }
 
-    /// Whether both Qwen3 models (4B 4-bit embedding + 0.6B FP16 reranker) can stay loaded simultaneously.
-    /// At ~2.5 GB embedding + ~1.2 GB reranker (~3.7 GB total), fits 8 GB+ Macs comfortably.
-    var canLoadBothQwen3Models: Bool {
-        return detectedMemoryGB >= 8
-    }
-
     /// Shortened device name for status bar display
     var shortDeviceName: String {
         // "Apple M2 Pro" -> "M2 Pro"
@@ -199,28 +193,6 @@ struct HardwareConfig: Codable, Equatable {
             recommendedMaxDatabaseItems: recommendedMaxDatabaseItems,
             absoluteMaxDatabaseItems: absoluteMaxDatabaseItems
         )
-    }
-
-    /// Estimated reranker forward passes per second.
-    /// Based on runtime testing: Qwen3-Reranker 0.6B FP16 processes ~5-10 candidates/sec
-    /// depending on hardware. Conservative estimates to avoid over-promising.
-    var estimatedRerankingPassesPerSecond: Double {
-        switch profile {
-        case .base: return 4.0
-        case .standard: return 6.0
-        case .pro: return 8.0
-        case .max: return 10.0
-        case .ultra: return 12.0
-        }
-    }
-
-    /// Estimate reranking time for a given workload.
-    /// - Parameters:
-    ///   - inputCount: Number of input texts to process
-    ///   - candidatesPerInput: Number of candidates scored per input (topK for two-stage, full DB for reranker-only)
-    func estimateRerankingTime(inputCount: Int, candidatesPerInput: Int) -> TimeInterval {
-        let totalPasses = Double(inputCount) * Double(candidatesPerInput)
-        return totalPasses / estimatedRerankingPassesPerSecond
     }
 
     /// Estimate embedding time for a given item count

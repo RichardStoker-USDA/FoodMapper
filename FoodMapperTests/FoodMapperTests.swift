@@ -1272,21 +1272,6 @@ final class CustomDatabaseValidationTests: XCTestCase {
 }
 
 final class ModelSnapshotTests: XCTestCase {
-    func testTrackedQwenTrustManifestIsBundledAndComplete() throws {
-        let url = try XCTUnwrap(ResourceBundle.bundle.url(
-            forResource: "qwen_snapshot_manifest", withExtension: "json", subdirectory: "Models"
-        ))
-        let manifest = try JSONDecoder().decode(TrustedModelSnapshotManifest.self, from: Data(contentsOf: url))
-        XCTAssertEqual(manifest.version, 1)
-        XCTAssertEqual(manifest.models.count, 7)
-        XCTAssertEqual(manifest.models.flatMap(\.artifacts).count, 63)
-        XCTAssertTrue(manifest.models.allSatisfy { !$0.revision.contains("main") })
-        XCTAssertTrue(manifest.models.flatMap(\.artifacts).allSatisfy {
-            !$0.path.hasPrefix("/") && !$0.path.contains("..") && $0.byteSize > 0 &&
-            $0.sha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil && !$0.roles.isEmpty
-        })
-    }
-
     func testPartialSnapshotIsNotInstalled() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("foodmapper-model-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

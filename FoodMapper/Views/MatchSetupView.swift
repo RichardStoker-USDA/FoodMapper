@@ -455,44 +455,10 @@ struct MatchSetupView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(3)
 
-                if let estimate = rerankingTimeEstimate {
-                    Text(estimate)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
                 // Inline model download
                 if showModelsRequiredWarning {
                     inlineModelDownloadSection
                 }
-            }
-
-            // Model size pickers (only for Qwen3-based pipelines)
-            if pipelineUsesQwen3Embedding {
-                Divider()
-                modelSizePicker(
-                    label: "Embedding Model",
-                    family: .qwen3Embedding,
-                    selection: $appState.selectedEmbeddingSize
-                )
-            }
-
-            if pipelineUsesQwen3Reranker {
-                if !pipelineUsesQwen3Embedding { Divider() }
-                modelSizePicker(
-                    label: "Reranker Model",
-                    family: .qwen3Reranker,
-                    selection: $appState.selectedRerankerSize
-                )
-            }
-
-            if pipelineUsesGenerative {
-                if !pipelineUsesQwen3Embedding && !pipelineUsesQwen3Reranker { Divider() }
-                modelSizePicker(
-                    label: "Judge Model",
-                    family: pipelineUsesGemma4Generative ? .gemma4Generative : .qwen3Generative,
-                    selection: $appState.selectedGenerativeSize
-                )
             }
 
             if basePipelineType.requiresProviderProfile {
@@ -557,7 +523,7 @@ struct MatchSetupView: View {
                         .lineLimit(2...4)
                         .font(.caption)
 
-                        Text("This instruction guides the embedding model and reranker during matching.")
+                        Text("This instruction guides the model that selects among retrieved candidates.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     } else {
@@ -920,81 +886,6 @@ struct MatchSetupView: View {
         }
     }
 
-    // MARK: - Model Size Selection
-
-    /// Whether the current pipeline uses a Qwen3 embedding model
-    private var pipelineUsesQwen3Embedding: Bool {
-        switch basePipelineType {
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage: return true
-        default: return false
-        }
-    }
-
-    /// Whether the current pipeline uses a Qwen3 reranker model
-    private var pipelineUsesQwen3Reranker: Bool {
-        switch basePipelineType {
-        case .qwen3Reranker, .qwen3TwoStage, .qwen3SmartTriage: return true
-        default: return false
-        }
-    }
-
-    /// Whether the current pipeline uses a generative judge model
-    private var pipelineUsesGenerative: Bool {
-        pipelineUsesQwen3Generative || pipelineUsesGemma4Generative
-    }
-
-    private var pipelineUsesQwen3Generative: Bool {
-        switch basePipelineType {
-        case .qwen3LLMOnly, .embeddingLLM: return true
-        default: return false
-        }
-    }
-
-    private var pipelineUsesGemma4Generative: Bool {
-        switch basePipelineType {
-        case .gemma4LLMOnly, .gemma4TwoStage: return true
-        default: return false
-        }
-    }
-
-    /// Segmented picker for model size within a family.
-    /// Sizes whose models aren't downloaded are grayed out but still selectable
-    /// (triggering the download sheet when the user tries to run).
-    private func modelSizePicker(
-        label: String,
-        family: ModelFamily,
-        selection: Binding<ModelSize>
-    ) -> some View {
-        HStack(spacing: Spacing.xs) {
-            Text("\(label):")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Picker(label, selection: selection) {
-                ForEach(family.availableSizes) { size in
-                    let key = family.modelKey(for: size)
-                    let isAvailable = key.map { appState.modelManager.state(for: $0).isAvailable } ?? false
-                    Text(size.displayName)
-                        .tag(size)
-                        .foregroundStyle(isAvailable ? .primary : .secondary)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 200)
-
-            // Show download indicator if selected size isn't available
-            if let key = family.modelKey(for: selection.wrappedValue),
-               !appState.modelManager.state(for: key).isAvailable {
-                Image(systemName: "arrow.down.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("Download required")
-            }
-
-            Spacer()
-        }
-    }
-
     // MARK: - Model Installation Review
 
     private var inlineModelDownloadSection: some View {
@@ -1059,27 +950,6 @@ struct MatchSetupView: View {
         return modes.filter { $0.isImplemented && $0 != .gteLargeHaiku }
     }
 
-    /// Estimated reranking time for current pipeline and data size
-    private var rerankingTimeEstimate: String? {
-        let pipelineType = appState.selectedPipelineType
-        let hwConfig = appState.effectiveHardwareConfig
-        guard inputCount > 0 else { return nil }
-
-        switch pipelineType {
-        case .qwen3TwoStage:
-            let topK = hwConfig.topKForReranking
-            let rerankTime = hwConfig.estimateRerankingTime(inputCount: inputCount, candidatesPerInput: topK)
-            guard rerankTime > 5 else { return nil }
-            return "Estimated reranking: \(HardwareConfig.formatDuration(rerankTime)) (\(inputCount) inputs x \(topK) candidates)"
-        case .qwen3Reranker:
-            guard let db = appState.selectedDatabase else { return nil }
-            let rerankTime = hwConfig.estimateRerankingTime(inputCount: inputCount, candidatesPerInput: db.itemCount)
-            return "Estimated time: \(HardwareConfig.formatDuration(rerankTime)) (\(inputCount) inputs x \(db.itemCount.formatted()) entries)"
-        default:
-            return nil
-        }
-    }
-
     // MARK: - Instruction Info Popover
 
     private var instructionInfoPopover: some View {
@@ -1087,7 +957,7 @@ struct MatchSetupView: View {
             Text("Matching Instructions")
                 .font(.headline)
 
-            Text("Instructions tell the model what kind of food matching to perform. Each preset optimizes for a different aspect of food description matching.")
+            Text("Instructions tell the selection model what kind of food matching to perform. GTE-Large retrieval does not read them.")
                 .font(.callout)
 
             VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -1095,8 +965,8 @@ struct MatchSetupView: View {
                     .font(.caption)
                     .fontWeight(.medium)
 
-                instructionTierRow(icon: "cpu", label: "Embedding", active: appState.selectedPipelineType.supportsCustomInstruction)
-                instructionTierRow(icon: "arrow.triangle.swap", label: "Reranker", active: appState.selectedPipelineType == .qwen3TwoStage || appState.selectedPipelineType == .qwen3SmartTriage || appState.selectedPipelineType == .qwen3Reranker)
+                instructionTierRow(icon: "cube", label: "GTE-Large retrieval", active: false)
+                instructionTierRow(icon: "network", label: "Provider model", active: appState.selectedPipelineType == .providerLLM)
                 instructionTierRow(icon: "cloud", label: "Claude API", active: appState.selectedPipelineType == .gteLargeHaiku || appState.selectedPipelineType == .gteLargeHaikuV2)
             }
 

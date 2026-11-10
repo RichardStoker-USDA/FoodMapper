@@ -3,9 +3,9 @@ import MLX
 
 /// Metadata describing an embedding model's capabilities
 struct EmbeddingModelInfo {
-    /// Unique key for cache versioning (e.g., "gte-large", "qwen3-emb-4b-4bit")
+    /// Unique key for cache versioning (e.g., "gte-large")
     let key: String
-    /// Human-readable name (e.g., "GTE-Large", "Qwen3-Embedding 0.6B")
+    /// Human-readable name (e.g., "GTE-Large")
     let displayName: String
     /// Output embedding dimensions (e.g., 1024)
     let dimensions: Int
@@ -15,7 +15,7 @@ struct EmbeddingModelInfo {
 }
 
 /// Embedding model protocol. Actors only (thread-safe model access).
-/// `isQuery` lets asymmetric models (Qwen3) prepend instructions to queries.
+/// `isQuery` lets an asymmetric model prepend an instruction to queries.
 /// Symmetric models (GTE-Large) ignore it.
 protocol EmbeddingModelProtocol: Actor {
     /// Model metadata and capabilities (immutable, safe to access from any context)

@@ -157,8 +157,6 @@ extension AppState {
 
         // Capture pipeline type and model keys for this run (user could change selection during matching)
         let embeddingKey = embeddingModelKeyForCurrentPipeline
-        let rerankerKey = selectedRerankerModelKey
-        let generativeKey = generativeModelKeyForCurrentPipeline
 
         matchingTask = Task { [self] in
             do {
@@ -206,7 +204,6 @@ extension AppState {
 
                 let pipeline = try await self.createPipeline(
                     type: pipelineType, engine: engine,
-                    rerankerKey: rerankerKey, generativeKey: generativeKey,
                     providerProfile: providerProfileForRun,
                     providerCredential: providerCredentialForRun,
                     advancedLease: advancedLease
@@ -226,10 +223,10 @@ extension AppState {
                     }
                 case .gteLargeHaiku:
                     rerankerInst = self.resolvedHaikuPrompt
-                case .qwen3LLMOnly, .embeddingLLM, .providerLLM, .gemma4LLMOnly, .gemma4TwoStage:
+                case .providerLLM:
                     rerankerInst = self.resolvedJudgeInstruction
-                default:
-                    rerankerInst = self.resolvedRerankerInstruction
+                case .gteLargeEmbedding:
+                    rerankerInst = nil
                 }
 
                 // Log instruction routing at the AppState level
@@ -338,8 +335,6 @@ extension AppState {
                         // Unload models to free GPU memory
                         Task {
                             await self.modelManager.unloadEmbeddingModel()
-                            await self.modelManager.unloadRerankerModel()
-                            await self.modelManager.unloadGenerativeModel()
                             MLX.Memory.clearCache()
                         }
                         self.matchingTask = nil
@@ -471,8 +466,6 @@ extension AppState {
                     // Unload models to free GPU memory (fire and forget)
                     Task {
                         await self.modelManager.unloadEmbeddingModel()
-                        await self.modelManager.unloadRerankerModel()
-                        await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
                     try await MainActor.run {
@@ -496,8 +489,6 @@ extension AppState {
                     // Unload models to free GPU memory
                     Task {
                         await self.modelManager.unloadEmbeddingModel()
-                        await self.modelManager.unloadRerankerModel()
-                        await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
                     self.matchingTask = nil
@@ -519,8 +510,6 @@ extension AppState {
                     // Unload models to free GPU memory
                     Task {
                         await self.modelManager.unloadEmbeddingModel()
-                        await self.modelManager.unloadRerankerModel()
-                        await self.modelManager.unloadGenerativeModel()
                         MLX.Memory.clearCache()
                     }
                     self.matchingTask = nil
@@ -531,14 +520,9 @@ extension AppState {
     }
 
     /// Create the appropriate pipeline for the selected type.
-    /// Uses the provided model keys (captured at match start) to load the correct model sizes.
     func createPipeline(
         type: PipelineType,
         engine: MatchingEngine,
-        rerankerKey: String = "qwen3-reranker-0.6b",
-        generativeKey: String = "qwen3-judge-4b-4bit",
-        judgeResponseFormat: JudgeResponseFormat = .letter,
-        allowThinking: Bool = false,
         providerProfile: ProviderProfile? = nil,
         providerCredential: String? = nil,
         advancedLease: AdvancedFeatureLease? = nil
@@ -546,20 +530,6 @@ extension AppState {
         switch type {
         case .gteLargeEmbedding:
             return EmbeddingOnlyPipeline(type: .gteLargeEmbedding, engine: engine)
-        case .qwen3Embedding:
-            return EmbeddingOnlyPipeline(type: .qwen3Embedding, engine: engine)
-        case .nomicEmbedding:
-            return EmbeddingOnlyPipeline(type: .nomicEmbedding, engine: engine)
-        case .qwen3Reranker:
-            let reranker = try await modelManager.loadRerankerModel(key: rerankerKey)
-            return RerankerOnlyPipeline(reranker: reranker, engine: engine)
-        case .qwen3TwoStage:
-            let reranker = try await modelManager.loadRerankerModel(key: rerankerKey)
-            return TwoStagePipeline(engine: engine, reranker: reranker, hardwareConfig: effectiveHardwareConfig(for: .qwen3TwoStage))
-        case .qwen3SmartTriage:
-            let reranker = try await modelManager.loadRerankerModel(key: rerankerKey)
-            let triageConfig = effectiveHardwareConfig(for: .qwen3SmartTriage)
-            return SmartTriagePipeline(engine: engine, reranker: reranker, topK: triageConfig.topKForReranking)
         case .gteLargeHaiku:
             guard !selectedClaudeModel.isRetired() else {
                 throw AppError.claudeModelRetired(selectedClaudeModel)
@@ -587,27 +557,6 @@ extension AppState {
                 engine: engine, apiClient: apiClient, apiKey: apiKey,
                 topK: v2Config.topKForReranking, modelVersion: selectedClaudeModel
             )
-        case .qwen3LLMOnly:
-            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
-            return LLMOnlyPipeline(
-                pipelineType: .qwen3LLMOnly,
-                judge: judge, engine: engine,
-                responseFormat: judgeResponseFormat, allowThinking: allowThinking
-            )
-        case .gemma4LLMOnly:
-            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
-            return LLMOnlyPipeline(
-                pipelineType: .gemma4LLMOnly,
-                judge: judge, engine: engine,
-                responseFormat: judgeResponseFormat, allowThinking: allowThinking
-            )
-        case .embeddingLLM:
-            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
-            return EmbeddingLLMPipeline(
-                pipelineType: .embeddingLLM,
-                engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .embeddingLLM),
-                responseFormat: judgeResponseFormat, allowThinking: allowThinking
-            )
         case .providerLLM:
             guard let providerProfile, let advancedLease else {
                 throw AppError.matchingFailed("Select a provider profile before starting this run.")
@@ -619,13 +568,6 @@ extension AppState {
                 topK: effectiveHardwareConfig(for: .providerLLM).topKForReranking,
                 authorizationGate: advancedFeatureGate,
                 authorizationLease: advancedLease
-            )
-        case .gemma4TwoStage:
-            let judge = try await modelManager.loadGenerativeModel(key: generativeKey)
-            return EmbeddingLLMPipeline(
-                pipelineType: .gemma4TwoStage,
-                engine: engine, judge: judge, hardwareConfig: effectiveHardwareConfig(for: .gemma4TwoStage),
-                responseFormat: judgeResponseFormat, allowThinking: allowThinking
             )
         }
     }

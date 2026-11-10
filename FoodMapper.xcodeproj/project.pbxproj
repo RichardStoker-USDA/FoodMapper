@@ -32,7 +32,6 @@
 		ADVCORE001BUILD /* AdvancedFeatureGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVCORE001FILEREF /* AdvancedFeatureGate.swift */; };
 		ADVCORE002BUILD /* BenchmarkCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVCORE002FILEREF /* BenchmarkCore.swift */; };
 		ADVCORE003BUILD /* ProviderProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVCORE003FILEREF /* ProviderProfile.swift */; };
-		ADVMODEL001BUILD /* NomicEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVMODEL001FILEREF /* NomicEmbeddingModel.swift */; };
 		ADVSTATE001BUILD /* AppState+Benchmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVSTATE001FILEREF /* AppState+Benchmarks.swift */; };
 		ADVSTATE002BUILD /* AppState+Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVSTATE002FILEREF /* AppState+Providers.swift */; };
 		ADVPIPE001BUILD /* ProviderRerankerPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADVPIPE001FILEREF /* ProviderRerankerPipeline.swift */; };
@@ -56,7 +55,6 @@
 		GTETEST001BUILD /* GTELargeModelInstallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = GTETEST001FILEREF /* GTELargeModelInstallTests.swift */; };
 		DB183498F34B7F71C1F4D449 /* ScoreIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094D9E33C7187CABC3DD091E /* ScoreIndicator.swift */; };
 		DBABOUT001BF01A9CBC50FA0 /* BuiltInDatabaseAboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBABOUT002CE1405AB6CE4A0 /* BuiltInDatabaseAboutView.swift */; };
-		DD0025D62A242F979487662B /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = 9961D6D50BBED3518049962D /* MLXRandom */; };
 		E07B138381F426353F3290C8 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAC23B2D730F805E8CD3F8A /* DesignSystem.swift */; };
 		E0A488F8F61C9675FB61C9F4 /* MatchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1438643E235614FDEB31CAB0 /* MatchResult.swift */; };
 		E36D43D3F277BADEA549EB91 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97A2B2D05965D4A245ACBD7B /* AppState.swift */; };
@@ -72,18 +70,15 @@
 		E8C299E88DC8EBA01ED9D0DB /* ThresholdControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A48F2F67094C08F05F931C0 /* ThresholdControl.swift */; };
 		ED7E242263231F10569734BF /* ColumnPickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A71CA394C84BD3B9D5A19A6 /* ColumnPickerRow.swift */; };
 		EE212491F1F288029561E2C4 /* ScoreDistributionChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDACADC82F5D076CB9555A23 /* ScoreDistributionChart.swift */; };
-		EMBLLM001BUILD /* EmbeddingLLMPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EMBLLM002FILEREF /* EmbeddingLLMPipeline.swift */; };
 		F18845F8997AFC759358A306 /* MatchingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68A3B6EE5B2220FC644F9FD /* MatchingSession.swift */; };
 		F225E94D923C513FBB570158 /* AddDatabaseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24DA8F3B9677CBA1BF035B26 /* AddDatabaseSheet.swift */; };
 		FAE475F297C223BB2C4AFAB7 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 4A17D0A55A21C9832AE4EEDC /* MLX */; };
 		FE930274AB06705BEB2F2F60 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FEAEF5A5867F164E2245D6 /* ContentView.swift */; };
-		GENJUDGE001BUILD /* GenerativeJudgeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = GENJUDGE002FILEREF /* GenerativeJudgeModel.swift */; };
 		HAIKUBUILD001BUILD /* HaikuPromptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = HAIKUBUILD002FREF /* HaikuPromptBuilder.swift */; };
 		HAIKUPIPE001BUILD /* HaikuRerankerPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = HAIKUPIPE002FILEREF /* HaikuRerankerPipeline.swift */; };
 		HAIKUV2001BUILD /* HaikuRerankerV2Pipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = HAIKUV2002FILEREF /* HaikuRerankerV2Pipeline.swift */; };
 		ICON001FMLOGOBUILD /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = ICON001FMLOGOFILEREF /* AppIcon.icon */; };
 		KEYCHAIN001BUILD /* APIKeyStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = KEYCHAIN002FILEREF /* APIKeyStorage.swift */; };
-		LLMONLY001BUILD /* LLMOnlyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = LLMONLY002FILEREF /* LLMOnlyPipeline.swift */; };
 		MCOVRLAY01BUILD /* MatchCompletionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCOVRLAY02FREF /* MatchCompletionOverlay.swift */; };
 		MDLS001BUILD0 /* ModelDownloadSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = MDLS001FILERF /* ModelDownloadSheet.swift */; };
 		NOTIFTUT001 /* Notification+Tutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = NOTIFTUT002 /* Notification+Tutorial.swift */; };
@@ -99,14 +94,7 @@
 		PIPELINE003BUILD /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE003FILEREF /* ModelManager.swift */; };
 		GTEINSTALL001BUILD /* GTELargeModelInstall.swift in Sources */ = {isa = PBXBuildFile; fileRef = GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */; };
 		PIPELINE004BUILD /* EmbeddingOnlyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE004FILEREF /* EmbeddingOnlyPipeline.swift */; };
-		PIPELINE005BUILD /* QwenEmbeddingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE005FILEREF /* QwenEmbeddingModel.swift */; };
 		PIPELINE006BUILD /* ModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE006FILEREF /* ModelDownloader.swift */; };
-		PIPELINE006EMBEDBUILD /* MLXEmbedders in Frameworks */ = {isa = PBXBuildFile; productRef = PIPELINE006EMBEDDERS /* MLXEmbedders */; };
-		PIPELINE007LMCBUILD /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = PIPELINE007LMCOMMON /* MLXLMCommon */; };
-		PIPELINE008BUILD /* QwenRerankerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE008FILEREF /* QwenRerankerModel.swift */; };
-		PIPELINE008MLXLLMBUILD /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = PIPELINE008MLXLLM /* MLXLLM */; };
-		PIPELINE009BUILD /* TwoStagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE009FILEREF /* TwoStagePipeline.swift */; };
-		PIPELINE010BUILD /* RerankerOnlyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPELINE010FILEREF /* RerankerOnlyPipeline.swift */; };
 		PREVHELP001BUILD /* PreviewHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = PREVHELP002FILEREF /* PreviewHelpers.swift */; };
 		REVCOMP001BUILD /* ReviewCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = REVCOMP002FILEREF /* ReviewCompletionView.swift */; };
 		REVDEC001BUILD /* ReviewDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = REVDEC002FILEREF /* ReviewDecision.swift */; };
@@ -127,7 +115,6 @@
 		SETT004BUILD0 /* ModelsSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETT004FILERF /* ModelsSettingsTab.swift */; };
 		SETT005BUILD0 /* APIKeysSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETT005FILERF /* APIKeysSettingsTab.swift */; };
 		SETT006BUILD0 /* AdvancedSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETT006FILERF /* AdvancedSettingsTab.swift */; };
-		SMARTTRIAGE001BUILD /* SmartTriagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = SMARTTRIAGE001FILEREF /* SmartTriagePipeline.swift */; };
 		TOUR001BUILD /* TourData.swift in Sources */ = {isa = PBXBuildFile; fileRef = TOUR001FILEREF /* TourData.swift */; };
 		TOUR002BUILD /* TourDataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = TOUR002FILEREF /* TourDataLoader.swift */; };
 		TOUR003BUILD /* ResearchShowcaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TOUR003FILEREF /* ResearchShowcaseView.swift */; };
@@ -203,7 +190,6 @@
 		ADVCORE001FILEREF /* AdvancedFeatureGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedFeatureGate.swift; sourceTree = "<group>"; };
 		ADVCORE002FILEREF /* BenchmarkCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkCore.swift; sourceTree = "<group>"; };
 		ADVCORE003FILEREF /* ProviderProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderProfile.swift; sourceTree = "<group>"; };
-		ADVMODEL001FILEREF /* NomicEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomicEmbeddingModel.swift; sourceTree = "<group>"; };
 		ADVSTATE001FILEREF /* AppState+Benchmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Benchmarks.swift"; sourceTree = "<group>"; };
 		ADVSTATE002FILEREF /* AppState+Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Providers.swift"; sourceTree = "<group>"; };
 		ADVPIPE001FILEREF /* ProviderRerankerPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRerankerPipeline.swift; sourceTree = "<group>"; };
@@ -220,19 +206,16 @@
 		DDACADC82F5D076CB9555A23 /* ScoreDistributionChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreDistributionChart.swift; sourceTree = "<group>"; };
 		E0EA799C7DE7EF6029BD7911 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		E5B55CF941F11DCC283ABB86 /* FoodMapperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FoodMapperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		EMBLLM002FILEREF /* EmbeddingLLMPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingLLMPipeline.swift; sourceTree = "<group>"; };
 		F0155D9D305C2959A9F91E53 /* FoodMapper.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FoodMapper.entitlements; sourceTree = "<group>"; };
 		F07A1BC06A88B4E2E56D8B7F /* ModelDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadView.swift; sourceTree = "<group>"; };
 		F19B3EAF237E39DA12E71979 /* FoodMapperApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodMapperApp.swift; sourceTree = "<group>"; };
 		F873BCC95F2341F9C2DE89B5 /* Sidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar.swift; sourceTree = "<group>"; };
 		F9465B2D871AB99CFFADB212 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
-		GENJUDGE002FILEREF /* GenerativeJudgeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerativeJudgeModel.swift; sourceTree = "<group>"; };
 		HAIKUBUILD002FREF /* HaikuPromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaikuPromptBuilder.swift; sourceTree = "<group>"; };
 		HAIKUPIPE002FILEREF /* HaikuRerankerPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaikuRerankerPipeline.swift; sourceTree = "<group>"; };
 		HAIKUV2002FILEREF /* HaikuRerankerV2Pipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaikuRerankerV2Pipeline.swift; sourceTree = "<group>"; };
 		ICON001FMLOGOFILEREF /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		KEYCHAIN002FILEREF /* APIKeyStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStorage.swift; sourceTree = "<group>"; };
-		LLMONLY002FILEREF /* LLMOnlyPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMOnlyPipeline.swift; sourceTree = "<group>"; };
 		MCOVRLAY02FREF /* MatchCompletionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchCompletionOverlay.swift; sourceTree = "<group>"; };
 		MDLS001FILERF /* ModelDownloadSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadSheet.swift; sourceTree = "<group>"; };
 		NOTIFTUT002 /* Notification+Tutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "Notification+Tutorial.swift"; path = "FoodMapper/Extensions/Notification+Tutorial.swift"; sourceTree = SOURCE_ROOT; };
@@ -248,11 +231,7 @@
 		PIPELINE003FILEREF /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GTELargeModelInstall.swift; sourceTree = "<group>"; };
 		PIPELINE004FILEREF /* EmbeddingOnlyPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingOnlyPipeline.swift; sourceTree = "<group>"; };
-		PIPELINE005FILEREF /* QwenEmbeddingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenEmbeddingModel.swift; sourceTree = "<group>"; };
 		PIPELINE006FILEREF /* ModelDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloader.swift; sourceTree = "<group>"; };
-		PIPELINE008FILEREF /* QwenRerankerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenRerankerModel.swift; sourceTree = "<group>"; };
-		PIPELINE009FILEREF /* TwoStagePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoStagePipeline.swift; sourceTree = "<group>"; };
-		PIPELINE010FILEREF /* RerankerOnlyPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RerankerOnlyPipeline.swift; sourceTree = "<group>"; };
 		PREVHELP002FILEREF /* PreviewHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewHelpers.swift; sourceTree = "<group>"; };
 		REVCOMP002FILEREF /* ReviewCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewCompletionView.swift; sourceTree = "<group>"; };
 		REVDEC002FILEREF /* ReviewDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewDecision.swift; sourceTree = "<group>"; };
@@ -273,7 +252,6 @@
 		SETT004FILERF /* ModelsSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsSettingsTab.swift; sourceTree = "<group>"; };
 		SETT005FILERF /* APIKeysSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeysSettingsTab.swift; sourceTree = "<group>"; };
 		SETT006FILERF /* AdvancedSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsTab.swift; sourceTree = "<group>"; };
-		SMARTTRIAGE001FILEREF /* SmartTriagePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartTriagePipeline.swift; sourceTree = "<group>"; };
 		SPARKLE004FILEREF000 /* CheckForUpdatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckForUpdatesView.swift; sourceTree = "<group>"; };
 		SPARKLE006PLISTFREF0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		TOUR001FILEREF /* TourData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourData.swift; sourceTree = "<group>"; };
@@ -303,11 +281,7 @@
 			files = (
 				FAE475F297C223BB2C4AFAB7 /* MLX in Frameworks */,
 				5CDA536C2FE88E16D7E8E7C2 /* MLXNN in Frameworks */,
-				DD0025D62A242F979487662B /* MLXRandom in Frameworks */,
 				CF168F5398114B7D20C0F37D /* Transformers in Frameworks */,
-				PIPELINE006EMBEDBUILD /* MLXEmbedders in Frameworks */,
-				PIPELINE007LMCBUILD /* MLXLMCommon in Frameworks */,
-				PIPELINE008MLXLLMBUILD /* MLXLLM in Frameworks */,
 				SPARKLE003FWBUILD000 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -433,29 +407,20 @@
 				250D88C3658300D3F23B0660 /* CSVExporter.swift */,
 				DB34908844CB1D5096674C78 /* CSVParser.swift */,
 				ANTHAPI002FILEREF /* AnthropicAPIClient.swift */,
-				EMBLLM002FILEREF /* EmbeddingLLMPipeline.swift */,
 				PIPELINE004FILEREF /* EmbeddingOnlyPipeline.swift */,
 				PIPELINE001FILEREF /* EmbeddingModelProtocol.swift */,
-				GENJUDGE002FILEREF /* GenerativeJudgeModel.swift */,
 				HAIKUBUILD002FREF /* HaikuPromptBuilder.swift */,
 				HAIKUPIPE002FILEREF /* HaikuRerankerPipeline.swift */,
 				HAIKUV2002FILEREF /* HaikuRerankerV2Pipeline.swift */,
 				KEYCHAIN002FILEREF /* APIKeyStorage.swift */,
-				LLMONLY002FILEREF /* LLMOnlyPipeline.swift */,
 				1084A0934D3073B832C7B637 /* MatchingEngine.swift */,
 				PIPELINE002FILEREF /* MatchingPipeline.swift */,
 				A3B6FB2AA88D22F51253296F /* MLXEmbeddingModel.swift */,
 				GTEINSTALL001FILEREF /* GTELargeModelInstall.swift */,
 				PIPELINE006FILEREF /* ModelDownloader.swift */,
 				PIPELINE003FILEREF /* ModelManager.swift */,
-				ADVMODEL001FILEREF /* NomicEmbeddingModel.swift */,
 				ADVPIPE001FILEREF /* ProviderRerankerPipeline.swift */,
-				PIPELINE005FILEREF /* QwenEmbeddingModel.swift */,
-				PIPELINE008FILEREF /* QwenRerankerModel.swift */,
-				PIPELINE010FILEREF /* RerankerOnlyPipeline.swift */,
-				SMARTTRIAGE001FILEREF /* SmartTriagePipeline.swift */,
 				TOUR002FILEREF /* TourDataLoader.swift */,
-				PIPELINE009FILEREF /* TwoStagePipeline.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -603,11 +568,7 @@
 			packageProductDependencies = (
 				4A17D0A55A21C9832AE4EEDC /* MLX */,
 				309E0AA3309D37817E13C003 /* MLXNN */,
-				9961D6D50BBED3518049962D /* MLXRandom */,
 				A9493989579DD61D47B78934 /* Transformers */,
-				PIPELINE006EMBEDDERS /* MLXEmbedders */,
-				PIPELINE007LMCOMMON /* MLXLMCommon */,
-				PIPELINE008MLXLLM /* MLXLLM */,
 				SPARKLE002PRODREF000 /* Sparkle */,
 			);
 			productName = FoodMapper;
@@ -653,7 +614,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				6F6F6E6DE50EF1962B87553C /* XCRemoteSwiftPackageReference "mlx-swift" */,
-				PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				2729146D3F6E1E7DC3F5FEC4 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				SPARKLE001PKGREF0000 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
@@ -784,17 +744,8 @@
 				PIPELINE003BUILD /* ModelManager.swift in Sources */,
 				GTEINSTALL001BUILD /* GTELargeModelInstall.swift in Sources */,
 				PIPELINE004BUILD /* EmbeddingOnlyPipeline.swift in Sources */,
-				PIPELINE005BUILD /* QwenEmbeddingModel.swift in Sources */,
-				ADVMODEL001BUILD /* NomicEmbeddingModel.swift in Sources */,
 				ADVPIPE001BUILD /* ProviderRerankerPipeline.swift in Sources */,
 				PIPELINE006BUILD /* ModelDownloader.swift in Sources */,
-				PIPELINE008BUILD /* QwenRerankerModel.swift in Sources */,
-				PIPELINE009BUILD /* TwoStagePipeline.swift in Sources */,
-				PIPELINE010BUILD /* RerankerOnlyPipeline.swift in Sources */,
-				SMARTTRIAGE001BUILD /* SmartTriagePipeline.swift in Sources */,
-				GENJUDGE001BUILD /* GenerativeJudgeModel.swift in Sources */,
-				LLMONLY001BUILD /* LLMOnlyPipeline.swift in Sources */,
-				EMBLLM001BUILD /* EmbeddingLLMPipeline.swift in Sources */,
 				REVCOMP001BUILD /* ReviewCompletionView.swift in Sources */,
 				REVKBHINT001BUILD /* ReviewKeyboardHints.swift in Sources */,
 				KEYCHAIN001BUILD /* APIKeyStorage.swift in Sources */,
@@ -1117,14 +1068,6 @@
 				minimumVersion = 0.30.6;
 			};
 		};
-		PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
-			requirement = {
-				kind = upToNextMinorVersion;
-				minimumVersion = 2.30.6;
-			};
-		};
 		SPARKLE001PKGREF0000 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -1146,30 +1089,10 @@
 			package = 6F6F6E6DE50EF1962B87553C /* XCRemoteSwiftPackageReference "mlx-swift" */;
 			productName = MLX;
 		};
-		9961D6D50BBED3518049962D /* MLXRandom */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 6F6F6E6DE50EF1962B87553C /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLXRandom;
-		};
 		A9493989579DD61D47B78934 /* Transformers */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2729146D3F6E1E7DC3F5FEC4 /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Transformers;
-		};
-		PIPELINE006EMBEDDERS /* MLXEmbedders */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXEmbedders;
-		};
-		PIPELINE007LMCOMMON /* MLXLMCommon */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXLMCommon;
-		};
-		PIPELINE008MLXLLM /* MLXLLM */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = PIPELINE005PKGREF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXLLM;
 		};
 		SPARKLE002PRODREF000 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

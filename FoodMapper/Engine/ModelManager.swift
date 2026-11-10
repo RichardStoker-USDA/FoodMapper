@@ -119,20 +119,82 @@ enum ModelAdmission: String, CaseIterable {
 /// Model family grouping
 enum ModelFamily: String, CaseIterable {
     case gteLarge = "GTE-Large"
-    case nomicEmbedding = "Nomic Embed Text"
-    case qwen3Embedding = "Qwen3-Embedding"
-    case qwen3Reranker = "Qwen3-Reranker"
-    case qwen3Generative = "Qwen3-Generative"
-    case gemma4Generative = "Gemma 4 Generative"
 }
 
 /// Model size categories
 enum ModelSizeCategory: String, CaseIterable {
-    case compact = "137M"
-    case small = "0.6B"
-    case medium = "4B"
-    case large = "8B"
     case legacy = "Legacy"
+}
+
+/// Model repositories that earlier FoodMapper versions offered in Advanced mode.
+/// The model reset removed them; their downloads are deleted from the app's own
+/// model folder at launch. GTE-Large, databases, sessions, and input files are
+/// never part of this list.
+enum LegacyModelDownloads {
+    static let repositories: [String] = [
+        "vqstudio/Qwen3-Reranker-0.6B-MLX-4bit",
+        "mlx-community/Qwen3-Embedding-4B-mxfp8",
+        "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+        "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
+        "mlx-community/Qwen3-Embedding-8B-4bit-DWQ",
+        "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
+        "richtext/Qwen3-Reranker-4B-mlx-4bit",
+        "mlx-community/Qwen3-0.6B-4bit",
+        "mlx-community/Qwen3-4B-4bit",
+        "mlx-community/gemma-4-e2b-it-4bit",
+        "mlx-community/gemma-4-e4b-it-4bit",
+        "nomic-ai/nomic-embed-text-v1.5",
+    ]
+
+    /// Deletes downloads of the removed models from `snapshots`, the folder that
+    /// holds `{organization}/{repository}` directories. Only the exact repository
+    /// folders listed above are removed. An organization folder is removed when
+    /// that leaves it empty. Symbolic links are never followed or removed.
+    @discardableResult
+    static func removeDownloads(in snapshots: URL, fileManager: FileManager = .default) -> [String] {
+        var removed: [String] = []
+        for repository in repositories {
+            let parts = repository.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 2,
+                  parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { continue }
+            let organization = snapshots.appendingPathComponent(parts[0], isDirectory: true)
+            let snapshot = organization.appendingPathComponent(parts[1], isDirectory: true)
+            guard isRealDirectory(snapshots), isRealDirectory(organization), isRealDirectory(snapshot) else { continue }
+            guard (try? fileManager.removeItem(at: snapshot)) != nil else { continue }
+            removed.append(repository)
+            let remaining = (try? fileManager.contentsOfDirectory(atPath: organization.path)) ?? [".unreadable"]
+            if remaining.allSatisfy({ $0 == ".DS_Store" }) {
+                try? fileManager.removeItem(at: organization)
+            }
+        }
+        return removed
+    }
+
+    /// Embedding model keys whose cached database embeddings can no longer be used.
+    static let removedEmbeddingModelKeys = ["qwen3-emb-0.6b-4bit", "qwen3-emb-4b-4bit", "qwen3-emb-8b-4bit"]
+
+    /// Deletes cached database embeddings computed by the removed embedding models
+    /// from `databases`, the folder that holds `{id}_embeddings_{modelKey}.bin` and
+    /// `.json` files. Database CSVs, GTE-Large caches, and every other file stay.
+    @discardableResult
+    static func removeEmbeddingCaches(in databases: URL, fileManager: FileManager = .default) -> [String] {
+        guard isRealDirectory(databases),
+              let names = try? fileManager.contentsOfDirectory(atPath: databases.path) else { return [] }
+        let suffixes = removedEmbeddingModelKeys.flatMap { ["_embeddings_\($0).bin", "_embeddings_\($0).json"] }
+        var removed: [String] = []
+        for name in names where suffixes.contains(where: { name.hasSuffix($0) && name.count > $0.count }) {
+            let url = databases.appendingPathComponent(name, isDirectory: false)
+            var info = stat()
+            guard lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { continue }
+            if (try? fileManager.removeItem(at: url)) != nil { removed.append(name) }
+        }
+        return removed.sorted()
+    }
+
+    private static func isRealDirectory(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+    }
 }
 
 /// Model registry + download/load/unload lifecycle.
@@ -150,12 +212,6 @@ final class ModelManager: ObservableObject {
 
     /// Currently loaded embedding model (only one at a time)
     private(set) var loadedEmbeddingModel: (any EmbeddingModelProtocol)?
-
-    /// Currently loaded reranker model
-    private(set) var loadedRerankerModel: QwenRerankerModel?
-
-    /// Currently loaded generative judge model
-    private(set) var loadedGenerativeModel: GenerativeJudgeModel?
 
     /// Hardware configuration for memory-aware decisions
     let hardwareConfig: HardwareConfig
@@ -206,16 +262,17 @@ final class ModelManager: ObservableObject {
     /// Remove old model downloads that are no longer part of the registry.
     /// Runs once at init before detectInstalledModels().
     private func cleanupLegacyModels() {
-        let legacyRepos = [
-            "vqstudio/Qwen3-Reranker-0.6B-MLX-4bit",
-            "mlx-community/Qwen3-Embedding-4B-mxfp8",
-        ]
-        for repoId in legacyRepos {
-            if downloader.isDownloaded(repoId: repoId) {
-                let path = downloader.localPath(for: repoId)
-                try? FileManager.default.removeItem(at: path)
-                logger.info("Cleaned up legacy model: \(repoId)")
-            }
+        // Earlier versions could download optional models into the app's own
+        // model folder. Only those exact repository folders are removed.
+        let snapshots = downloader.modelsBase.appendingPathComponent("models", isDirectory: true)
+        for repoId in LegacyModelDownloads.removeDownloads(in: snapshots) {
+            logger.info("Removed download for a model the app no longer offers: \(repoId)")
+        }
+        let removedCaches = LegacyModelDownloads.removeEmbeddingCaches(
+            in: FoodMapperStorage.privateDirectory(["CustomDBs"])
+        )
+        if !removedCaches.isEmpty {
+            logger.info("Removed \(removedCaches.count) cached embedding files for models the app no longer offers")
         }
 
         // Clean up old double-nested "Models/models/" directory from previous downloadBase bug.
@@ -245,110 +302,6 @@ final class ModelManager: ObservableObject {
                 licenseName: GTELargeModelManifest.current.upstreamLicense,
                 purpose: .embedding,
                 admission: .published
-            ),
-            RegisteredModel(
-                key: "nomic-embed-text-v1.5",
-                displayName: "Nomic Embed Text v1.5",
-                modelFamily: .nomicEmbedding,
-                sizeCategory: .compact,
-                repoId: NomicEmbeddingModel.repository,
-                revision: NomicEmbeddingModel.revision,
-                downloadSize: 547_886_235,
-                publisher: "Nomic AI",
-                licenseName: "Apache 2.0",
-                purpose: .embedding,
-                admission: .evaluation
-            ),
-            RegisteredModel(
-                key: "qwen3-emb-0.6b-4bit",
-                displayName: "Qwen3-Embedding 0.6B",
-                modelFamily: .qwen3Embedding,
-                sizeCategory: .small,
-                repoId: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-                revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a",
-                downloadSize: 349_558_958,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .embedding,
-                admission: .evaluation
-            ),
-            RegisteredModel(
-                key: "qwen3-emb-4b-4bit",
-                displayName: "Qwen3-Embedding 4B",
-                modelFamily: .qwen3Embedding,
-                sizeCategory: .medium,
-                repoId: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
-                revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72",
-                downloadSize: 2_276_905_306,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .embedding,
-                admission: .evaluation
-            ),
-            RegisteredModel(
-                key: "qwen3-emb-8b-4bit",
-                displayName: "Qwen3-Embedding 8B",
-                modelFamily: .qwen3Embedding,
-                sizeCategory: .large,
-                repoId: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ",
-                revision: "885642d6b98742ea03b77a1673579c92ca961efd",
-                downloadSize: 4_271_422_891,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .embedding,
-                admission: .inventory
-            ),
-            RegisteredModel(
-                key: "qwen3-reranker-0.6b",
-                displayName: "Qwen3-Reranker 0.6B",
-                modelFamily: .qwen3Reranker,
-                sizeCategory: .small,
-                repoId: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
-                revision: "e8a94247380953b292660c992e41d94ac04df5f8",
-                downloadSize: 1_205_821_369,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .reranking,
-                admission: .evaluation
-            ),
-            RegisteredModel(
-                key: "qwen3-reranker-4b",
-                displayName: "Qwen3-Reranker 4B",
-                modelFamily: .qwen3Reranker,
-                sizeCategory: .medium,
-                repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
-                revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1",
-                downloadSize: 2_274_130_286,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .reranking,
-                admission: .evaluation
-            ),
-            RegisteredModel(
-                key: "qwen3-judge-0.6b-4bit",
-                displayName: "Qwen3-Judge 0.6B",
-                modelFamily: .qwen3Generative,
-                sizeCategory: .small,
-                repoId: "mlx-community/Qwen3-0.6B-4bit",
-                revision: "73e3e38d981303bc594367cd910ea6eb48349da8",
-                downloadSize: 349_711_765,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .candidateSelection,
-                admission: .evaluation
-            ),
-            RegisteredModel(
-                key: "qwen3-judge-4b-4bit",
-                displayName: "Qwen3-Judge 4B",
-                modelFamily: .qwen3Generative,
-                sizeCategory: .medium,
-                repoId: "mlx-community/Qwen3-4B-4bit",
-                revision: "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
-                downloadSize: 2_277_297_903,
-                publisher: "Qwen",
-                licenseName: "Apache 2.0",
-                purpose: .candidateSelection,
-                admission: .evaluation
             ),
         ]
     }
@@ -518,15 +471,9 @@ final class ModelManager: ObservableObject {
             throw ModelManagerError.unknownModel(key)
         }
 
-        // Unload if currently loaded (embedding, reranker, or generative)
+        // Unload if currently loaded
         if loadedEmbeddingModel?.info.key == key {
             await unloadEmbeddingModel()
-        }
-        if loadedRerankerModel?.info.key == key {
-            await unloadRerankerModel()
-        }
-        if loadedGenerativeModel?.info.key == key {
-            await unloadGenerativeModel()
         }
 
         if key == "gte-large" {
@@ -632,43 +579,6 @@ final class ModelManager: ObservableObject {
                 try await gteModel.load()
                 model = gteModel
 
-            case "qwen3-emb-0.6b-4bit":
-                let qwenModel = QwenEmbeddingModel(
-                    repoId: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-                    embeddingDimensions: 1024,
-                    modelKey: "qwen3-emb-0.6b-4bit",
-                    modelDisplayName: "Qwen3-Embedding 0.6B"
-                )
-                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", revision: "6c3ae70858513f1a78e9cdca3cae330d9075cd2a")
-                try await qwenModel.load(snapshot: snapshot)
-                model = qwenModel
-
-            case "qwen3-emb-4b-4bit":
-                let qwenModel = QwenEmbeddingModel()
-                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-4B-4bit-DWQ", revision: "b5d88f1fe49b50d2ac01b4692ca2d387f14f9c72")
-                try await qwenModel.load(snapshot: snapshot)
-                model = qwenModel
-
-            case "qwen3-emb-8b-4bit":
-                let qwenModel = QwenEmbeddingModel(
-                    repoId: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ",
-                    embeddingDimensions: 4096,
-                    modelKey: "qwen3-emb-8b-4bit",
-                    modelDisplayName: "Qwen3-Embedding 8B"
-                )
-                let snapshot = try await downloader.validatedLocalSnapshot(for: "mlx-community/Qwen3-Embedding-8B-4bit-DWQ", revision: "885642d6b98742ea03b77a1673579c92ca961efd")
-                try await qwenModel.load(snapshot: snapshot)
-                model = qwenModel
-
-            case "nomic-embed-text-v1.5":
-                let nomicModel = NomicEmbeddingModel()
-                let snapshot = try await downloader.validatedLocalSnapshot(
-                    for: NomicEmbeddingModel.repository,
-                    revision: NomicEmbeddingModel.revision
-                )
-                try await nomicModel.load(snapshot: snapshot)
-                model = nomicModel
-
             default:
                 throw ModelManagerError.unknownModel(key)
             }
@@ -691,119 +601,6 @@ final class ModelManager: ObservableObject {
         modelStates[key] = .downloaded
         Memory.clearCache()
         logger.info("Unloaded embedding model: \(key)")
-    }
-
-    // MARK: - Reranker Loading
-
-    /// Load a reranker model by key. Returns the loaded model.
-    func loadRerankerModel(key: String) async throws -> QwenRerankerModel {
-        // Already loaded?
-        if let loaded = loadedRerankerModel, loaded.info.key == key {
-            return loaded
-        }
-
-        // Unload current reranker if different
-        if loadedRerankerModel != nil {
-            await unloadRerankerModel()
-        }
-
-        modelStates[key] = .loading
-
-        do {
-            let model: QwenRerankerModel
-
-            switch key {
-            case "qwen3-reranker-0.6b":
-                model = QwenRerankerModel()
-                try await model.load(snapshot: try await downloader.validatedLocalSnapshot(
-                    for: "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
-                    revision: "e8a94247380953b292660c992e41d94ac04df5f8"
-                ))
-            case "qwen3-reranker-4b":
-                model = QwenRerankerModel(
-                    repoId: "richtext/Qwen3-Reranker-4B-mlx-4bit",
-                    key: "qwen3-reranker-4b",
-                    displayName: "Qwen3-Reranker 4B"
-                )
-                try await model.load(snapshot: try await downloader.validatedLocalSnapshot(
-                    for: "richtext/Qwen3-Reranker-4B-mlx-4bit",
-                    revision: "91f74cc6a280afc5f441479b850c8c7980f21ec1"
-                ))
-            default:
-                throw ModelManagerError.unknownModel(key)
-            }
-
-            loadedRerankerModel = model
-            modelStates[key] = .loaded
-            logger.info("Loaded reranker model: \(key)")
-            return model
-        } catch {
-            modelStates[key] = .error(error.localizedDescription)
-            throw error
-        }
-    }
-
-    /// Unload the current reranker model to free memory
-    func unloadRerankerModel() async {
-        guard let model = loadedRerankerModel else { return }
-        let key = model.info.key
-        loadedRerankerModel = nil
-        modelStates[key] = .downloaded
-        Memory.clearCache()
-        logger.info("Unloaded reranker model: \(key)")
-    }
-
-    // MARK: - Generative Model Loading
-
-    /// Load a generative judge model by key. Returns the loaded model.
-    func loadGenerativeModel(key: String) async throws -> GenerativeJudgeModel {
-        // Already loaded?
-        if let loaded = loadedGenerativeModel, loaded.info.key == key {
-            return loaded
-        }
-
-        // Unload current generative model if different
-        if loadedGenerativeModel != nil {
-            await unloadGenerativeModel()
-        }
-
-        modelStates[key] = .loading
-
-        do {
-            guard let registration = registeredModel(for: key),
-                  let repoId = registration.repoId else {
-                throw ModelManagerError.unknownModel(key)
-            }
-
-            let model = GenerativeJudgeModel(
-                repoId: repoId,
-                key: key,
-                displayName: registration.displayName
-            )
-
-            guard let revision = registration.revision else { throw ModelManagerError.unknownModel(key) }
-            let snapshot = try await downloader.validatedLocalSnapshot(for: repoId, revision: revision)
-            try await model.load(snapshot: snapshot)
-
-            loadedGenerativeModel = model
-            modelStates[key] = .loaded
-            logger.info("Loaded generative model: \(key)")
-            return model
-        } catch {
-            modelStates[key] = .error(error.localizedDescription)
-            throw error
-        }
-    }
-
-    /// Unload the current generative model to free memory
-    func unloadGenerativeModel() async {
-        guard let model = loadedGenerativeModel else { return }
-        let key = model.info.key
-        await model.unload()
-        loadedGenerativeModel = nil
-        modelStates[key] = .downloaded
-        Memory.clearCache()
-        logger.info("Unloaded generative model: \(key)")
     }
 
     /// Refresh model availability (e.g., after download completes)

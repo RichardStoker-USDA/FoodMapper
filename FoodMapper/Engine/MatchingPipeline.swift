@@ -1,52 +1,28 @@
 import Foundation
 
-/// Types of matching pipelines available in FoodMapper.
-/// Each pipeline represents a different strategy for matching food descriptions.
+/// Matching pipelines available in FoodMapper.
+///
+/// Raw values are stable identifiers used in saved performance overrides.
+/// The Qwen, Nomic, and Gemma experiments were removed in the model reset;
+/// `LegacyPipeline` keeps their recorded names readable in old sessions.
 enum PipelineType: String, Codable, CaseIterable, Identifiable {
-    /// Paper validation: GTE-Large cosine similarity (current/original method)
+    /// Published local method: GTE-Large cosine similarity.
     case gteLargeEmbedding = "gte-large-embedding"
-    /// Modern embedding-only: Qwen3-Embedding with instruction following
-    case qwen3Embedding = "qwen3-embedding"
-    /// Compact local embedding candidate used only in Advanced mode.
-    case nomicEmbedding = "nomic-embedding"
-    /// Benchmark/research: Reranker scores every DB entry (slow, O(N*M))
-    case qwen3Reranker = "qwen3-reranker"
-    /// Qwen3-Embedding top-K + Qwen3-Reranker refinement
-    case qwen3TwoStage = "qwen3-two-stage"
-    /// Paper hybrid: GTE-Large embedding + Claude Haiku API verification
+    /// Published hybrid record: GTE-Large retrieval + Claude selection with the paper prompt.
     case gteLargeHaiku = "gte-large-haiku"
-    /// Review-optimized: Qwen3-Embedding top-10 + Qwen3-Reranker with review triage
-    case qwen3SmartTriage = "qwen3-smart-triage"
-    /// Single-stage: Qwen3 generative LLM processes candidates from entire DB
-    case qwen3LLMOnly = "qwen3-llm-only"
-    /// Two-stage: Qwen3-Embedding retrieval + Qwen3 generative selection
-    case embeddingLLM = "embedding-llm"
-    /// GTE-Large retrieval + a configured OpenAI-compatible candidate selector
+    /// GTE-Large retrieval + a configured provider profile that selects a candidate.
     case providerLLM = "provider-llm"
-    /// GTE-Large + Haiku v2: prompt caching, neutral framing, minimal user message
+    /// GTE-Large retrieval + Claude with FoodMapper's cached-prompt revision.
     case gteLargeHaikuV2 = "gte-large-haiku-v2"
-    /// Legacy unavailable Gemma selection retained for saved-setting compatibility
-    case gemma4LLMOnly = "gemma4-llm-only"
-    /// Legacy unavailable Gemma two-stage selection retained for saved-setting compatibility
-    case gemma4TwoStage = "gemma4-two-stage"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .gteLargeEmbedding: return "GTE-Large Embedding"
-        case .qwen3Embedding: return "Qwen3-Embedding"
-        case .nomicEmbedding: return "Nomic Embed Text v1.5"
-        case .qwen3Reranker: return "Qwen3-Reranker (Benchmark)"
-        case .qwen3TwoStage: return "Qwen3 Two-Stage"
         case .gteLargeHaiku: return "GTE-Large + Haiku"
-        case .gteLargeHaikuV2: return "GTE-Large + Haiku v2"
-        case .qwen3SmartTriage: return "Smart Triage"
-        case .qwen3LLMOnly: return "Qwen3 LLM Judge"
-        case .embeddingLLM: return "Embedding + LLM"
+        case .gteLargeHaikuV2: return "GTE-Large + Claude (cached prompt)"
         case .providerLLM: return "GTE-Large + Provider"
-        case .gemma4LLMOnly: return "Gemma 4 LLM Judge"
-        case .gemma4TwoStage: return "Gemma 4 Two-Stage"
         }
     }
 
@@ -54,137 +30,52 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .gteLargeEmbedding:
             return "Cosine similarity with GTE-Large embeddings. Paper validation method."
-        case .qwen3Embedding:
-            return "Instruction-following embedding model with custom matching context."
-        case .nomicEmbedding:
-            return "Compact local embedding model for controlled comparison with the published method."
-        case .qwen3Reranker:
-            return "Cross-encoder scoring for controlled benchmark datasets. Runtime grows with both input and target counts."
-        case .qwen3TwoStage:
-            return "Qwen3 embedding retrieval followed by Qwen3 cross-encoder reranking."
         case .gteLargeHaiku:
-            return "GTE-Large retrieval + Claude Haiku verification. Requires API key."
+            return "GTE-Large retrieval + Claude selection with the published prompt. Requires API key."
         case .gteLargeHaikuV2:
-            return "GTE-Large retrieval + Claude Haiku v2 with prompt caching. Requires API key."
-        case .qwen3SmartTriage:
-            return "Qwen3 retrieval and reranking with separate match and review decisions."
-        case .qwen3LLMOnly:
-            return "Generative candidate selection intended for controlled, small-database evaluation."
-        case .embeddingLLM:
-            return "Qwen3 embedding retrieval followed by local generative selection over the retrieved candidates."
+            return "GTE-Large retrieval + Claude selection with FoodMapper's cached prompt. Requires API key."
         case .providerLLM:
             return "GTE-Large retrieval followed by candidate selection from a configured provider profile."
-        case .gemma4LLMOnly:
-            return "Unavailable legacy Gemma pipeline retained for saved-setting compatibility."
-        case .gemma4TwoStage:
-            return "Unavailable legacy Gemma pipeline retained for saved-setting compatibility."
         }
     }
 
     /// Models required for this pipeline
-    var requiredModelKeys: [String] {
-        switch self {
-        case .gteLargeEmbedding: return ["gte-large"]
-        case .qwen3Embedding: return ["qwen3-emb-4b-4bit"]
-        case .nomicEmbedding: return ["nomic-embed-text-v1.5"]
-        case .qwen3Reranker: return ["qwen3-reranker-0.6b"]
-        case .qwen3TwoStage: return ["qwen3-emb-4b-4bit", "qwen3-reranker-0.6b"]
-        case .gteLargeHaiku: return ["gte-large"]
-        case .gteLargeHaikuV2: return ["gte-large"]
-        case .qwen3SmartTriage: return ["qwen3-emb-4b-4bit", "qwen3-reranker-0.6b"]
-        case .qwen3LLMOnly: return ["qwen3-judge-4b-4bit"]
-        case .embeddingLLM: return ["qwen3-emb-4b-4bit", "qwen3-judge-4b-4bit"]
-        case .providerLLM: return ["gte-large"]
-        case .gemma4LLMOnly: return ["gemma4-e4b-it-4bit"]
-        case .gemma4TwoStage: return ["qwen3-emb-4b-4bit", "gemma4-e4b-it-4bit"]
-        }
-    }
+    var requiredModelKeys: [String] { ["gte-large"] }
 
-    /// Embedding model key used by this pipeline (nil if no embedding stage)
-    var embeddingModelKey: String? {
-        switch self {
-        case .gteLargeEmbedding: return "gte-large"
-        case .qwen3Embedding: return "qwen3-emb-4b-4bit"
-        case .nomicEmbedding: return "nomic-embed-text-v1.5"
-        case .qwen3Reranker: return nil
-        case .qwen3TwoStage: return "qwen3-emb-4b-4bit"
-        case .gteLargeHaiku: return "gte-large"
-        case .gteLargeHaikuV2: return "gte-large"
-        case .qwen3SmartTriage: return "qwen3-emb-4b-4bit"
-        case .qwen3LLMOnly: return nil
-        case .embeddingLLM: return "qwen3-emb-4b-4bit"
-        case .providerLLM: return "gte-large"
-        case .gemma4LLMOnly: return nil
-        case .gemma4TwoStage: return "qwen3-emb-4b-4bit"
-        }
-    }
+    /// Embedding model key used by this pipeline
+    var embeddingModelKey: String? { "gte-large" }
 
-    /// Whether this pipeline supports custom matching instructions
+    /// Whether this pipeline accepts a matching instruction for its selection stage
     var supportsCustomInstruction: Bool {
         switch self {
-        case .gteLargeEmbedding: return false  // GTE-Large is symmetric, no instruction support
-        case .qwen3Embedding: return true
-        case .nomicEmbedding: return true
-        case .qwen3Reranker: return true
-        case .qwen3TwoStage: return true
-        case .gteLargeHaiku: return true   // Haiku uses rich haikuPrompt instructions
-        case .gteLargeHaikuV2: return true
-        case .qwen3SmartTriage: return true
-        case .qwen3LLMOnly: return true
-        case .embeddingLLM: return true
-        case .providerLLM: return true
-        case .gemma4LLMOnly: return true
-        case .gemma4TwoStage: return true
+        case .gteLargeEmbedding: return false
+        case .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM: return true
         }
     }
 
-    /// Whether this pipeline is available now (vs future/deferred)
-    var isImplemented: Bool {
-        switch self {
-        case .gteLargeEmbedding: return true
-        case .qwen3Embedding: return true
-        case .nomicEmbedding: return true
-        case .qwen3Reranker: return true
-        case .qwen3TwoStage: return true
-        case .gteLargeHaiku: return true
-        case .gteLargeHaikuV2: return true
-        case .qwen3SmartTriage: return true
-        case .qwen3LLMOnly: return true
-        case .embeddingLLM: return true
-        case .providerLLM: return true
-        case .gemma4LLMOnly: return false
-        case .gemma4TwoStage: return false
-        }
-    }
+    var isImplemented: Bool { true }
 
-    /// Whether this pipeline requires an external API key
+    /// Whether this pipeline requires an Anthropic API key
     var requiresAPIKey: Bool {
         switch self {
         case .gteLargeHaiku, .gteLargeHaikuV2: return true
-        default: return false  // LLM pipelines run on-device, no API key needed
+        case .gteLargeEmbedding, .providerLLM: return false
         }
     }
 
     /// The score type produced by this pipeline
     var defaultScoreType: ScoreType {
         switch self {
-        case .gteLargeEmbedding, .qwen3Embedding, .nomicEmbedding: return .cosineSimilarity
-        case .qwen3Reranker, .qwen3TwoStage, .qwen3SmartTriage: return .rerankerProbability
-        case .gteLargeHaiku, .gteLargeHaikuV2: return .llmSelected
-        case .qwen3LLMOnly, .embeddingLLM, .gemma4LLMOnly, .gemma4TwoStage: return .generativeSelection
-        case .providerLLM: return .llmSelected
+        case .gteLargeEmbedding: return .cosineSimilarity
+        case .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM: return .llmSelected
         }
     }
 
-    /// Performance warning shown in the UI when this pipeline may be slow
+    /// Notice shown where the pipeline is selected
     var performanceWarning: String? {
         switch self {
-        case .qwen3Reranker:
-            return "Runtime scales linearly with database size. Intended for benchmarking small datasets only."
-        case .qwen3LLMOnly, .gemma4LLMOnly:
-            return "Very slow for larger databases. Runtime scales linearly with database size."
         case .providerLLM:
-            return "Each input sends its description and retrieved candidates to the selected provider. Runs are limited to 250 inputs."
+            return "Each input sends its description and retrieved candidates to the selected provider."
         default:
             return nil
         }
@@ -194,10 +85,62 @@ enum PipelineType: String, Codable, CaseIterable, Identifiable {
     var pipelineMode: PipelineMode {
         switch self {
         case .gteLargeEmbedding, .gteLargeHaiku: return .researchValidation
-        case .gteLargeHaikuV2: return .standard
-        case .qwen3Embedding, .nomicEmbedding, .qwen3Reranker, .qwen3TwoStage, .qwen3SmartTriage,
-             .qwen3LLMOnly, .embeddingLLM, .providerLLM, .gemma4LLMOnly, .gemma4TwoStage: return .standard
+        case .gteLargeHaikuV2, .providerLLM: return .standard
         }
+    }
+}
+
+/// Names recorded by pipelines that no longer exist. Old sessions keep their
+/// recorded `pipelineName`; new work on such a session uses GTE-Large.
+enum LegacyPipeline {
+    static let removedDisplayNames: Set<String> = [
+        "Qwen3-Embedding", "Nomic Embed Text v1.5", "Qwen3-Reranker (Benchmark)", "Qwen3 Two-Stage",
+        "Smart Triage", "Qwen3 LLM Judge", "Embedding + LLM", "Gemma 4 LLM Judge", "Gemma 4 Two-Stage",
+    ]
+
+    static let removedRawValues: Set<String> = [
+        "qwen3-embedding", "nomic-embedding", "qwen3-reranker", "qwen3-two-stage", "qwen3-smart-triage",
+        "qwen3-llm-only", "embedding-llm", "gemma4-llm-only", "gemma4-two-stage",
+    ]
+
+    /// Display names used by earlier releases for pipelines that still exist.
+    private static let renamedDisplayNames: [String: PipelineType] = [
+        "GTE-Large + Haiku v2": .gteLargeHaikuV2,
+    ]
+
+    /// Pipeline to select when a saved session is reopened. A removed or
+    /// unknown name resolves to the published GTE-Large pipeline.
+    static func pipelineType(forRecordedName name: String) -> PipelineType {
+        if let current = PipelineType.allCases.first(where: { $0.displayName == name }) { return current }
+        if let renamed = renamedDisplayNames[name] { return renamed }
+        return .gteLargeEmbedding
+    }
+
+    static func isRemoved(recordedName name: String) -> Bool {
+        removedDisplayNames.contains(name)
+    }
+
+    /// Saved settings that belonged to the removed models.
+    static let removedDefaultsKeys = ["selectedEmbeddingSize", "selectedRerankerSize", "selectedGenerativeSize"]
+
+    /// Drops performance overrides saved for pipelines that no longer exist.
+    static func prunedOverrides(_ overrides: [String: PipelinePerformanceConfig]) -> [String: PipelinePerformanceConfig] {
+        overrides.filter { !removedRawValues.contains($0.key) }
+    }
+
+    /// Removes saved settings for the removed models and pipelines. Safe to
+    /// run at every launch; it only rewrites a value that changes.
+    static func migrateDefaults(_ defaults: UserDefaults) {
+        for key in removedDefaultsKeys {
+            defaults.removeObject(forKey: key)
+        }
+        guard let data = defaults.data(forKey: "pipelinePerformanceOverrides"),
+              let saved = try? JSONDecoder().decode([String: PipelinePerformanceConfig].self, from: data) else {
+            return
+        }
+        let pruned = prunedOverrides(saved)
+        guard pruned.count != saved.count, let encoded = try? JSONEncoder().encode(pruned) else { return }
+        defaults.set(encoded, forKey: "pipelinePerformanceOverrides")
     }
 }
 
@@ -207,26 +150,15 @@ extension PipelineType {
     /// Default top-K for this pipeline type
     var defaultTopK: Int {
         switch self {
-        case .gteLargeEmbedding, .qwen3Embedding, .nomicEmbedding: return 20
-        case .qwen3TwoStage: return 10
-        case .qwen3SmartTriage: return 10
+        case .gteLargeEmbedding: return 20
         case .gteLargeHaiku: return 5
         case .gteLargeHaikuV2: return 20
-        case .embeddingLLM: return 5
         case .providerLLM: return 5
-        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly, .gemma4TwoStage: return 5
         }
     }
 
-    /// Default embedding batch size for this pipeline, scaled by model size.
-    /// Larger models need smaller batches to stay within memory.
-    func defaultEmbeddingBatchSize(modelKey: String?) -> Int {
-        switch modelKey {
-        case "qwen3-emb-8b-4bit": return 16
-        case "qwen3-emb-4b-4bit": return 24
-        default: return 32  // GTE-Large, 0.6B models
-        }
-    }
+    /// Default embedding batch size for this pipeline.
+    func defaultEmbeddingBatchSize(modelKey: String?) -> Int { 32 }
 
     /// Default matching batch size (uniform across pipelines)
     var defaultMatchingBatchSize: Int { 128 }
@@ -235,9 +167,7 @@ extension PipelineType {
     var defaultChunkSize: Int { 500 }
 
     /// Whether this pipeline has an embedding stage with configurable performance
-    var hasEmbeddingStage: Bool {
-        embeddingModelKey != nil
-    }
+    var hasEmbeddingStage: Bool { embeddingModelKey != nil }
 }
 
 /// User-facing pipeline modes. Each mode groups one or more PipelineTypes
@@ -255,72 +185,14 @@ enum PipelineMode: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    var defaultPipelineType: PipelineType {
-        switch self {
-        case .standard: return .gteLargeEmbedding
-        case .researchValidation: return .gteLargeEmbedding
-        }
-    }
+    var defaultPipelineType: PipelineType { .gteLargeEmbedding }
 
     /// Pipeline types available under this mode.
-    /// Note: .gteLargeHaiku is NOT in either list. It's controlled by the Haiku verification toggle.
+    /// `.gteLargeHaiku` is in neither list; the Hybrid Matching switch controls it.
     var availablePipelineTypes: [PipelineType] {
         switch self {
-        case .standard: return [.gteLargeEmbedding, .nomicEmbedding, .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .providerLLM, .qwen3LLMOnly, .qwen3Reranker, .gteLargeHaikuV2]
+        case .standard: return [.gteLargeEmbedding, .providerLLM, .gteLargeHaikuV2]
         case .researchValidation: return [.gteLargeEmbedding]
-        }
-    }
-}
-
-/// User-selectable model size within a model family
-enum ModelSize: String, CaseIterable, Identifiable, Codable {
-    case small = "0.6B"
-    case medium = "4B"
-    case large = "8B"
-
-    var id: String { rawValue }
-    var displayName: String { rawValue }
-}
-
-extension ModelFamily {
-    /// Available sizes for this model family
-    var availableSizes: [ModelSize] {
-        switch self {
-        case .qwen3Embedding: return [.small, .medium, .large]
-        case .nomicEmbedding: return []
-        case .qwen3Reranker: return [.small, .medium]
-        case .gteLarge: return []
-        case .qwen3Generative: return [.small, .medium]
-        case .gemma4Generative: return []
-        }
-    }
-
-    /// Get the model key for a specific size
-    func modelKey(for size: ModelSize) -> String? {
-        switch self {
-        case .qwen3Embedding:
-            switch size {
-            case .small: return "qwen3-emb-0.6b-4bit"
-            case .medium: return "qwen3-emb-4b-4bit"
-            case .large: return "qwen3-emb-8b-4bit"
-            }
-        case .nomicEmbedding:
-            return "nomic-embed-text-v1.5"
-        case .qwen3Reranker:
-            switch size {
-            case .small: return "qwen3-reranker-0.6b"
-            case .medium: return "qwen3-reranker-4b"
-            case .large: return nil
-            }
-        case .gteLarge: return "gte-large"
-        case .qwen3Generative:
-            switch size {
-            case .small: return "qwen3-judge-0.6b-4bit"
-            case .medium: return "qwen3-judge-4b-4bit"
-            case .large: return nil
-            }
-        case .gemma4Generative:
-            return nil
         }
     }
 }
@@ -328,18 +200,13 @@ extension ModelFamily {
 enum PipelineAdmission: String {
     case published = "Published method"
     case evaluation = "Evaluation"
-    case unavailable = "Unavailable"
 }
 
 extension PipelineType {
     var admission: PipelineAdmission {
         switch self {
-        case .gteLargeEmbedding, .gteLargeHaiku:
-            return .published
-        case .gemma4LLMOnly, .gemma4TwoStage:
-            return .unavailable
-        default:
-            return .evaluation
+        case .gteLargeEmbedding, .gteLargeHaiku: return .published
+        case .gteLargeHaikuV2, .providerLLM: return .evaluation
         }
     }
 
@@ -348,7 +215,7 @@ extension PipelineType {
     var requiresProviderProfile: Bool { self == .providerLLM }
 }
 
-/// Preset matching instructions for embedding, reranker, and Haiku models.
+/// Preset matching instructions for retrieval and selection stages.
 /// Each preset provides three instruction tiers:
 /// - embeddingInstruction: short, task-focused (positions query in vector space)
 /// - rerankerInstruction: medium, reasoning-focused (for cross-encoder)

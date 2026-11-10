@@ -268,7 +268,7 @@ final class AdvancedCatalogTests: XCTestCase {
 
     func testSnapshotLocationIgnoresDirectoryURLMarker() {
         let modelRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("models/nomic-ai", isDirectory: true)
+            .appendingPathComponent("models/example-org", isDirectory: true)
         let directoryForm = modelRoot.appendingPathComponent("model", isDirectory: true)
         let fileForm = modelRoot.appendingPathComponent("model", isDirectory: false)
         let sibling = modelRoot.appendingPathComponent("other", isDirectory: true)
@@ -278,51 +278,200 @@ final class AdvancedCatalogTests: XCTestCase {
     }
 
     func testTrustedModelSourceURLUsesThePinnedResolver() throws {
+        let revision = String(repeating: "0123456789abcdef", count: 3).prefix(40).description
         let url = try XCTUnwrap(ModelDownloader.sourceURL(
-            repository: "nomic-ai/nomic-embed-text-v1.5",
-            revision: NomicEmbeddingModel.revision,
+            repository: "example-org/example-model",
+            revision: revision,
             artifactPath: "1_Pooling/config.json"
         ))
         XCTAssertEqual(
             url.absoluteString,
-            "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/\(NomicEmbeddingModel.revision)/1_Pooling/config.json"
+            "https://huggingface.co/example-org/example-model/resolve/\(revision)/1_Pooling/config.json"
         )
         XCTAssertNil(ModelDownloader.sourceURL(
-            repository: "nomic-ai/nomic-embed-text-v1.5",
+            repository: "example-org/example-model",
             revision: "main",
             artifactPath: "config.json"
         ))
         XCTAssertNil(ModelDownloader.sourceURL(
-            repository: "nomic-ai/nomic-embed-text-v1.5",
-            revision: NomicEmbeddingModel.revision,
+            repository: "example-org/example-model",
+            revision: revision,
             artifactPath: "../config.json"
         ))
     }
 
-    func testSelectablePipelinesDoNotContainUnavailableGemmaEntries() {
-        let pipelines = PipelineMode.standard.availablePipelineTypes
-        XCTAssertTrue(pipelines.contains(.nomicEmbedding))
-        XCTAssertTrue(pipelines.contains(.providerLLM))
-        XCTAssertFalse(pipelines.contains(.gemma4LLMOnly))
-        XCTAssertFalse(pipelines.contains(.gemma4TwoStage))
-        XCTAssertTrue(pipelines.allSatisfy(\.isImplemented))
+    func testNoOptionalLocalModelIsTrusted() {
+        XCTAssertTrue(ModelDownloader.trustedManifestResources.isEmpty)
+        XCTAssertTrue(ModelDownloader.admittedModelTypePrefixes.isEmpty)
+        let bundled = ResourceBundle.bundle.urls(forResourcesWithExtension: "json", subdirectory: "Models") ?? []
+        XCTAssertFalse(bundled.contains { $0.lastPathComponent.hasSuffix("_snapshot_manifest.json") })
+    }
+}
+
+/// The model reset removed the Qwen, Nomic, and Gemma experiments. These tests
+/// cover what a user of an earlier version still has on disk and in settings.
+final class ModelResetTests: XCTestCase {
+    func testSelectablePipelinesAreTheReducedSet() {
+        XCTAssertEqual(
+            Set(PipelineType.allCases),
+            [.gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM]
+        )
+        XCTAssertEqual(PipelineMode.standard.availablePipelineTypes, [.gteLargeEmbedding, .providerLLM, .gteLargeHaikuV2])
+        XCTAssertEqual(PipelineMode.researchValidation.availablePipelineTypes, [.gteLargeEmbedding])
+        XCTAssertTrue(PipelineType.allCases.allSatisfy { $0.requiredModelKeys == ["gte-large"] })
+        for rawValue in LegacyPipeline.removedRawValues {
+            XCTAssertNil(PipelineType(rawValue: rawValue), rawValue)
+        }
     }
 
-    func testNomicManifestPinsExpectedSnapshotAndFileTotal() throws {
-        let url = try XCTUnwrap(ResourceBundle.bundle.url(
-            forResource: "nomic_snapshot_manifest",
-            withExtension: "json",
-            subdirectory: "Models"
-        ))
-        let manifest = try JSONDecoder().decode(
-            TrustedModelSnapshotManifest.self,
-            from: Data(contentsOf: url)
+    func testPublishedIdentifiersAndDefaultsAreUnchanged() {
+        XCTAssertEqual(PipelineType.gteLargeEmbedding.rawValue, "gte-large-embedding")
+        XCTAssertEqual(PipelineType.gteLargeHaiku.rawValue, "gte-large-haiku")
+        XCTAssertEqual(PipelineType.gteLargeEmbedding.displayName, "GTE-Large Embedding")
+        XCTAssertEqual(PipelineType.gteLargeHaiku.displayName, "GTE-Large + Haiku")
+        XCTAssertEqual(PipelineType.gteLargeEmbedding.defaultTopK, 20)
+        XCTAssertEqual(PipelineType.gteLargeHaiku.defaultTopK, 5)
+        XCTAssertEqual(PipelineType.gteLargeEmbedding.admission, .published)
+        XCTAssertEqual(PipelineType.gteLargeHaiku.admission, .published)
+        XCTAssertFalse(PipelineType.gteLargeEmbedding.isExperimental)
+        XCTAssertTrue(PipelineType.providerLLM.isExperimental)
+        XCTAssertTrue(PipelineType.gteLargeHaikuV2.isExperimental)
+    }
+
+    func testSessionsRecordedByRemovedPipelinesReopenOnGTELarge() {
+        XCTAssertEqual(LegacyPipeline.removedDisplayNames.count, 9)
+        for name in LegacyPipeline.removedDisplayNames {
+            XCTAssertTrue(LegacyPipeline.isRemoved(recordedName: name))
+            XCTAssertEqual(LegacyPipeline.pipelineType(forRecordedName: name), .gteLargeEmbedding, name)
+        }
+        for pipeline in PipelineType.allCases {
+            XCTAssertFalse(LegacyPipeline.isRemoved(recordedName: pipeline.displayName))
+            XCTAssertEqual(LegacyPipeline.pipelineType(forRecordedName: pipeline.displayName), pipeline)
+        }
+        XCTAssertEqual(LegacyPipeline.pipelineType(forRecordedName: "GTE-Large + Haiku v2"), .gteLargeHaikuV2)
+        XCTAssertEqual(LegacyPipeline.pipelineType(forRecordedName: "A method from a future version"), .gteLargeEmbedding)
+        XCTAssertEqual(LegacyPipeline.pipelineType(forRecordedName: ""), .gteLargeEmbedding)
+    }
+
+    func testDefaultsMigrationDropsRemovedModelSettingsOnly() throws {
+        let defaults = FoodMapperStorage.defaults
+        let touched = LegacyPipeline.removedDefaultsKeys + ["pipelinePerformanceOverrides", "modelResetTestMarker"]
+        let saved = touched.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+
+        for key in LegacyPipeline.removedDefaultsKeys { defaults.set("4B", forKey: key) }
+        defaults.set("kept", forKey: "modelResetTestMarker")
+        let overrides: [String: PipelinePerformanceConfig] = [
+            "qwen3-two-stage": PipelinePerformanceConfig(embeddingBatchSize: 8, matchingBatchSize: nil, chunkSize: nil, topK: 30),
+            "gemma4-llm-only": PipelinePerformanceConfig(embeddingBatchSize: nil, matchingBatchSize: nil, chunkSize: nil, topK: 3),
+            "gte-large-embedding": PipelinePerformanceConfig(embeddingBatchSize: 48, matchingBatchSize: 256, chunkSize: nil, topK: nil),
+            "provider-llm": PipelinePerformanceConfig(embeddingBatchSize: nil, matchingBatchSize: nil, chunkSize: nil, topK: 5),
+        ]
+        defaults.set(try JSONEncoder().encode(overrides), forKey: "pipelinePerformanceOverrides")
+
+        LegacyPipeline.migrateDefaults(defaults)
+
+        for key in LegacyPipeline.removedDefaultsKeys { XCTAssertNil(defaults.object(forKey: key), key) }
+        XCTAssertEqual(defaults.string(forKey: "modelResetTestMarker"), "kept")
+        let data = try XCTUnwrap(defaults.data(forKey: "pipelinePerformanceOverrides"))
+        let migrated = try JSONDecoder().decode([String: PipelinePerformanceConfig].self, from: data)
+        XCTAssertEqual(Set(migrated.keys), ["gte-large-embedding", "provider-llm"])
+        XCTAssertEqual(migrated["gte-large-embedding"], overrides["gte-large-embedding"])
+
+        // A second run changes nothing.
+        LegacyPipeline.migrateDefaults(defaults)
+        XCTAssertEqual(defaults.data(forKey: "pipelinePerformanceOverrides"), data)
+    }
+
+    func testLegacyDownloadCleanupRemovesOnlyListedRepositories() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("foodmapper-reset-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let snapshots = root.appendingPathComponent("models", isDirectory: true)
+
+        func write(_ relativePath: String, under base: URL) throws -> URL {
+            let url = base.appendingPathComponent(relativePath, isDirectory: false)
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+            return url
+        }
+
+        let qwenJudge = try write("mlx-community/Qwen3-4B-4bit/model.safetensors", under: snapshots)
+        let gemma = try write("mlx-community/gemma-4-e2b-it-4bit/config.json", under: snapshots)
+        let unlisted = try write("mlx-community/some-other-model/config.json", under: snapshots)
+        let reranker = try write("richtext/Qwen3-Reranker-0.6B-mlx-fp16/model.safetensors", under: snapshots)
+        let gteWeights = try write("gte-large-0b7a78872ae6fd502fe2db3273b1b3e065a3d9db/model.safetensors", under: snapshots)
+        let pointer = try write("current.json", under: snapshots)
+        let session = try write("Sessions/session.json", under: root)
+
+        // A symbolic link in place of an organization folder must not lead the cleanup elsewhere.
+        let outside = try write("elsewhere/nomic-embed-text-v1.5/model.safetensors", under: root)
+        try fileManager.createSymbolicLink(
+            at: snapshots.appendingPathComponent("nomic-ai", isDirectory: true),
+            withDestinationURL: root.appendingPathComponent("elsewhere", isDirectory: true)
         )
-        let model = try XCTUnwrap(manifest.models.first)
-        XCTAssertEqual(model.repo, NomicEmbeddingModel.repository)
-        XCTAssertEqual(model.revision, NomicEmbeddingModel.revision)
-        XCTAssertEqual(model.artifacts.count, 10)
-        XCTAssertEqual(model.artifacts.reduce(Int64.zero) { $0 + $1.byteSize }, 547_886_235)
-        XCTAssertTrue(model.artifacts.allSatisfy { $0.sha256.count == 64 })
+
+        let removed = LegacyModelDownloads.removeDownloads(in: snapshots)
+
+        XCTAssertEqual(Set(removed), [
+            "mlx-community/Qwen3-4B-4bit", "mlx-community/gemma-4-e2b-it-4bit", "richtext/Qwen3-Reranker-0.6B-mlx-fp16",
+        ])
+        XCTAssertFalse(fileManager.fileExists(atPath: qwenJudge.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: gemma.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: reranker.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: snapshots.appendingPathComponent("richtext").path))
+        XCTAssertTrue(fileManager.fileExists(atPath: unlisted.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: gteWeights.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: pointer.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: session.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: outside.path))
+
+        XCTAssertEqual(LegacyModelDownloads.removeDownloads(in: snapshots), [])
+        XCTAssertEqual(LegacyModelDownloads.removeDownloads(in: root.appendingPathComponent("missing")), [])
+    }
+
+    func testLegacyRepositoryListNeverNamesGTELarge() {
+        XCTAssertEqual(LegacyModelDownloads.repositories.count, 12)
+        XCTAssertEqual(Set(LegacyModelDownloads.repositories).count, 12)
+        for repository in LegacyModelDownloads.repositories {
+            XCTAssertEqual(repository.split(separator: "/").count, 2, repository)
+            XCTAssertFalse(repository.lowercased().contains("gte"), repository)
+        }
+        XCTAssertFalse(LegacyModelDownloads.removedEmbeddingModelKeys.contains("gte-large"))
+    }
+
+    func testEmbeddingCacheCleanupRemovesOnlyRemovedModelCaches() throws {
+        let fileManager = FileManager.default
+        let databases = fileManager.temporaryDirectory.appendingPathComponent("foodmapper-reset-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: databases) }
+        try fileManager.createDirectory(at: databases, withIntermediateDirectories: true)
+
+        let removedNames = [
+            "abc_embeddings_qwen3-emb-4b-4bit.bin", "abc_embeddings_qwen3-emb-4b-4bit.json",
+            "foodb_embeddings_qwen3-emb-0.6b-4bit.bin", "xyz_embeddings_qwen3-emb-8b-4bit.json",
+        ]
+        let keptNames = [
+            "abc_embeddings_gte-large.bin", "abc_embeddings_gte-large.json", "abc_data.csv",
+            "abc_embeddings.bin", "_embeddings_qwen3-emb-4b-4bit.bin", "abc_embeddings_qwen3-emb-4b-4bit.bin.note",
+        ]
+        for name in removedNames + keptNames {
+            try Data("x".utf8).write(to: databases.appendingPathComponent(name))
+        }
+        let directoryNamedLikeCache = databases.appendingPathComponent("dir_embeddings_qwen3-emb-8b-4bit.bin", isDirectory: true)
+        try fileManager.createDirectory(at: directoryNamedLikeCache, withIntermediateDirectories: true)
+
+        XCTAssertEqual(LegacyModelDownloads.removeEmbeddingCaches(in: databases), removedNames.sorted())
+        for name in removedNames {
+            XCTAssertFalse(fileManager.fileExists(atPath: databases.appendingPathComponent(name).path), name)
+        }
+        for name in keptNames {
+            XCTAssertTrue(fileManager.fileExists(atPath: databases.appendingPathComponent(name).path), name)
+        }
+        XCTAssertTrue(fileManager.fileExists(atPath: directoryNamedLikeCache.path))
+        XCTAssertEqual(LegacyModelDownloads.removeEmbeddingCaches(in: databases), [])
     }
 }
