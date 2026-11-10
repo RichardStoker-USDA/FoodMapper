@@ -353,6 +353,9 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                 } catch {
                     throw ProviderFailure.halt(.signInRequired)
                 }
+                // Getting the credential can wait on a token refresh. If another worker pushed
+                // the shared backoff out meanwhile, go back and wait for it.
+                if await coordinator.backoffDelay() > 0 { continue }
                 // Last step before data leaves the Mac. Turning Advanced mode off revokes the
                 // lease, and a worker that was waiting must not send after that.
                 try Task.checkCancellation()

@@ -431,6 +431,7 @@ extension AppState {
                     self.suppressFilterUpdates = true
 
                     self.results = loadedResults
+                    self.openResultsCameFromRemovedPipeline = LegacyPipeline.isRemoved(recordedName: session.pipelineName)
                     self.threshold = session.threshold
                     self.currentSessionId = session.id
                     self.activeTargetSnapshot = session.targetSnapshot
