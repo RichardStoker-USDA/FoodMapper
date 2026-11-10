@@ -244,7 +244,7 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                         matchText: candidate.entry.text,
                         matchID: candidate.entry.id,
                         score: Double(candidate.score),
-                        status: .llmMatch,
+                        status: Self.status(providerSelection: selection, finalSelection: chosen),
                         scoreType: .llmSelected,
                         llmReasoning: notes.isEmpty ? nil : notes.joined(separator: " "),
                         matchAdditionalFields: candidate.entry.additionalFields,
@@ -291,6 +291,14 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
 
     func cancel() async {
         await engine.cancel()
+    }
+
+    /// A row where the numeric rule replaced the provider's selection is not accepted
+    /// automatically. It carries the rule's choice into Needs Review, because the rule is only
+    /// as good as the provider's list of equivalent candidates. In a live run with a 4B local
+    /// model, four of five replacements were a different food.
+    static func status(providerSelection: Int, finalSelection: Int) -> MatchStatus {
+        providerSelection == finalSelection ? .llmMatch : .match
     }
 
     /// The Decisions route reports how sure the model was. The value is recorded
@@ -536,13 +544,18 @@ enum ProviderChatRequest {
     ) throws -> Data {
         let checked = try profile.validated()
         let responseSchema = responseSchema(candidateIDs: candidateIDs, wantsEquivalents: wantsEquivalents)
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": checked.model,
             "messages": messages,
             "stream": false,
             "max_tokens": min(max(32, maxTokens), 128),
             "response_format": responseSchema
         ]
+        // The reply limit includes reasoning tokens, so a thinking model needs this set to
+        // "none" or it can spend the whole limit before it writes the decision.
+        if let effort = checked.reasoningEffort {
+            body["reasoning_effort"] = effort.rawValue
+        }
         return try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
     }
 

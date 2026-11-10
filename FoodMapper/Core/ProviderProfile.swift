@@ -109,7 +109,8 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         value.model = trimmedModel
         value.baseURL = url.absoluteString
         value.requestOptionsJSON = try ProviderRequestOptions.normalizedJSON(requestOptionsJSON)
-        if interface != .responses { value.reasoningEffort = nil }
+        // The Decisions route has no reasoning setting. Chat Completions sends it as `reasoning_effort`.
+        if interface == .decisions { value.reasoningEffort = nil }
         if kind != .chatGPTPlan { value.accountID = nil }
         return value
     }

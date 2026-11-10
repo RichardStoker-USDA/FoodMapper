@@ -146,7 +146,7 @@ struct TargetFieldPolicy: Codable, Equatable, Sendable {
         let selectedText = measured.first(where: { $0.index == selection })?.text ?? "not reported"
         return RuleOutcome(
             selection: best.index,
-            note: "Rule \(goal) \(rule.column): chose \(best.text) over the provider's selection (\(selectedText)) among \(poolText)."
+            note: "Rule \(goal) \(rule.column): chose \(best.text) over the provider's selection (\(selectedText)) among \(poolText). Check that it is the same food."
         )
     }
 

@@ -269,7 +269,7 @@ struct ProviderProfilesView: View {
                         detailCell("Response", profile.interface == .decisions ? "Choice with probabilities" : "Strict JSON schema")
                     }
                     GridRow {
-                        detailCell("Reasoning effort", profile.interface == .responses ? (profile.reasoningEffort?.displayName ?? "Model default") : "Not used")
+                        detailCell("Reasoning effort", profile.interface != .decisions ? (profile.reasoningEffort?.displayName ?? "Model default") : "Not used")
                         detailCell("Simultaneous requests", "\(profile.concurrency)")
                     }
                 }
@@ -488,7 +488,7 @@ private struct ProviderEditorSheet: View {
                     }
                 }
 
-                if profile.interface == .responses {
+                if profile.interface != .decisions {
                     Picker("Reasoning effort", selection: $profile.reasoningEffort) {
                         Text("Model default").tag(ProviderReasoningEffort?.none)
                         ForEach(ProviderReasoningEffort.allCases) { effort in

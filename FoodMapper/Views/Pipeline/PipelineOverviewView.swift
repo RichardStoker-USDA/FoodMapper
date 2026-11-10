@@ -365,7 +365,7 @@ struct PipelineOverviewView: View {
                                 .frame(maxWidth: 180)
                             }
                         }
-                        Text("With a rule, the provider also lists the candidates that are the same food as its selection, and FoodMapper picks the lowest or highest value among them. A candidate with no value in that column cannot win. Needs the Responses or Chat Completions route.")
+                        Text("With a rule, the provider also lists the candidates that are the same food as its selection, and FoodMapper picks the lowest or highest value among them. When that differs from the provider's selection, the row goes to Needs Review. A candidate with no value in that column cannot win. Needs the Responses or Chat Completions route.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

@@ -109,7 +109,12 @@ final class FieldPolicyTests: XCTestCase {
 
         let lower = try XCTUnwrap(outcome(.lowest, selection: 0, equivalents: [3, 1]))
         XCTAssertEqual(lower.selection, 1)
-        XCTAssertEqual(lower.note, "Rule lowest sodium_mg: chose 12 over the provider's selection (480) among 3 same-food candidates.")
+        XCTAssertEqual(lower.note, "Rule lowest sodium_mg: chose 12 over the provider's selection (480) among 3 same-food candidates. Check that it is the same food.")
+        // A replaced selection is held for review; an unchanged one is accepted.
+        XCTAssertEqual(ProviderRerankerPipeline.status(providerSelection: 0, finalSelection: lower.selection), .match)
+        XCTAssertEqual(ProviderRerankerPipeline.status(providerSelection: 1, finalSelection: 1), .llmMatch)
+        let held = MatchResult(inputText: "x", inputRow: 0, matchText: "y", matchID: "1", score: 0.9, status: .match, scoreType: .llmSelected)
+        XCTAssertEqual(MatchCategory.from(result: held, decision: nil, profile: ThresholdProfile(matchThreshold: 0.86)), .needsReview)
         XCTAssertEqual(outcome(.highest, selection: 3, equivalents: [0, 1])?.selection, 0)
 
         // The provider's selection already satisfies the rule.
