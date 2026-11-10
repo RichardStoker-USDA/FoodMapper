@@ -130,6 +130,56 @@ remove_scan_root() {
     esac
 }
 
+package_lock_sources() {
+    # Prints "<repository URL>/tree/<revision>" for every pin in Package.resolved.
+    awk '
+        /"location"[[:space:]]*:/ {
+            location = $0
+            sub(/^.*"location"[[:space:]]*:[[:space:]]*"/, "", location)
+            sub(/".*$/, "", location)
+            sub(/\.git$/, "", location)
+        }
+        /"revision"[[:space:]]*:/ {
+            revision = $0
+            sub(/^.*"revision"[[:space:]]*:[[:space:]]*"/, "", revision)
+            sub(/".*$/, "", revision)
+            if (location != "") {
+                print location "/tree/" revision
+                location = ""
+            }
+        }
+    ' "$1"
+}
+
+verify_package_license_inventory() {
+    # LICENSE must name every resolved package at its resolved revision and no other.
+    local root="$1"
+    local lock="$root/FoodMapper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+    local license="$root/LICENSE"
+    local expected listed source failed=0
+
+    expected="$(package_lock_sources "$lock" | LC_ALL=C sort -u)" || return 1
+    listed="$(sed -n 's/^Source: \(https:\/\/github\.com\/[^[:space:]]*\/tree\/[0-9a-f]\{40\}\)$/\1/p' "$license" | LC_ALL=C sort -u)"
+
+    while IFS= read -r source; do
+        [ -n "$source" ] || continue
+        if ! printf '%s\n' "$listed" | grep -Fqx -- "$source"; then
+            printf '%s\n' "LICENSE does not list the resolved package source: $source" >&2
+            failed=1
+        fi
+    done <<< "$expected"
+
+    while IFS= read -r source; do
+        [ -n "$source" ] || continue
+        if ! printf '%s\n' "$expected" | grep -Fqx -- "$source"; then
+            printf '%s\n' "LICENSE lists a package source that Package.resolved does not pin: $source" >&2
+            failed=1
+        fi
+    done <<< "$listed"
+
+    [ "$failed" -eq 0 ]
+}
+
 verify_public_tree() {
     local root="$1"
     local path trace_pattern user_path temporary_path failed=0
@@ -156,6 +206,8 @@ verify_public_tree() {
         require_tracked_path "$root" "$path" || failed=1
     done
     [ "$failed" -eq 0 ] || return 1
+
+    verify_package_license_inventory "$root" || failed=1
 
     trace_pattern="$(development_trace_pattern)"
     user_path="$(user_path_pattern)"
@@ -360,6 +412,52 @@ remove_swift_package_lock() {
     rm -- "$1/FoodMapper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 }
 
+write_package_lock_fixture() {
+    printf '%s\n' \
+        '{' \
+        '  "pins" : [' \
+        '    {' \
+        '      "identity" : "example-package",' \
+        '      "kind" : "remoteSourceControl",' \
+        '      "location" : "https://github.com/example/example-package.git",' \
+        '      "state" : {' \
+        "        \"revision\" : \"$2\"," \
+        '        "version" : "1.0.0"' \
+        '      }' \
+        '    }' \
+        '  ],' \
+        '  "version" : 3' \
+        '}' > "$1/FoodMapper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+}
+
+add_listed_package() {
+    write_package_lock_fixture "$1" 0123456789abcdef0123456789abcdef01234567
+    printf '%s\n' 'Source: https://github.com/example/example-package/tree/0123456789abcdef0123456789abcdef01234567' >> "$1/LICENSE"
+}
+
+add_unlisted_package() {
+    write_package_lock_fixture "$1" 0123456789abcdef0123456789abcdef01234567
+}
+
+add_stale_package_revision() {
+    write_package_lock_fixture "$1" 89abcdef0123456789abcdef0123456789abcdef
+    printf '%s\n' 'Source: https://github.com/example/example-package/tree/0123456789abcdef0123456789abcdef01234567' >> "$1/LICENSE"
+}
+
+add_license_entry_without_pin() {
+    printf '%s\n' 'Source: https://github.com/example/removed-package/tree/0123456789abcdef0123456789abcdef01234567' >> "$1/LICENSE"
+}
+
+assert_accepted() (
+    local root
+    root="$(self_test_root)"
+    trap 'remove_self_test_root "$root"' EXIT
+    make_fixture "$root"
+    "$@" "$root"
+    git -C "$root" add -f -A -- .
+    verify_public_tree "$root" >/dev/null 2>&1
+)
+
 run_self_test() (
     local root status=0
     root="$(self_test_root)"
@@ -378,6 +476,10 @@ run_self_test() (
     assert_rejected add_private_instruction_references || status=1
     assert_rejected remove_required_path || status=1
     assert_rejected remove_swift_package_lock || status=1
+    assert_accepted add_listed_package || status=1
+    assert_rejected add_unlisted_package || status=1
+    assert_rejected add_stale_package_revision || status=1
+    assert_rejected add_license_entry_without_pin || status=1
     return "$status"
 )
 
