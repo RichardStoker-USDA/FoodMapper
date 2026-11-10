@@ -252,6 +252,24 @@ final class OpenAIAdapterTests: XCTestCase {
         )
     }
 
+    func testChatCompletionsSendsReasoningEffortOnlyWhenSet() throws {
+        func body(_ effort: ProviderReasoningEffort?) throws -> [String: Any] {
+            let profile = ProviderProfile(
+                name: "Local", kind: .localOpenAICompatible, baseURL: "http://127.0.0.1:11434/v1", model: "m",
+                interface: .chatCompletions, reasoningEffort: effort
+            )
+            XCTAssertEqual(try profile.validated().reasoningEffort, effort, "the setting is kept on the Chat Completions route")
+            let data = try ProviderChatRequest.data(
+                profile: profile, messages: [["role": "user", "content": "x"]], maxTokens: 128, candidateIDs: ["c1"]
+            )
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        XCTAssertNil(try body(nil)["reasoning_effort"], "a profile without the setting sends the same body as before")
+        XCTAssertEqual(try body(ProviderReasoningEffort.none)["reasoning_effort"] as? String, "none")
+        XCTAssertEqual(try body(.low)["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(try body(ProviderReasoningEffort.none)["max_tokens"] as? Int, 128)
+    }
+
     func testDecisionClientUsesEachRoute() async throws {
         let payload = try payload()
         let plan = ProviderProfile(name: "Plan", kind: .chatGPTPlan, model: "gpt-6-luna", interface: .responses, reasoningEffort: .low, concurrency: 2, accountID: UUID())
