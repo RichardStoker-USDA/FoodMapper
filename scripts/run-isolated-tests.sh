@@ -5,7 +5,7 @@ umask 077
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 # The single Xcode release used for tests, CI, and release builds. CI reads it
 # with --required-xcode-version. Change it here when the project moves Xcode.
-required_xcode_version="27.1"
+required_xcode_version="27.2"
 runner_temp="${RUNNER_TEMP:-}"
 if [ -n "$runner_temp" ]; then
     temporary_root="${runner_temp%/}"
