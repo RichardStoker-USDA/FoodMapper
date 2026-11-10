@@ -1262,20 +1262,16 @@ actor MatchingEngine {
                     isQuery: true
                 )
 
-                // 2. GPU matrix multiplication for ALL similarities at once
-                // [batch, 1024] @ [1024, N] = [batch, N]
-                let scores = matmul(inputMatrix, targetMatrix.transposed())
-
-                // 3. Find best match per row - GPU operations
-                let bestIndices = scores.argMax(axis: 1)
-                let bestScores = MLX.max(scores, axis: 1)
-
-                // 4. Single eval() for all GPU operations in this batch
-                eval(bestIndices, bestScores)
-
-                // 5. Pull minimal results to CPU
-                let indicesArray = bestIndices.asArray(Int32.self)
-                let scoresArray = bestScores.asArray(Float.self)
+                // 2-5. Score on the GPU and pull the minimal result to the CPU.
+                // The pool releases this batch's Metal buffers before the next one.
+                let (indicesArray, scoresArray): ([Int32], [Float]) = autoreleasepool {
+                    // [batch, 1024] @ [1024, N] = [batch, N]
+                    let scores = matmul(inputMatrix, targetMatrix.transposed())
+                    let bestIndices = scores.argMax(axis: 1)
+                    let bestScores = MLX.max(scores, axis: 1)
+                    eval(bestIndices, bestScores)
+                    return (bestIndices.asArray(Int32.self), bestScores.asArray(Float.self))
+                }
 
                 // 6. Build MatchResults (CPU work, very fast)
                 for (localIndex, (idx, score)) in zip(indicesArray, scoresArray).enumerated() {
@@ -1373,28 +1369,29 @@ actor MatchingEngine {
                     batchInputs, batchSize: embeddingBatchSize, isQuery: true
                 )
 
-                // Similarity: [batch, N]
-                let scores = matmul(inputMatrix, targetMatrix.transposed())
+                // Score on the GPU and pull Top-K to the CPU. The pool releases this
+                // batch's Metal buffers before the next one.
+                let (indicesFlat, scoresFlat): ([Int32], [Float]) = autoreleasepool {
+                    // Similarity: [batch, N]
+                    let scores = matmul(inputMatrix, targetMatrix.transposed())
 
-                // Partial sort via argPartition: O(N) vs O(N log N) for full argSort.
-                let negated = -scores
-                let partitioned = argPartition(negated, kth: effectiveK - 1, axis: 1)
+                    // Partial sort via argPartition: O(N) vs O(N log N) for full argSort.
+                    let negated = -scores
+                    let partitioned = argPartition(negated, kth: effectiveK - 1, axis: 1)
 
-                // Take top-K partition
-                let topKPartition = partitioned[0..., 0..<effectiveK]
-                let topKScoresUnsorted = takeAlong(scores, topKPartition, axis: 1)
+                    // Take top-K partition
+                    let topKPartition = partitioned[0..., 0..<effectiveK]
+                    let topKScoresUnsorted = takeAlong(scores, topKPartition, axis: 1)
 
-                // Sort within the partition by descending score
-                let negTopK = -topKScoresUnsorted
-                let sortOrder = argSort(negTopK, axis: 1)
-                let topKIndices = takeAlong(topKPartition, sortOrder, axis: 1)
-                let topKScores = takeAlong(topKScoresUnsorted, sortOrder, axis: 1)
+                    // Sort within the partition by descending score
+                    let negTopK = -topKScoresUnsorted
+                    let sortOrder = argSort(negTopK, axis: 1)
+                    let topKIndices = takeAlong(topKPartition, sortOrder, axis: 1)
+                    let topKScores = takeAlong(topKScoresUnsorted, sortOrder, axis: 1)
 
-                eval(topKIndices, topKScores)
-
-                // Pull to CPU
-                let indicesFlat = topKIndices.asArray(Int32.self)
-                let scoresFlat = topKScores.asArray(Float.self)
+                    eval(topKIndices, topKScores)
+                    return (topKIndices.asArray(Int32.self), topKScores.asArray(Float.self))
+                }
                 let currentBatchSize = batchInputs.count
 
                 for i in 0..<currentBatchSize {
