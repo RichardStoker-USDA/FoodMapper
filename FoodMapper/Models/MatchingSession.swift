@@ -15,6 +15,8 @@ struct MatchingSession: Identifiable, Codable {
 
     // Matching instruction used (nil = model default)
     var matchingInstruction: String?
+    /// Target field settings a provider run used. Nil for every other run and for older sessions.
+    var fieldPolicy: TargetFieldPolicy?
 
     // Target DB metadata for export reconstruction
     var selectedColumn: String?
@@ -55,6 +57,7 @@ struct MatchingSession: Identifiable, Codable {
         pipelineName: String = "GTE-Large Embedding",
         inputFileId: UUID? = nil,
         matchingInstruction: String? = nil,
+        fieldPolicy: TargetFieldPolicy? = nil,
         selectedColumn: String? = nil,
         targetTextColumn: String? = nil,
         targetIdColumn: String? = nil,
@@ -72,6 +75,7 @@ struct MatchingSession: Identifiable, Codable {
         self.pipelineName = pipelineName
         self.inputFileId = inputFileId
         self.matchingInstruction = matchingInstruction
+        self.fieldPolicy = fieldPolicy
         self.selectedColumn = selectedColumn
         self.targetTextColumn = targetTextColumn
         self.targetIdColumn = targetIdColumn
@@ -83,7 +87,7 @@ struct MatchingSession: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, inputFileName, databaseName, threshold, totalCount
         case matchedCount, resultsFilename, date, pipelineName, inputFileId
-        case matchingInstruction
+        case matchingInstruction, fieldPolicy
         case selectedColumn, targetTextColumn, targetIdColumn, targetColumnNames, targetSnapshot
         case apiTokensUsed
         case reviewDecisionsFilename
@@ -108,6 +112,7 @@ struct MatchingSession: Identifiable, Codable {
         pipelineName = try container.decodeIfPresent(String.self, forKey: .pipelineName) ?? "GTE-Large Embedding"
         inputFileId = try container.decodeIfPresent(UUID.self, forKey: .inputFileId)
         matchingInstruction = try container.decodeIfPresent(String.self, forKey: .matchingInstruction)
+        fieldPolicy = try container.decodeIfPresent(TargetFieldPolicy.self, forKey: .fieldPolicy)
         selectedColumn = try container.decodeIfPresent(String.self, forKey: .selectedColumn)
         targetTextColumn = try container.decodeIfPresent(String.self, forKey: .targetTextColumn)
         targetIdColumn = try container.decodeIfPresent(String.self, forKey: .targetIdColumn)

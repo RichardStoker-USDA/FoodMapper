@@ -127,6 +127,7 @@ struct PipelineOverviewView: View {
             modelChoices
             providerChoices
             instructionChoices
+            fieldPolicyChoices
 
             Divider()
 
@@ -283,6 +284,127 @@ struct PipelineOverviewView: View {
             .padding(Spacing.lg)
             .panelMaterialStyle(cornerRadius: 10)
         }
+    }
+
+    /// Researcher field settings: local retrieval context, target columns for the provider, and a numeric rule.
+    @ViewBuilder
+    private var fieldPolicyChoices: some View {
+        if selectedPipeline.requiresProviderProfile {
+            let columns = appState.fieldPolicyColumns
+            let policy = appState.targetFieldPolicy
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                Text("TARGET FIELDS")
+                    .technicalLabel()
+
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    TextField(
+                        "Retrieval context",
+                        text: $appState.targetFieldPolicy.retrievalContext,
+                        prompt: Text("For example: low sodium")
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 420)
+                    Text("Added to each description when FoodMapper searches the database. It stays on this Mac.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if columns.isEmpty {
+                    Text("The selected database has no columns besides its description and ID.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text("Columns sent with each candidate")
+                            .font(.callout)
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 160), alignment: .leading)],
+                            alignment: .leading,
+                            spacing: Spacing.xs
+                        ) {
+                            ForEach(columns, id: \.self) { column in
+                                Toggle(column, isOn: judgeFieldBinding(column))
+                                    .toggleStyle(.checkbox)
+                                    .lineLimit(1)
+                                    .disabled(
+                                        !policy.judgeFields.contains(column)
+                                            && policy.judgeFields.count >= TargetFieldPolicy.maximumJudgeFields
+                                    )
+                            }
+                        }
+                        Text("Up to \(TargetFieldPolicy.maximumJudgeFields) columns. Their values are sent to the provider with each candidate and are named in the confirmation before a run.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        HStack(spacing: Spacing.md) {
+                            Picker("Numeric rule", selection: ruleColumnBinding) {
+                                Text("None").tag("")
+                                ForEach(columns, id: \.self) { column in
+                                    Text(column).tag(column)
+                                }
+                            }
+                            .frame(maxWidth: 320)
+
+                            if policy.numericRule != nil {
+                                Picker("Goal", selection: ruleGoalBinding) {
+                                    ForEach(TargetFieldPolicy.NumericRule.Goal.allCases) { goal in
+                                        Text(goal.displayName).tag(goal)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                                .frame(maxWidth: 180)
+                            }
+                        }
+                        Text("With a rule, the provider also lists the candidates that are the same food as its selection, and FoodMapper picks the lowest or highest value among them. A candidate with no value in that column cannot win. Needs the Responses or Chat Completions route.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(Spacing.lg)
+            .panelMaterialStyle(cornerRadius: 10)
+            .onAppear { appState.pruneTargetFieldPolicy() }
+            .onChange(of: columns) { _, _ in appState.pruneTargetFieldPolicy() }
+        }
+    }
+
+    private func judgeFieldBinding(_ column: String) -> Binding<Bool> {
+        Binding(
+            get: { appState.targetFieldPolicy.judgeFields.contains(column) },
+            set: { isOn in
+                var fields = appState.targetFieldPolicy.judgeFields
+                fields.removeAll { $0 == column }
+                if isOn, fields.count < TargetFieldPolicy.maximumJudgeFields { fields.append(column) }
+                appState.targetFieldPolicy.judgeFields = fields
+            }
+        )
+    }
+
+    private var ruleColumnBinding: Binding<String> {
+        Binding(
+            get: { appState.targetFieldPolicy.numericRule?.column ?? "" },
+            set: { column in
+                if column.isEmpty {
+                    appState.targetFieldPolicy.numericRule = nil
+                } else {
+                    let goal = appState.targetFieldPolicy.numericRule?.goal ?? .lowest
+                    appState.targetFieldPolicy.numericRule = .init(column: column, goal: goal)
+                }
+            }
+        )
+    }
+
+    private var ruleGoalBinding: Binding<TargetFieldPolicy.NumericRule.Goal> {
+        Binding(
+            get: { appState.targetFieldPolicy.numericRule?.goal ?? .lowest },
+            set: { goal in appState.targetFieldPolicy.numericRule?.goal = goal }
+        )
     }
 
     private var requiredModelKeys: [String] {

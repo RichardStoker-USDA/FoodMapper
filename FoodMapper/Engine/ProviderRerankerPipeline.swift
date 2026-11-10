@@ -16,6 +16,8 @@ struct ProviderRunSummary: Equatable, Sendable {
     var haltReason: ProviderHaltReason?
     var usage = ProviderTokenUsage()
     var decisionSeconds: TimeInterval = 0
+    /// Rows where the numeric rule replaced the provider's selection with an equivalent candidate.
+    var ruleChangedSelections = 0
 }
 
 /// Shared state for the workers of one run.
@@ -57,6 +59,8 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
     private let authorizationGate: AdvancedFeatureGate
     private let authorizationLease: AdvancedFeatureLease
     private let transportOverride: ProviderTransport?
+    /// Researcher field settings for this run, or nil when none are set.
+    private let fieldPolicy: TargetFieldPolicy?
     private let summaryLock = NSLock()
     private var storedSummary: ProviderRunSummary?
 
@@ -73,8 +77,10 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
         authorizationGate: AdvancedFeatureGate,
         authorizationLease: AdvancedFeatureLease,
         credentialSource: ProviderCredentialSource? = nil,
-        transport: ProviderTransport? = nil
+        transport: ProviderTransport? = nil,
+        fieldPolicy: TargetFieldPolicy? = nil
     ) {
+        self.fieldPolicy = fieldPolicy?.isActive == true ? fieldPolicy : nil
         self.engine = engine
         self.profile = profile
         self.credentialSource = credentialSource ?? { credential }
@@ -97,12 +103,19 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
         guard inputs.count <= AdvancedRunLimits.defaults.inputRows else { throw ProviderPipelineError.tooManyInputs }
         try authorizationGate.validate(authorizationLease)
         let checkedProfile = try profile.validated()
+        let policy = fieldPolicy
+        let wantsEquivalents = policy?.numericRule != nil
+        if wantsEquivalents, checkedProfile.interface == .decisions {
+            throw TargetFieldPolicyError.ruleNeedsDecisionJSON
+        }
+        // The retrieval context changes only what is embedded. Results keep the original input text.
+        let retrievalInputs = policy.map { policy in inputs.map { policy.retrievalQuery(for: $0) } } ?? inputs
 
         await engine.setInstruction(instruction)
         try authorizationGate.validate(authorizationLease)
         onPhaseChange?(.loadingDatabase)
         let candidatesByInput = try await engine.matchTopK(
-            inputs: inputs,
+            inputs: retrievalInputs,
             database: database,
             k: topK,
             batchSize: hardwareConfig.matchingBatchSize,
@@ -139,7 +152,11 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                 while running < workerCount, next < total {
                     let index = next
                     next += 1
-                    let candidates = candidatesByInput[index].map(\.entry.text)
+                    let rowCandidates = candidatesByInput[index]
+                    let candidates = rowCandidates.map(\.entry.text)
+                    let fields = policy.map { policy in
+                        rowCandidates.map { policy.judgeFieldValues(from: $0.entry.additionalFields) }
+                    } ?? []
                     guard !candidates.isEmpty else {
                         // No candidates: nothing to send. Resolved when results are built.
                         completed += 1
@@ -151,6 +168,7 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                         do {
                             let decision = try await Self.decideWithRetry(
                                 input: input, candidates: candidates, instruction: rerankerInstruction,
+                                fields: fields, wantsEquivalents: wantsEquivalents,
                                 profile: checkedProfile, credentialSource: credentialSource,
                                 transport: transport, coordinator: coordinator
                             )
@@ -207,7 +225,19 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
             if case let .success(decision)? = decisions[index] {
                 summary.decided += 1
                 if let selection = decision.selection, candidates.indices.contains(selection) {
-                    let candidate = candidates[selection]
+                    var chosen = selection
+                    var notes = [Self.note(for: decision)].compactMap { $0 }
+                    if let rule = policy?.numericRule,
+                       let outcome = policy?.applyRule(
+                           selection: selection,
+                           equivalents: decision.equivalents.filter(candidates.indices.contains),
+                           value: { candidates[$0].entry.additionalFields[rule.column] }
+                       ) {
+                        if outcome.selection != selection { summary.ruleChangedSelections += 1 }
+                        chosen = outcome.selection
+                        notes.append(outcome.note)
+                    }
+                    let candidate = candidates[chosen]
                     results.append(MatchResult(
                         inputText: inputs[index],
                         inputRow: index,
@@ -216,7 +246,7 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                         score: Double(candidate.score),
                         status: .llmMatch,
                         scoreType: .llmSelected,
-                        llmReasoning: Self.note(for: decision),
+                        llmReasoning: notes.isEmpty ? nil : notes.joined(separator: " "),
                         matchAdditionalFields: candidate.entry.additionalFields,
                         candidates: resultCandidates,
                         targetRowKey: candidate.entry.targetRowKey
@@ -276,12 +306,17 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
         input: String,
         candidates: [String],
         instruction: String?,
+        fields: [[String: String]] = [],
+        wantsEquivalents: Bool = false,
         profile: ProviderProfile,
         credentialSource: ProviderCredentialSource,
         transport: ProviderTransport,
         coordinator: ProviderRunCoordinator
     ) async throws -> ProviderDecision {
-        let payload = try ProviderDecisionPayload(input: input, candidates: candidates, instruction: instruction)
+        let payload = try ProviderDecisionPayload(
+            input: input, candidates: candidates, instruction: instruction,
+            fields: fields, wantsEquivalents: wantsEquivalents
+        )
         var attempt = 1
         while true {
             try Task.checkCancellation()
@@ -345,6 +380,9 @@ enum ProviderDecisionClient {
         transport: ProviderTransport
     ) async throws -> ProviderDecision {
         let checked = try profile.validated()
+        if payload.wantsEquivalents, checked.interface == .decisions {
+            throw TargetFieldPolicyError.ruleNeedsDecisionJSON
+        }
         var endpoint = try ProviderEndpointPolicy.canonicalURL(kind: checked.kind, value: checked.baseURL)
         for component in checked.interface.pathComponents {
             endpoint.appendPathComponent(component)
@@ -368,11 +406,12 @@ enum ProviderDecisionClient {
             request.httpBody = try ProviderChatRequest.data(
                 profile: checked,
                 messages: [
-                    ["role": "system", "content": OpenAIResponsesRequest.decisionInstructions],
+                    ["role": "system", "content": OpenAIResponsesRequest.instructions(for: payload)],
                     ["role": "user", "content": try payload.jsonText()],
                 ],
                 maxTokens: min(checked.maximumOutputTokens, 128),
-                candidateIDs: payload.candidateIDs
+                candidateIDs: payload.candidateIDs,
+                wantsEquivalents: payload.wantsEquivalents
             )
         case .responses:
             request.httpBody = try OpenAIResponsesRequest.data(
@@ -392,15 +431,17 @@ enum ProviderDecisionClient {
             guard content.lengthOfBytes(using: .utf8) <= maximumDecisionBytes else {
                 throw ProviderPipelineError.responseTooLarge
             }
-            return ProviderDecision(
-                selection: try ProviderResponseParser.selection(content: content, candidateIDs: payload.candidateIDs),
-                usage: Self.chatUsage(in: data)
+            let parsed = try ProviderResponseParser.decision(
+                content: content, candidateIDs: payload.candidateIDs, wantsEquivalents: payload.wantsEquivalents
             )
+            return ProviderDecision(selection: parsed.selection, equivalents: parsed.equivalents, usage: Self.chatUsage(in: data))
         case .decisions:
             let data = try await sendJSON(request, transport: transport)
             return try OpenAIDecisionsParser.decision(from: data, candidateIDs: payload.candidateIDs)
         case .responses:
-            return try await streamDecision(request, candidateIDs: payload.candidateIDs, transport: transport)
+            return try await streamDecision(
+                request, candidateIDs: payload.candidateIDs, wantsEquivalents: payload.wantsEquivalents, transport: transport
+            )
         }
     }
 
@@ -428,7 +469,7 @@ enum ProviderDecisionClient {
     }
 
     private static func streamDecision(
-        _ request: URLRequest, candidateIDs: [String], transport: ProviderTransport
+        _ request: URLRequest, candidateIDs: [String], wantsEquivalents: Bool, transport: ProviderTransport
     ) async throws -> ProviderDecision {
         var reducer = ResponsesStreamReducer()
         let (response, errorBody) = try await transport.readLines(
@@ -447,10 +488,10 @@ enum ProviderDecisionClient {
         switch reducer.outcome {
         case .completed:
             guard let text = reducer.completedText else { throw ProviderPipelineError.invalidResponse }
-            return ProviderDecision(
-                selection: try ProviderResponseParser.selection(content: text, candidateIDs: candidateIDs),
-                usage: reducer.usage
+            let parsed = try ProviderResponseParser.decision(
+                content: text, candidateIDs: candidateIDs, wantsEquivalents: wantsEquivalents
             )
+            return ProviderDecision(selection: parsed.selection, equivalents: parsed.equivalents, usage: reducer.usage)
         case let .failed(code, _):
             throw ProviderErrorClassifier.classify(status: nil, code: code)
         case .incomplete:
@@ -490,10 +531,11 @@ enum ProviderChatRequest {
         profile: ProviderProfile,
         messages: [[String: String]],
         maxTokens: Int,
-        candidateIDs: [String]
+        candidateIDs: [String],
+        wantsEquivalents: Bool = false
     ) throws -> Data {
         let checked = try profile.validated()
-        let responseSchema = responseSchema(candidateIDs: candidateIDs)
+        let responseSchema = responseSchema(candidateIDs: candidateIDs, wantsEquivalents: wantsEquivalents)
         let body: [String: Any] = [
             "model": checked.model,
             "messages": messages,
@@ -504,31 +546,22 @@ enum ProviderChatRequest {
         return try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
     }
 
-    static func schemaHash(candidateIDs: [String]) throws -> String {
+    static func schemaHash(candidateIDs: [String], wantsEquivalents: Bool = false) throws -> String {
         let data = try JSONSerialization.data(
-            withJSONObject: responseSchema(candidateIDs: candidateIDs),
+            withJSONObject: responseSchema(candidateIDs: candidateIDs, wantsEquivalents: wantsEquivalents),
             options: [.sortedKeys]
         )
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func responseSchema(candidateIDs: [String]) -> [String: Any] {
-        let identifierValues: [Any] = candidateIDs + [NSNull()]
-        return [
+    private static func responseSchema(candidateIDs: [String], wantsEquivalents: Bool) -> [String: Any] {
+        [
             "type": "json_schema",
             "json_schema": [
-                "name": "foodmapper_candidate_decision",
+                "name": ProviderDecisionSchema.name(wantsEquivalents: wantsEquivalents),
                 "strict": true,
-                "schema": [
-                    "type": "object",
-                    "properties": [
-                        "decision": ["type": "string", "enum": ["select", "abstain"]],
-                        "candidate_id": ["type": ["string", "null"], "enum": identifierValues]
-                    ],
-                    "required": ["decision", "candidate_id"],
-                    "additionalProperties": false
-                ]
-            ]
+                "schema": ProviderDecisionSchema.schema(candidateIDs: candidateIDs, wantsEquivalents: wantsEquivalents),
+            ],
         ]
     }
 }
@@ -550,27 +583,47 @@ enum ProviderResponseParser {
     }
 
     static func selection(content: String, candidateIDs: [String]) throws -> Int? {
+        try decision(content: content, candidateIDs: candidateIDs, wantsEquivalents: false).selection
+    }
+
+    /// Validates the strict decision object. With `wantsEquivalents`, `equivalent_ids` must be
+    /// present, name only submitted candidates, and be empty when the provider abstains.
+    static func decision(
+        content: String, candidateIDs: [String], wantsEquivalents: Bool
+    ) throws -> (selection: Int?, equivalents: [Int]) {
+        let expectedKeys: Set<String> = wantsEquivalents
+            ? ["decision", "candidate_id", "equivalent_ids"] : ["decision", "candidate_id"]
         guard let data = content.data(using: .utf8),
-              exactKeyCount("decision", in: content) == 1,
-              exactKeyCount("candidate_id", in: content) == 1,
+              expectedKeys.allSatisfy({ exactKeyCount($0, in: content) == 1 }),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys) == ["decision", "candidate_id"],
+              Set(object.keys) == expectedKeys,
               let decision = object["decision"] as? String else {
             throw ProviderPipelineError.invalidResponse
+        }
+        var equivalents: [Int] = []
+        if wantsEquivalents {
+            // A repeated ID is harmless and dropped below. The response size is already capped.
+            guard let listed = object["equivalent_ids"] as? [String] else {
+                throw ProviderPipelineError.invalidResponse
+            }
+            for identifier in listed {
+                guard let index = candidateIDs.firstIndex(of: identifier) else { throw ProviderPipelineError.invalidResponse }
+                if !equivalents.contains(index) { equivalents.append(index) }
+            }
         }
 
         switch decision {
         case "abstain":
-            guard object["candidate_id"] is NSNull else {
+            guard object["candidate_id"] is NSNull, equivalents.isEmpty else {
                 throw ProviderPipelineError.invalidResponse
             }
-            return nil
+            return (nil, [])
         case "select":
             guard let candidateID = object["candidate_id"] as? String,
                   let index = candidateIDs.firstIndex(of: candidateID) else {
                 throw ProviderPipelineError.invalidResponse
             }
-            return index
+            return (index, equivalents.filter { $0 != index })
         default:
             throw ProviderPipelineError.invalidResponse
         }

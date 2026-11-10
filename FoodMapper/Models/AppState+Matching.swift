@@ -87,10 +87,24 @@ extension AppState {
 
         let providerProfileForRun: ProviderProfile?
         let providerCredentialForRun: String?
+        var fieldPolicyForRun: TargetFieldPolicy?
         if pipelineType.requiresProviderProfile {
             guard let profile = selectedProviderProfile else {
                 self.error = AppError.matchingFailed("Select a provider profile before starting this run.")
                 return
+            }
+            // Check the field settings before asking to send anything, so the confirmation names real columns.
+            if targetFieldPolicy.isActive {
+                do {
+                    let checked = try targetFieldPolicy.validated(availableColumns: Self.fieldPolicyColumns(for: database))
+                    if checked.numericRule != nil, profile.interface == .decisions {
+                        throw TargetFieldPolicyError.ruleNeedsDecisionJSON
+                    }
+                    fieldPolicyForRun = checked
+                } catch {
+                    self.error = AppError.matchingFailed(error.localizedDescription)
+                    return
+                }
             }
             let credential = APIKeyStorage.getProviderCredential(profileID: profile.id)
             guard hasCredential(for: profile) else {
@@ -117,6 +131,7 @@ extension AppState {
             providerProfileForRun = nil
             providerCredentialForRun = nil
         }
+        lastRunFieldPolicy = fieldPolicyForRun
 
         // Check if any required models (with selected sizes) are missing and prompt for download
         let requiredKeys = requiredModelKeysForCurrentPipeline
@@ -203,7 +218,8 @@ extension AppState {
                     type: pipelineType, engine: engine,
                     providerProfile: providerProfileForRun,
                     providerCredential: providerCredentialForRun,
-                    advancedLease: advancedLease
+                    advancedLease: advancedLease,
+                    fieldPolicy: fieldPolicyForRun
                 )
 
                 let hwConfig = self.effectiveHardwareConfig(for: pipelineType)
@@ -525,7 +541,8 @@ extension AppState {
         engine: MatchingEngine,
         providerProfile: ProviderProfile? = nil,
         providerCredential: String? = nil,
-        advancedLease: AdvancedFeatureLease? = nil
+        advancedLease: AdvancedFeatureLease? = nil,
+        fieldPolicy: TargetFieldPolicy? = nil
     ) async throws -> any MatchingPipelineProtocol {
         switch type {
         case .gteLargeEmbedding:
@@ -568,9 +585,37 @@ extension AppState {
                 topK: effectiveHardwareConfig(for: .providerLLM).topKForReranking,
                 authorizationGate: advancedFeatureGate,
                 authorizationLease: advancedLease,
-                credentialSource: credentialSource(for: providerProfile)
+                credentialSource: credentialSource(for: providerProfile),
+                fieldPolicy: fieldPolicy
             )
         }
+    }
+
+    /// Target columns a field policy may name: every column except the description and ID.
+    nonisolated static func fieldPolicyColumns(for database: AnyDatabase) -> [String] {
+        let all: [String]
+        switch database {
+        case .builtIn(let builtIn): all = builtIn.columnNames
+        case .custom(let custom): all = custom.columnNames ?? []
+        case .snapshot(let snapshot): all = snapshot.columnNames
+        }
+        let excluded = Set([database.textColumn, database.idColumn].compactMap { $0 })
+        var seen = Set<String>()
+        return all.filter { !excluded.contains($0) && seen.insert($0).inserted }
+    }
+
+    /// Columns of the selected database a field policy may name.
+    var fieldPolicyColumns: [String] {
+        selectedDatabase.map(Self.fieldPolicyColumns(for:)) ?? []
+    }
+
+    /// Drops settings that name columns the selected database does not have.
+    func pruneTargetFieldPolicy() {
+        let available = Set(fieldPolicyColumns)
+        var policy = targetFieldPolicy
+        policy.judgeFields.removeAll { !available.contains($0) }
+        if let column = policy.numericRule?.column, !available.contains(column) { policy.numericRule = nil }
+        if policy != targetFieldPolicy { targetFieldPolicy = policy }
     }
 
     func approveProviderTransferAndRun(profileID: UUID) {

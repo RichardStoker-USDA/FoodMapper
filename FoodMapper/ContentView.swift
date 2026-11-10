@@ -413,7 +413,11 @@ struct ContentView: View {
             transport = "\(profile.baseURL) over loopback HTTP. The selected values stay on this Mac."
         }
         let workers = profile.concurrency == 1 ? "one request at a time" : "up to \(profile.concurrency) requests at a time"
-        return "FoodMapper will send \(inputCount) values from \(selectedField) and up to \(candidateCount) candidates per value to \(profile.name), using \(profile.model) at \(transport) It will send \(workers) and retry a failed request up to \(ProviderRetryPolicy.maximumAttempts - 1) times. Each request is limited to 16 KB. Other imported columns are not included."
+        let judgeFields = appState.targetFieldPolicy.judgeFields
+        let fieldsNote = judgeFields.isEmpty
+            ? ""
+            : " Each candidate includes these target columns: \(judgeFields.joined(separator: ", "))."
+        return "FoodMapper will send \(inputCount) values from \(selectedField) and up to \(candidateCount) candidates per value to \(profile.name), using \(profile.model) at \(transport)\(fieldsNote) It will send \(workers) and retry a failed request up to \(ProviderRetryPolicy.maximumAttempts - 1) times. Each request is limited to 16 KB. Other imported columns are not included."
     }
 }
 

@@ -475,6 +475,11 @@ final class AppState: ObservableObject {
     @Published var selectedInstructionPreset: InstructionPreset = .bestMatch
     @Published var customInstructionText: String = ""
 
+    /// Researcher field settings for provider-assisted runs. Session state, like the matching context.
+    @Published var targetFieldPolicy = TargetFieldPolicy()
+    /// The validated settings the most recent run used, saved with its session. Nil when it used none.
+    var lastRunFieldPolicy: TargetFieldPolicy?
+
     // API tier detection (session-only, not persisted)
     @Published var detectedAPITier: APITier = .unknown
 
