@@ -117,6 +117,8 @@ final class AppState: ObservableObject {
     @Published var databaseEmbeddingStatus: DatabaseEmbeddingStatus = .idle
     @Published var databaseRecoveryIssue: DatabaseRecoveryIssue?
     @Published private(set) var activeEngineOperation: EngineOperation?
+    /// True while the running match holds an Advanced lease, whatever pipeline is selected now.
+    var activeMatchUsesAdvancedLease = false
 
     /// Bumped whenever embedding cache files change on disk, forcing SwiftUI views
     /// that depend on `hasEmbeddings(for:)` to re-evaluate.
@@ -387,7 +389,8 @@ final class AppState: ObservableObject {
                 pendingProviderTransferProfile = nil
                 showProviderTransferConfirmation = false
                 approvedProviderTransferProfileID = nil
-                if isProcessing, selectedPipelineType.isExperimental {
+                // The selection can change while a run is in progress, so ask what the run itself holds.
+                if isProcessing, activeMatchUsesAdvancedLease || selectedPipelineType.isExperimental {
                     cancelMatching()
                 }
             }
@@ -765,6 +768,7 @@ final class AppState: ObservableObject {
 
     func finishEngineOperation(_ id: UUID) {
         guard isCurrentEngineOperation(id) else { return }
+        if case .matching = activeEngineOperation { activeMatchUsesAdvancedLease = false }
         activeEngineOperation = nil
     }
 

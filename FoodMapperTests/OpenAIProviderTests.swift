@@ -380,6 +380,58 @@ final class OpenAIAdapterTests: XCTestCase {
     }
 }
 
+extension OpenAIAdapterTests {
+    func testWaitingWorkerSendsNothingAfterAHaltOrRevokedAuthorization() async throws {
+        let plan = ProviderProfile(name: "Plan", kind: .chatGPTPlan, model: "m", interface: .responses, concurrency: 2, accountID: UUID())
+        let transport = StubProviderTransport([.json(["error": ["code": "server_error"]], status: 500)])
+
+        // Another worker halts the run while this one sleeps on the shared backoff.
+        let coordinator = ProviderRunCoordinator()
+        await coordinator.noteRetry(resumeAfter: 0.4)
+        async let waiting = ProviderRerankerPipeline.decideWithRetry(
+            input: "milk", candidates: ["Milk, whole"], instruction: nil, profile: plan,
+            credentialSource: { "t" }, transport: transport, coordinator: coordinator
+        )
+        try await Task.sleep(nanoseconds: 80_000_000)
+        await coordinator.halt(.quotaExhausted)
+        do {
+            _ = try await waiting
+            XCTFail("expected a failure")
+        } catch {}
+        XCTAssertEqual(transport.requests.count, 0, "a worker that was waiting sends nothing once the run has halted")
+
+        // Advanced mode turned off: the lease check runs right before the request would leave.
+        let gate = AdvancedFeatureGate()
+        gate.setEnabled(true)
+        let lease = try gate.issueLease()
+        gate.setEnabled(false)
+        do {
+            _ = try await ProviderRerankerPipeline.decideWithRetry(
+                input: "milk", candidates: ["Milk, whole"], instruction: nil, profile: plan,
+                credentialSource: { "t" }, transport: transport, coordinator: ProviderRunCoordinator(),
+                authorize: { try gate.validate(lease) }
+            )
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertTrue(error is AdvancedFeatureError, "the run fails with the authorization error, got \(error)")
+        }
+        XCTAssertEqual(transport.requests.count, 0, "nothing is sent after authorization ends")
+    }
+
+    func testTokenCountsFromAServerCannotOverflowOrGoNegative() {
+        let sum = ProviderTokenUsage(inputTokens: .max, outputTokens: 5) + ProviderTokenUsage(inputTokens: 1, outputTokens: 7)
+        XCTAssertEqual(sum.inputTokens, .max, "the sum saturates")
+        XCTAssertEqual(sum.outputTokens, 12)
+        XCTAssertEqual(ProviderTokenUsage.count(NSNumber(value: 172)), 172)
+        XCTAssertEqual(ProviderTokenUsage.count(NSNumber(value: -4)), 0)
+        XCTAssertEqual(ProviderTokenUsage.count(NSNumber(value: 1.5)), 0)
+        XCTAssertEqual(ProviderTokenUsage.count(NSNumber(value: 1e30)), 0)
+        XCTAssertEqual(ProviderTokenUsage.count(NSNumber(value: true)), 0)
+        XCTAssertEqual(ProviderTokenUsage.count("12"), 0)
+        XCTAssertEqual(ProviderTokenUsage.count(nil), 0)
+    }
+}
+
 final class ChatGPTAuthorizationTests: XCTestCase {
     private func attempt(clientID: String? = nil) throws -> ChatGPTAuthorizationAttempt {
         try ChatGPTAuthorizationAttempt.make(port: 54_321, issuedClientID: clientID)

@@ -311,6 +311,45 @@ final class AdvancedCatalogTests: XCTestCase {
 /// The model reset removed the Qwen, Nomic, and Gemma experiments. These tests
 /// cover what a user of an earlier version still has on disk and in settings.
 final class ModelResetTests: XCTestCase {
+    func testScoresFromARemovedPipelineAreNeverAcceptedAutomatically() {
+        // A cosine result that GTE-Large triage accepts: score at the floor with a clear gap.
+        let result = MatchResult(
+            inputText: "milk", inputRow: 0, matchText: "Milk, whole", matchID: "1", score: 0.97, status: .match,
+            scoreType: .cosineSimilarity,
+            candidates: [MatchCandidate(matchText: "Milk, whole", score: 0.97), MatchCandidate(matchText: "Milk, nonfat", score: 0.94)]
+        )
+        let profile = AppState.effectiveProfile(userMatchThreshold: nil, userRejectThreshold: nil, pipelineType: .gteLargeEmbedding)
+        XCTAssertEqual(
+            AppState.triageDecision(for: result, profile: profile, pipelineType: .gteLargeEmbedding).status, .autoMatch
+        )
+        // The same numbers recorded by a removed model reopen with GTE-Large selected and go to review.
+        XCTAssertEqual(
+            AppState.triageDecision(
+                for: result, profile: profile, pipelineType: .gteLargeEmbedding, recordedByRemovedPipeline: true
+            ).status,
+            .autoNeedsReview
+        )
+        let batch = AppState.computeTriageDecisions(
+            results: [result], existingDecisions: [:], pipelineType: .gteLargeEmbedding,
+            userMatchThreshold: nil, userRejectThreshold: nil, recordedByRemovedPipeline: true
+        )
+        XCTAssertEqual(batch[result.id]?.status, .autoNeedsReview)
+        XCTAssertTrue(LegacyPipeline.isRemoved(recordedName: "Qwen3-Embedding"))
+        XCTAssertFalse(LegacyPipeline.isRemoved(recordedName: "GTE-Large Embedding"))
+    }
+
+    func testOnlyDatabasesWithLongTextsGetANewCacheFingerprintSeed() {
+        // Short texts cannot reach the 512-token limit, so their caches from earlier versions stay valid.
+        XCTAssertEqual(MatchingEngine.cacheFingerprintSeed(texts: ["broccoli, raw", String(repeating: "a", count: 256)]), "custom-cache-v2")
+        // A text long enough to be cut is embedded differently since 0.2.0, so its database is rebuilt once.
+        XCTAssertEqual(
+            MatchingEngine.cacheFingerprintSeed(texts: ["broccoli, raw", String(repeating: "a", count: 257)]),
+            "custom-cache-v3-closing-token"
+        )
+        XCTAssertEqual(MatchingEngine.cacheFingerprintSeed(texts: [String(repeating: "é", count: 129)]), "custom-cache-v3-closing-token")
+        XCTAssertEqual(MatchingEngine.cacheFingerprintSeed(texts: [String]()), "custom-cache-v2")
+    }
+
     func testSelectablePipelinesAreTheReducedSet() {
         XCTAssertEqual(
             Set(PipelineType.allCases),

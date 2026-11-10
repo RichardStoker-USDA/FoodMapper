@@ -156,6 +156,7 @@ extension AppState {
             return
         }
         isProcessing = true
+        activeMatchUsesAdvancedLease = advancedLease != nil
         userNavigatedAwayDuringMatching = false
         matchingPhase = .loadingDatabase
         results = []

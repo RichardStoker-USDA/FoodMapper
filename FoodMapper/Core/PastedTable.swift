@@ -54,10 +54,14 @@ enum PastedTable {
             } catch {
                 throw PastedTableError.unreadable(error.localizedDescription)
             }
-            guard records.count >= 2 else { throw PastedTableError.headerOnly }
-            return Table(
-                csv: csv(records), columnCount: records[0].count, rowCount: records.count - 1, addedHeader: false
-            )
+            // A tab inside one quoted cell is part of a description, not a column break.
+            // Only a record with more than one field makes this a table.
+            if records.contains(where: { $0.count > 1 }) {
+                guard records.count >= 2 else { throw PastedTableError.headerOnly }
+                return Table(
+                    csv: csv(records), columnCount: records[0].count, rowCount: records.count - 1, addedHeader: false
+                )
+            }
         }
 
         // A list. Spreadsheets quote a single cell that contains a line break, so try the

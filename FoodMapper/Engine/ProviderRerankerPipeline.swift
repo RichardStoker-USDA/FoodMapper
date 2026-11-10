@@ -139,6 +139,8 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
         }
         let coordinator = ProviderRunCoordinator()
         let credentialSource = self.credentialSource
+        let gate = authorizationGate
+        let lease = authorizationLease
         let started = Date()
         var decisions = [Result<ProviderDecision, Error>?](repeating: nil, count: total)
         var completed = 0
@@ -170,11 +172,15 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                                 input: input, candidates: candidates, instruction: rerankerInstruction,
                                 fields: fields, wantsEquivalents: wantsEquivalents,
                                 profile: checkedProfile, credentialSource: credentialSource,
-                                transport: transport, coordinator: coordinator
+                                transport: transport, coordinator: coordinator,
+                                authorize: { try gate.validate(lease) }
                             )
                             return (index, .success(decision))
                         } catch is CancellationError {
                             throw CancellationError()
+                        } catch let error as AdvancedFeatureError {
+                            // Authorization ended. Fail the run so no other worker sends.
+                            throw error
                         } catch {
                             return (index, .failure(error))
                         }
@@ -319,7 +325,8 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
         profile: ProviderProfile,
         credentialSource: ProviderCredentialSource,
         transport: ProviderTransport,
-        coordinator: ProviderRunCoordinator
+        coordinator: ProviderRunCoordinator,
+        authorize: (@Sendable () throws -> Void)? = nil
     ) async throws -> ProviderDecision {
         let payload = try ProviderDecisionPayload(
             input: input, candidates: candidates, instruction: instruction,
@@ -327,10 +334,15 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
         )
         var attempt = 1
         while true {
-            try Task.checkCancellation()
-            if await coordinator.haltReason != nil { throw ProviderFailure.row(status: nil) }
-            let wait = await coordinator.backoffDelay()
-            if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+            // Check again after every wait. While this worker slept, another one may have
+            // halted the run or pushed the shared backoff further out.
+            while true {
+                try Task.checkCancellation()
+                if await coordinator.haltReason != nil { throw ProviderFailure.row(status: nil) }
+                let wait = await coordinator.backoffDelay()
+                guard wait > 0 else { break }
+                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            }
 
             do {
                 let credential: String?
@@ -341,6 +353,11 @@ final class ProviderRerankerPipeline: MatchingPipelineProtocol, @unchecked Senda
                 } catch {
                     throw ProviderFailure.halt(.signInRequired)
                 }
+                // Last step before data leaves the Mac. Turning Advanced mode off revokes the
+                // lease, and a worker that was waiting must not send after that.
+                try Task.checkCancellation()
+                if await coordinator.haltReason != nil { throw ProviderFailure.row(status: nil) }
+                try authorize?()
                 let decision = try await ProviderDecisionClient.decide(
                     payload: payload, profile: profile, credential: credential, transport: transport
                 )
@@ -526,10 +543,10 @@ enum ProviderDecisionClient {
         let promptDetails = usage["prompt_tokens_details"] as? [String: Any]
         let completionDetails = usage["completion_tokens_details"] as? [String: Any]
         return ProviderTokenUsage(
-            inputTokens: (usage["prompt_tokens"] as? NSNumber)?.intValue ?? 0,
-            cachedInputTokens: (promptDetails?["cached_tokens"] as? NSNumber)?.intValue ?? 0,
-            outputTokens: (usage["completion_tokens"] as? NSNumber)?.intValue ?? 0,
-            reasoningTokens: (completionDetails?["reasoning_tokens"] as? NSNumber)?.intValue ?? 0
+            inputTokens: ProviderTokenUsage.count(usage["prompt_tokens"]),
+            cachedInputTokens: ProviderTokenUsage.count(promptDetails?["cached_tokens"]),
+            outputTokens: ProviderTokenUsage.count(usage["completion_tokens"]),
+            reasoningTokens: ProviderTokenUsage.count(completionDetails?["reasoning_tokens"])
         )
     }
 }

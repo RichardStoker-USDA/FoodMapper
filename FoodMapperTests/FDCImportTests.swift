@@ -115,6 +115,29 @@ final class FDCImportTests: XCTestCase {
         }
     }
 
+    func testARecordWiderOrNarrowerThanTheHeaderStopsTheImport() throws {
+        try writeBundle()
+        // An unquoted comma in a description shifts every later field of that record.
+        try write("food.csv", "fdc_id,data_type,description,food_category_id\n100,sr_legacy_food,Broccoli raw,11\n\n101,sr_legacy_food,Soup, chicken,6\n")
+        XCTAssertThrowsError(try convert()) {
+            XCTAssertEqual($0 as? FDCBundleImportError, .malformedRow(file: "food.csv", record: 3, expected: 4, found: 5))
+            XCTAssertEqual(
+                $0.localizedDescription,
+                "food.csv record 3 has 5 fields where the header has 4. The file may be damaged or have an unquoted comma. Download the dataset again."
+            )
+        }
+        try write("food.csv", "fdc_id,data_type,description,food_category_id\n100,sr_legacy_food,Broccoli raw\n")
+        XCTAssertThrowsError(try convert()) {
+            XCTAssertEqual($0 as? FDCBundleImportError, .malformedRow(file: "food.csv", record: 2, expected: 4, found: 3))
+        }
+        // The same check covers the nutrient table.
+        try writeBundle()
+        try write("food_nutrient.csv", "id,fdc_id,nutrient_id,amount\n1,100,1008,34\n2,100,1003,2.82,extra\n")
+        XCTAssertThrowsError(try convert()) {
+            XCTAssertEqual($0 as? FDCBundleImportError, .malformedRow(file: "food_nutrient.csv", record: 3, expected: 4, found: 5))
+        }
+    }
+
     func testNutrientUnitsFromTheBundleAreChecked() throws {
         try writeBundle()
         // This bundle reports sodium (1093) in grams, so the sodium_mg column must stay empty.

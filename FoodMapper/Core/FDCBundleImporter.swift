@@ -174,6 +174,7 @@ enum FDCBundleImportError: LocalizedError, Equatable {
     case missingFile(String)
     case missingColumn(file: String, column: String)
     case unreadableFile(name: String, reason: String)
+    case malformedRow(file: String, record: Int, expected: Int, found: Int)
     case noFoods
     case tooManyFoods(Int)
 
@@ -185,6 +186,8 @@ enum FDCBundleImportError: LocalizedError, Equatable {
             return "\(file) has no \(column) column, so it is not a FoodData Central CSV file FoodMapper can read."
         case let .unreadableFile(name, reason):
             return "\(name) could not be read. \(reason)"
+        case let .malformedRow(file, record, expected, found):
+            return "\(file) record \(record.formatted()) has \(found) fields where the header has \(expected). The file may be damaged or have an unquoted comma. Download the dataset again."
         case .noFoods:
             return "No foods of a supported FoodData Central data type were found in this folder."
         case let .tooManyFoods(limit):
@@ -438,12 +441,23 @@ enum FDCBundleImporter {
         _ url: URL, required: [String], row: (_ columns: [String: Int], _ record: CSVRecordStream.Record) throws -> Void
     ) throws {
         var columns: [String: Int]?
+        var headerWidth = 0
+        var recordNumber = 0
         do {
             try CSVRecordStream.forEachRecord(in: url) { record in
+                recordNumber += 1
                 if let columns {
+                    // A record that is wider or narrower than the header would be read against the
+                    // wrong columns. Stop instead of importing shifted values.
+                    guard record.count == headerWidth else {
+                        throw FDCBundleImportError.malformedRow(
+                            file: url.lastPathComponent, record: recordNumber, expected: headerWidth, found: record.count
+                        )
+                    }
                     try row(columns, record)
                     return
                 }
+                headerWidth = record.count
                 var names: [String: Int] = [:]
                 for (index, name) in try record.strings().enumerated() where names[name] == nil {
                     names[name] = index
