@@ -774,7 +774,7 @@ private struct HelpGettingStartedContent: View {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 HelpStep(number: 1, title: "Download a model", description: appState.isAdvancedMode ? "FoodMapper prompts you to download GTE-Large (about 640 MiB) before default matching. Advanced mode may show optional experimental model downloads that have not been qualified for research use." : "FoodMapper prompts you to download GTE-Large (about 640 MiB) before default matching.")
 
-                HelpStep(number: 2, title: "Load your data", description: "Drop a CSV or TSV file onto the drop zone, or click to browse. The file needs at least one column with food descriptions.")
+                HelpStep(number: 2, title: "Load your data", description: "Drop a CSV or TSV file onto the drop zone, or click to browse. You can also choose Paste from Clipboard: cells copied from a spreadsheet become a table with the first row as its header, and plain text becomes a list with one description per line. The file needs at least one column with food descriptions.")
 
                 HelpStep(number: 3, title: "Select the description column", description: "Pick which column contains the food descriptions you want to match.")
 

@@ -125,6 +125,21 @@ struct MatchSetupView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
 
+            HStack(spacing: Spacing.sm) {
+                Button(action: pasteFromClipboard) {
+                    Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isLoading)
+                .help("Paste cells copied from a spreadsheet (the first row is the header), or a list with one description per line.")
+
+                Text("Spreadsheet cells or one description per line")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+
             // CSV help disclosure
             csvHelpSection
 
@@ -1347,6 +1362,37 @@ struct MatchSetupView: View {
                 isLoading = false
             } catch {
                 isLoading = false
+                appState.error = AppError.fileLoadFailed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Builds a dataset from clipboard text and loads its stored copy, so the working file is never a temporary one.
+    private func pasteFromClipboard() {
+        guard !isLoading else { return }
+        guard let text = NSPasteboard.general.string(forType: .string) else {
+            appState.error = AppError.fileLoadFailed(PastedTableError.empty.localizedDescription)
+            return
+        }
+        isLoading = true
+        Task { @MainActor in
+            var temporaryFolder: URL?
+            defer {
+                if let temporaryFolder { try? FileManager.default.removeItem(at: temporaryFolder) }
+                isLoading = false
+            }
+            do {
+                let url = try PastedTable.writeTemporaryFile(
+                    from: text, temporaryRoot: FoodMapperStorage.processTemporaryRootURL
+                )
+                temporaryFolder = url.deletingLastPathComponent()
+                let pasted = try await CSVParser.parse(url: url)
+                guard let stored = appState.storeInputFile(pasted) else { throw PastedTableError.notStored }
+                var loadedFile = try await CSVParser.parse(url: stored.csvURL)
+                loadedFile.displayNameOverride = stored.displayName
+                appState.inputFile = loadedFile
+                appState.handleFileLoaded(loadedFile)
+            } catch {
                 appState.error = AppError.fileLoadFailed(error.localizedDescription)
             }
         }
