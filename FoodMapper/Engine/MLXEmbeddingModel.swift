@@ -727,18 +727,20 @@ class BertTokenizer {
     }
 
     func encode(_ text: String, maxLength: Int = 512) -> Encoding {
-        let encoded = tokenizer.encode(text: text)
-
-        // Truncate if needed
-        var ids = encoded
-        if ids.count > maxLength {
-            ids = Array(ids.prefix(maxLength))
-        }
+        let ids = Self.truncated(tokenizer.encode(text: text), maxLength: maxLength)
 
         // Create attention mask
         let attentionMask = [Int](repeating: 1, count: ids.count)
 
         return Encoding(ids: ids, attentionMask: attentionMask)
+    }
+
+    /// Cuts an encoded sequence to `maxLength` the way the published code does: the closing
+    /// token stays last and tokens are dropped from the end of the text. sentence-transformers
+    /// truncates `thenlper/gte-large` input this way. A sequence that already fits is returned unchanged.
+    static func truncated(_ ids: [Int], maxLength: Int) -> [Int] {
+        guard maxLength >= 2, ids.count > maxLength, let closing = ids.last else { return ids }
+        return Array(ids.prefix(maxLength - 1)) + [closing]
     }
 
     /// Batch encode multiple texts with padding

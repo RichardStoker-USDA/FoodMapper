@@ -98,3 +98,22 @@ final class EmbeddingTests: XCTestCase {
         return dot / (normA * normB)
     }
 }
+
+/// Needs no model, so it always runs.
+final class TokenizerTruncationTests: XCTestCase {
+    /// Long input keeps the closing token, as the published sentence-transformers code does.
+    func testTruncationKeepsTheClosingToken() {
+        let short = [101, 7592, 2088, 102]
+        XCTAssertEqual(BertTokenizer.truncated(short, maxLength: 512), short, "input that fits is unchanged")
+        let exact = [101] + Array(1...510) + [102]
+        XCTAssertEqual(BertTokenizer.truncated(exact, maxLength: 512), exact)
+
+        let long = [101] + Array(1...900) + [102]
+        let cut = BertTokenizer.truncated(long, maxLength: 512)
+        XCTAssertEqual(cut.count, 512)
+        XCTAssertEqual(cut.first, 101)
+        XCTAssertEqual(cut.last, 102)
+        XCTAssertEqual(Array(cut[1...510]), Array(1...510), "the first 510 word pieces are kept in order")
+        XCTAssertEqual(BertTokenizer.truncated(long, maxLength: 1), long, "a limit too small to hold both end tokens is ignored")
+    }
+}
