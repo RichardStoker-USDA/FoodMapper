@@ -440,13 +440,11 @@ extension AppState {
                     self.restoreDatabaseFromSession(session)
 
                     // Infer pipeline mode from session
-                    if let pipelineType = PipelineType.allCases.first(where: { $0.displayName == session.pipelineName }) {
-                        self.selectedPipelineMode = pipelineType.pipelineMode
-                        self.selectedPipelineType = pipelineType
-                    } else {
-                        self.selectedPipelineMode = .researchValidation
-                        self.selectedPipelineType = .gteLargeEmbedding
-                    }
+                    // A removed or unknown pipeline name resolves to GTE-Large. The
+                    // session keeps its recorded name for display and export.
+                    let pipelineType = LegacyPipeline.pipelineType(forRecordedName: session.pipelineName)
+                    self.selectedPipelineMode = pipelineType.pipelineMode
+                    self.selectedPipelineType = pipelineType
 
                     self.reviewDecisions = loadedDecisions
                     self.isReviewMode = false

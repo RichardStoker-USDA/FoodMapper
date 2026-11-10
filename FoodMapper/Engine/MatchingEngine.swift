@@ -369,8 +369,6 @@ actor MatchingEngine {
     }
 
     /// Load an embedding model by key. If a different model is loaded, invalidate the database cache.
-    /// For Qwen3 models, prefer using setEmbeddingModel() with a model loaded via ModelManager,
-    /// which uses the correct HubApi download base.
     func loadModelIfNeeded(modelKey: String) async throws {
         try await loadModelIfNeeded(modelKey: modelKey, hub: HubApi())
     }
@@ -396,10 +394,6 @@ actor MatchingEngine {
             let model = MLXEmbeddingModel()
             try await model.load()
             embeddingModel = model
-        case "qwen3-emb-4b-4bit":
-            // Qwen snapshots are loaded through ModelManager after manifest
-            // validation. The engine must not invoke Hub while matching.
-            throw MatchingError.modelNotLoaded
         default:
             throw MatchingError.unknownModel(modelKey)
         }
@@ -442,7 +436,7 @@ actor MatchingEngine {
     }
 
     /// Load database entries WITHOUT computing or loading embeddings.
-    /// For pipelines that only need entry text/metadata (LLMOnly, RerankerOnly).
+    /// For callers that only need entry text and metadata.
     func loadDatabaseEntriesOnly(_ database: AnyDatabase) async throws -> [DatabaseEntry] {
         let entries: [DatabaseEntry]
         switch database {
@@ -717,16 +711,7 @@ actor MatchingEngine {
     }
 
     private func modelArtifactFingerprint(modelKey: String, embeddingDimensions: Int) async throws -> String {
-        let directory: URL?
-        if let model = embeddingModel as? QwenEmbeddingModel {
-            let repoID = model.repoId
-            let appSupport = FoodMapperStorage.applicationSupportURL
-                .appendingPathComponent("FoodMapper", isDirectory: true)
-            directory = HubApi(downloadBase: appSupport).localRepoLocation(Hub.Repo(id: repoID))
-        } else {
-            directory = MLXEmbeddingModel.modelDirectory
-        }
-        guard let directory else { throw MatchingError.modelNotLoaded }
+        guard let directory = MLXEmbeddingModel.modelDirectory else { throw MatchingError.modelNotLoaded }
         let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
         let artifacts = try paths.sorted().compactMap { path -> (String, URL)? in
             let url = directory.appendingPathComponent(path)
@@ -1313,7 +1298,7 @@ actor MatchingEngine {
         return results
     }
 
-    // MARK: - Top-K Matching (for reranker pipelines)
+    // MARK: - Top-K Matching (for selection pipelines)
 
     /// Top-K match candidate returned from embedding-based retrieval
     struct TopKCandidate {

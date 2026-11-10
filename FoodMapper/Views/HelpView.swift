@@ -1520,9 +1520,9 @@ private struct HelpExperimentalFeaturesContent: View {
                 Text("Runs")
                     .font(.headline)
 
-                HelpItem(title: "Choose a Pipeline", content: "Runs lists the published methods and the current evaluation pipelines. Select model sizes and matching context before opening a new match.")
+                HelpItem(title: "Choose a Pipeline", content: "Runs lists the published methods and the current evaluation pipelines. Select a method and its matching context before opening a new match.")
                 HelpItem(title: "Install from the Pipeline", content: "Review Install shows publisher, license, pinned revision, exact file size, and install state. A model is not downloaded until you confirm that sheet.")
-                HelpItem(title: "Current Model Set", content: "The current Nomic and Qwen3 entries are unqualified development comparisons. They are scheduled for removal from active selection before the candidate search restarts. Models marked Under review cannot be installed or used.")
+                HelpItem(title: "Current Model Set", content: "GTE-Large is the only local model. The earlier Qwen3, Nomic, and Gemma experiments were removed, and FoodMapper deletes their downloads and cached embeddings at launch. Sessions that used them still open with their recorded method name; new work on those sessions uses GTE-Large.")
             }
         }
 

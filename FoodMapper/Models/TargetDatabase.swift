@@ -748,9 +748,7 @@ struct CustomDatabase: Identifiable, Codable, Hashable, FoodDatabase {
 
     private static func embeddingDimensions(for modelKey: String) -> Int? {
         switch modelKey {
-        case "gte-large", "qwen3-emb-0.6b-4bit": return 1024
-        case "qwen3-emb-4b-4bit": return 2560
-        case "qwen3-emb-8b-4bit": return 4096
+        case "gte-large": return 1024
         default: return nil
         }
     }

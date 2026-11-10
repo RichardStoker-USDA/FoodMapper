@@ -381,8 +381,7 @@ final class AppState: ObservableObject {
                     cancelMatching()
                 }
             }
-            if !isAdvancedMode,
-               selectedPipelineType.isExperimental || selectedPipelineType.admission == .unavailable {
+            if !isAdvancedMode, selectedPipelineType.isExperimental {
                 selectedPipelineType = .gteLargeEmbedding
                 selectedPipelineMode = .standard
                 pendingDownloadModels = []
@@ -412,95 +411,21 @@ final class AppState: ObservableObject {
         didSet { FoodMapperStorage.defaults.set(selectedClaudeModel.rawValue, forKey: "selectedHaikuModel") }
     }
 
-    // Model size selection (persisted via UserDefaults)
-    @Published var selectedEmbeddingSize: ModelSize = {
-        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedEmbeddingSize"),
-           let size = ModelSize(rawValue: raw) { return size }
-        return .medium
-    }() {
-        didSet { FoodMapperStorage.defaults.set(selectedEmbeddingSize.rawValue, forKey: "selectedEmbeddingSize") }
-    }
-
-    @Published var selectedRerankerSize: ModelSize = {
-        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedRerankerSize"),
-           let size = ModelSize(rawValue: raw) { return size }
-        return .small
-    }() {
-        didSet { FoodMapperStorage.defaults.set(selectedRerankerSize.rawValue, forKey: "selectedRerankerSize") }
-    }
-
-    @Published var selectedGenerativeSize: ModelSize = {
-        if let raw = FoodMapperStorage.defaults.string(forKey: "selectedGenerativeSize"),
-           let size = ModelSize(rawValue: raw) { return size }
-        return .medium
-    }() {
-        didSet { FoodMapperStorage.defaults.set(selectedGenerativeSize.rawValue, forKey: "selectedGenerativeSize") }
-    }
-
-    /// Resolved embedding model key based on selected size
-    var selectedEmbeddingModelKey: String {
-        ModelFamily.qwen3Embedding.modelKey(for: selectedEmbeddingSize) ?? "qwen3-emb-4b-4bit"
-    }
-
-    /// Resolved reranker model key based on selected size
-    var selectedRerankerModelKey: String {
-        ModelFamily.qwen3Reranker.modelKey(for: selectedRerankerSize) ?? "qwen3-reranker-0.6b"
-    }
-
-    /// Resolved Qwen generative judge model key based on selected size.
-    var selectedGenerativeModelKey: String {
-        ModelFamily.qwen3Generative.modelKey(for: selectedGenerativeSize) ?? "qwen3-judge-4b-4bit"
-    }
-
-    /// Resolved generative judge model key for the selected pipeline.
-    var generativeModelKeyForCurrentPipeline: String {
-        let family: ModelFamily
-        switch selectedPipelineType {
-        case .gemma4LLMOnly, .gemma4TwoStage:
-            family = .gemma4Generative
-        default:
-            family = .qwen3Generative
-        }
-        return family.modelKey(for: selectedGenerativeSize)
-            ?? family.modelKey(for: .medium)
-            ?? selectedGenerativeModelKey
-    }
-
-    /// Required model keys for the current pipeline type + selected sizes.
-    /// Unlike PipelineType.requiredModelKeys (which uses hardcoded defaults),
-    /// this accounts for the user's model size selections.
+    /// Model keys the selected pipeline needs before it can run.
     var requiredModelKeysForCurrentPipeline: [String] {
-        switch selectedPipelineType {
-        case .gteLargeEmbedding, .providerLLM: return ["gte-large"]
-        case .qwen3Embedding: return [selectedEmbeddingModelKey]
-        case .nomicEmbedding: return ["nomic-embed-text-v1.5"]
-        case .qwen3Reranker: return [selectedRerankerModelKey]
-        case .qwen3TwoStage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
-        case .gteLargeHaiku, .gteLargeHaikuV2: return ["gte-large"]
-        case .qwen3SmartTriage: return [selectedEmbeddingModelKey, selectedRerankerModelKey]
-        case .qwen3LLMOnly: return [generativeModelKeyForCurrentPipeline]
-        case .embeddingLLM: return [selectedEmbeddingModelKey, generativeModelKeyForCurrentPipeline]
-        case .gemma4LLMOnly: return [generativeModelKeyForCurrentPipeline]
-        case .gemma4TwoStage: return [selectedEmbeddingModelKey, generativeModelKeyForCurrentPipeline]
-        }
+        selectedPipelineType.requiredModelKeys
     }
 
-    /// Embedding model key for the current pipeline + selected sizes
+    /// Embedding model key for the selected pipeline.
     var embeddingModelKeyForCurrentPipeline: String? {
-        switch selectedPipelineType {
-        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
-            return selectedEmbeddingModelKey
-        case .nomicEmbedding: return "nomic-embed-text-v1.5"
-        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
-        }
+        selectedPipelineType.embeddingModelKey
     }
 
     // Pipeline selection
     @Published var selectedPipelineMode: PipelineMode? = .standard
     @Published var selectedPipelineType: PipelineType = .gteLargeEmbedding {
         didSet {
-            if (!isAdvancedMode && selectedPipelineType.isExperimental) || selectedPipelineType.admission == .unavailable {
+            if !isAdvancedMode && selectedPipelineType.isExperimental {
                 selectedPipelineType = .gteLargeEmbedding
                 return
             }
@@ -532,7 +457,7 @@ final class AppState: ObservableObject {
     /// Prevents infinite didSet loops between selectedPipelineType and enableHaikuVerification
     var isSyncingPipeline = false
 
-    // Model download sheet (contextual Qwen3 downloads)
+    // Model download sheet (shown when a pipeline's model is missing)
     @Published var showModelDownloadSheet = false
     @Published var pendingDownloadModels: [RegisteredModel] = []
 
@@ -603,7 +528,7 @@ final class AppState: ObservableObject {
               let decoded = try? JSONDecoder().decode([String: PipelinePerformanceConfig].self, from: data) else {
             return [:]
         }
-        return decoded
+        return LegacyPipeline.prunedOverrides(decoded)
     }() {
         didSet { savePipelinePerformanceOverrides() }
     }
@@ -645,15 +570,9 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Embedding model key for a given pipeline type (accounts for selected model sizes)
+    /// Embedding model key for a given pipeline type
     func embeddingModelKeyForPipeline(_ pipeline: PipelineType) -> String? {
-        switch pipeline {
-        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM: return "gte-large"
-        case .qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM, .gemma4TwoStage:
-            return selectedEmbeddingModelKey
-        case .nomicEmbedding: return "nomic-embed-text-v1.5"
-        case .qwen3Reranker, .qwen3LLMOnly, .gemma4LLMOnly: return nil
-        }
+        pipeline.embeddingModelKey
     }
 
     func savePipelinePerformanceOverrides() {
@@ -1151,6 +1070,10 @@ final class AppState: ObservableObject {
             FoodMapperStorage.defaults.removeObject(forKey: "reviewAutoRejectThreshold")
             FoodMapperStorage.defaults.set(true, forKey: "thresholdMigration_v2_done")
         }
+
+        // The model reset removed the Qwen, Nomic, and Gemma pipelines. Drop
+        // their saved size choices and performance overrides.
+        LegacyPipeline.migrateDefaults(FoodMapperStorage.defaults)
 
         // Load saved settings (including advanced settings)
         loadSettings()

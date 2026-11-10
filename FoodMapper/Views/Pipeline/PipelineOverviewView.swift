@@ -176,60 +176,12 @@ struct PipelineOverviewView: View {
             Text("MODELS")
                 .technicalLabel()
 
-            if usesQwenEmbedding(selectedPipeline) {
-                modelSizePicker(
-                    title: "Embedding",
-                    family: .qwen3Embedding,
-                    selection: $appState.selectedEmbeddingSize
-                )
-            }
-
-            if usesQwenReranker(selectedPipeline) {
-                modelSizePicker(
-                    title: "Reranker",
-                    family: .qwen3Reranker,
-                    selection: $appState.selectedRerankerSize
-                )
-            }
-
-            if usesQwenJudge(selectedPipeline) {
-                modelSizePicker(
-                    title: "Candidate selection",
-                    family: .qwen3Generative,
-                    selection: $appState.selectedGenerativeSize
-                )
-            }
-
             ForEach(requiredModels) { model in
                 modelRow(model)
             }
         }
         .padding(Spacing.lg)
         .panelMaterialStyle(cornerRadius: 10)
-    }
-
-    private func modelSizePicker(
-        title: String,
-        family: ModelFamily,
-        selection: Binding<ModelSize>
-    ) -> some View {
-        HStack(spacing: Spacing.md) {
-            Text(title)
-                .font(.callout.weight(.medium))
-                .frame(width: 145, alignment: .leading)
-            Picker(title, selection: selection) {
-                ForEach(family.availableSizes) { size in
-                    let key = family.modelKey(for: size)
-                    let admitted = key.flatMap(appState.modelManager.registeredModel(for:))?.isInstallable == true
-                    Text(admitted ? size.displayName : "\(size.displayName) - review")
-                        .tag(size)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 300)
-            Spacer()
-        }
     }
 
     private func modelRow(_ model: RegisteredModel) -> some View {
@@ -338,27 +290,7 @@ struct PipelineOverviewView: View {
     }
 
     private func requiredModelKeys(for pipeline: PipelineType) -> [String] {
-        switch pipeline {
-        case .gteLargeEmbedding, .gteLargeHaiku, .gteLargeHaikuV2, .providerLLM:
-            return ["gte-large"]
-        case .nomicEmbedding:
-            return ["nomic-embed-text-v1.5"]
-        case .qwen3Embedding:
-            return [appState.selectedEmbeddingModelKey]
-        case .qwen3Reranker:
-            return [appState.selectedRerankerModelKey]
-        case .qwen3TwoStage, .qwen3SmartTriage:
-            return [appState.selectedEmbeddingModelKey, appState.selectedRerankerModelKey]
-        case .qwen3LLMOnly:
-            return [ModelFamily.qwen3Generative.modelKey(for: appState.selectedGenerativeSize) ?? "qwen3-judge-4b-4bit"]
-        case .embeddingLLM:
-            return [
-                appState.selectedEmbeddingModelKey,
-                ModelFamily.qwen3Generative.modelKey(for: appState.selectedGenerativeSize) ?? "qwen3-judge-4b-4bit"
-            ]
-        case .gemma4LLMOnly, .gemma4TwoStage:
-            return []
-        }
+        pipeline.requiredModelKeys
     }
 
     private var requiredModels: [RegisteredModel] {
@@ -412,28 +344,11 @@ struct PipelineOverviewView: View {
         return modelsReady && (!pipeline.requiresAPIKey || appState.hasAnthropicAPIKey) && providerReady
     }
 
-    private func usesQwenEmbedding(_ pipeline: PipelineType) -> Bool {
-        [.qwen3Embedding, .qwen3TwoStage, .qwen3SmartTriage, .embeddingLLM].contains(pipeline)
-    }
-
-    private func usesQwenReranker(_ pipeline: PipelineType) -> Bool {
-        [.qwen3Reranker, .qwen3TwoStage, .qwen3SmartTriage].contains(pipeline)
-    }
-
-    private func usesQwenJudge(_ pipeline: PipelineType) -> Bool {
-        [.qwen3LLMOnly, .embeddingLLM].contains(pipeline)
-    }
-
     private func icon(for pipeline: PipelineType) -> String {
         switch pipeline {
         case .gteLargeEmbedding: return "cube"
-        case .nomicEmbedding, .qwen3Embedding: return "square.stack.3d.up"
-        case .qwen3Reranker: return "arrow.triangle.swap"
-        case .qwen3TwoStage, .qwen3SmartTriage: return "point.3.connected.trianglepath.dotted"
         case .gteLargeHaiku, .gteLargeHaikuV2: return "cloud"
-        case .qwen3LLMOnly, .gemma4LLMOnly: return "text.bubble"
         case .providerLLM: return "network"
-        case .embeddingLLM, .gemma4TwoStage: return "cpu"
         }
     }
 

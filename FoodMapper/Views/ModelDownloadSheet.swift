@@ -321,17 +321,17 @@ struct ModelDownloadSheet: View {
     ModelDownloadSheet(
         models: [
             RegisteredModel(
-                key: "nomic-embed-text-v1.5",
-                displayName: "Nomic Embed Text v1.5",
-                modelFamily: .nomicEmbedding,
-                sizeCategory: .compact,
-                repoId: NomicEmbeddingModel.repository,
-                revision: NomicEmbeddingModel.revision,
-                downloadSize: 547_886_235,
-                publisher: "Nomic AI",
-                licenseName: "Apache 2.0",
+                key: "gte-large",
+                displayName: "GTE-Large",
+                modelFamily: .gteLarge,
+                sizeCategory: .legacy,
+                repoId: "richtext/foodmapper-gte-large",
+                revision: GTELargeModelManifest.current.revision,
+                downloadSize: GTELargeModelManifest.current.downloadSize,
+                publisher: "Alibaba-NLP",
+                licenseName: GTELargeModelManifest.current.upstreamLicense,
                 purpose: .embedding,
-                admission: .evaluation
+                admission: .published
             )
         ],
         modelManager: ModelManager(hardwareConfig: .detect()),

@@ -5,7 +5,7 @@ private let logger = Logger(subsystem: "com.foodmapper", category: "pipeline")
 
 /// Pipeline that uses only embedding similarity for matching.
 /// Wraps MatchingEngine's existing match() logic behind MatchingPipelineProtocol.
-/// Used for both GTE-Large (paper validation) and Qwen3-Embedding (modern) pipelines.
+/// Used for the published GTE-Large method.
 final class EmbeddingOnlyPipeline: MatchingPipelineProtocol {
     let pipelineType: PipelineType
     private let engine: MatchingEngine
@@ -14,7 +14,7 @@ final class EmbeddingOnlyPipeline: MatchingPipelineProtocol {
 
     /// Create a pipeline backed by the given matching engine.
     /// - Parameters:
-    ///   - type: The pipeline type (.gteLargeEmbedding or .qwen3Embedding)
+    ///   - type: The pipeline type (.gteLargeEmbedding)
     ///   - engine: The matching engine with the appropriate model loaded
     init(type: PipelineType, engine: MatchingEngine) {
         self.pipelineType = type
@@ -31,11 +31,10 @@ final class EmbeddingOnlyPipeline: MatchingPipelineProtocol {
         onProgress: @Sendable @escaping (Int) -> Void,
         onPhaseChange: (@Sendable (MatchingPhase) -> Void)? = nil
     ) async throws -> [MatchResult] {
-        // Set custom instruction for asymmetric models (Qwen3-Embedding)
+        // GTE-Large is symmetric and ignores the instruction; an asymmetric model would use it.
         await engine.setInstruction(instruction)
 
         logger.info("[Pipeline] \(self.pipelineType.displayName) | Stage: embedding | Instruction: \(instruction?.prefix(100) ?? "(model default)")")
-        logger.info("[Pipeline] \(self.pipelineType.displayName) | Stage: reranker | Instruction: (none -- embedding-only pipeline)")
 
         onPhaseChange?(.loadingDatabase)
 
