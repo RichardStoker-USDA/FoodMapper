@@ -141,6 +141,8 @@
 		020867664D594A884A18CD8F /* OpenAIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */; };
 		21D11D668106FDA69EE3BE74 /* FDCBundleImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0115308CFBA84468C9C665EF /* FDCBundleImporter.swift */; };
 		55E18F012038160584C49A2B /* FDCImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007B18B268322C39B8247022 /* FDCImportTests.swift */; };
+		3C9CED49B434BAF885F100E3 /* TargetFieldPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C76003BFE47EA844B986785 /* TargetFieldPolicy.swift */; };
+		22EFD2ADC02A2E8F35E4EF89 /* FieldPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA364911978BEB505ABE30A9 /* FieldPolicyTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -288,6 +290,8 @@
 		8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderTests.swift; sourceTree = "<group>"; };
 		0115308CFBA84468C9C665EF /* FDCBundleImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FDCBundleImporter.swift; sourceTree = "<group>"; };
 		007B18B268322C39B8247022 /* FDCImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FDCImportTests.swift; sourceTree = "<group>"; };
+		7C76003BFE47EA844B986785 /* TargetFieldPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetFieldPolicy.swift; sourceTree = "<group>"; };
+		BA364911978BEB505ABE30A9 /* FieldPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldPolicyTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -362,6 +366,7 @@
 		ADVCORE001GROUP /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				7C76003BFE47EA844B986785 /* TargetFieldPolicy.swift */,
 				0115308CFBA84468C9C665EF /* FDCBundleImporter.swift */,
 				E2152611658A607374C0AE9D /* ChatGPTAuthorization.swift */,
 				546A94BCEA79FDECF525B578 /* OpenAIAdapters.swift */,
@@ -475,6 +480,7 @@
 		F6766A8DA9D4EBC157B189C9 /* FoodMapperTests */ = {
 			isa = PBXGroup;
 			children = (
+				BA364911978BEB505ABE30A9 /* FieldPolicyTests.swift */,
 				007B18B268322C39B8247022 /* FDCImportTests.swift */,
 				8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */,
 				A9C504F798AC505758D9AFD9 /* EmbeddingTests.swift */,
@@ -672,6 +678,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				22EFD2ADC02A2E8F35E4EF89 /* FieldPolicyTests.swift in Sources */,
 				55E18F012038160584C49A2B /* FDCImportTests.swift in Sources */,
 				020867664D594A884A18CD8F /* OpenAIProviderTests.swift in Sources */,
 				DAE269FBCC22D19C44D342EC /* EmbeddingTests.swift in Sources */,
@@ -688,6 +695,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3C9CED49B434BAF885F100E3 /* TargetFieldPolicy.swift in Sources */,
 				21D11D668106FDA69EE3BE74 /* FDCBundleImporter.swift in Sources */,
 				0D2899749935F573A9FA8C17 /* AppState+ChatGPT.swift in Sources */,
 				FB69162B6DB5EAC6354A7CC4 /* ChatGPTSignInService.swift in Sources */,
