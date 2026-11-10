@@ -143,6 +143,8 @@
 		55E18F012038160584C49A2B /* FDCImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007B18B268322C39B8247022 /* FDCImportTests.swift */; };
 		3C9CED49B434BAF885F100E3 /* TargetFieldPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C76003BFE47EA844B986785 /* TargetFieldPolicy.swift */; };
 		22EFD2ADC02A2E8F35E4EF89 /* FieldPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA364911978BEB505ABE30A9 /* FieldPolicyTests.swift */; };
+		C4DCECCA0EE2C76DC353923A /* PastedTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 240EA10737877D8DA711E84C /* PastedTable.swift */; };
+		08C027B3AB2AEF669B8C382A /* PastedTableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E7FE273A26134C2003DA9B5 /* PastedTableTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -292,6 +294,8 @@
 		007B18B268322C39B8247022 /* FDCImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FDCImportTests.swift; sourceTree = "<group>"; };
 		7C76003BFE47EA844B986785 /* TargetFieldPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetFieldPolicy.swift; sourceTree = "<group>"; };
 		BA364911978BEB505ABE30A9 /* FieldPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldPolicyTests.swift; sourceTree = "<group>"; };
+		240EA10737877D8DA711E84C /* PastedTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedTable.swift; sourceTree = "<group>"; };
+		1E7FE273A26134C2003DA9B5 /* PastedTableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedTableTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -366,6 +370,7 @@
 		ADVCORE001GROUP /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				240EA10737877D8DA711E84C /* PastedTable.swift */,
 				7C76003BFE47EA844B986785 /* TargetFieldPolicy.swift */,
 				0115308CFBA84468C9C665EF /* FDCBundleImporter.swift */,
 				E2152611658A607374C0AE9D /* ChatGPTAuthorization.swift */,
@@ -480,6 +485,7 @@
 		F6766A8DA9D4EBC157B189C9 /* FoodMapperTests */ = {
 			isa = PBXGroup;
 			children = (
+				1E7FE273A26134C2003DA9B5 /* PastedTableTests.swift */,
 				BA364911978BEB505ABE30A9 /* FieldPolicyTests.swift */,
 				007B18B268322C39B8247022 /* FDCImportTests.swift */,
 				8C48B1CAD91496C4BB92A805 /* OpenAIProviderTests.swift */,
@@ -678,6 +684,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				08C027B3AB2AEF669B8C382A /* PastedTableTests.swift in Sources */,
 				22EFD2ADC02A2E8F35E4EF89 /* FieldPolicyTests.swift in Sources */,
 				55E18F012038160584C49A2B /* FDCImportTests.swift in Sources */,
 				020867664D594A884A18CD8F /* OpenAIProviderTests.swift in Sources */,
@@ -695,6 +702,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4DCECCA0EE2C76DC353923A /* PastedTable.swift in Sources */,
 				3C9CED49B434BAF885F100E3 /* TargetFieldPolicy.swift in Sources */,
 				21D11D668106FDA69EE3BE74 /* FDCBundleImporter.swift in Sources */,
 				0D2899749935F573A9FA8C17 /* AppState+ChatGPT.swift in Sources */,
