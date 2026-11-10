@@ -128,7 +128,8 @@ struct HardwareConfig: Codable, Equatable {
             embeddingBatchSize = 32
             matchingBatchSize = 128
             chunkSize = 500
-            cacheLimitMB = 4096
+            // 2 GB scored one million targets as fast as 8 GB (2026-11-09 measurement).
+            cacheLimitMB = 2048
             topKForReranking = 20
             recommendedMaxDatabaseItems = 500_000
             absoluteMaxDatabaseItems = 1_000_000
@@ -139,7 +140,7 @@ struct HardwareConfig: Codable, Equatable {
             embeddingBatchSize = 32
             matchingBatchSize = 128
             chunkSize = 500
-            cacheLimitMB = 8192
+            cacheLimitMB = 4096
             topKForReranking = 20
             recommendedMaxDatabaseItems = 1_000_000
             absoluteMaxDatabaseItems = 2_000_000
