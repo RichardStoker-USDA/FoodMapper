@@ -214,7 +214,7 @@ struct APIKeysSettingsTab: View {
             .monospacedDigit()
             .foregroundStyle(color)
             .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 4)
+            .padding(.vertical, Spacing.xxs)
             .background(
                 Capsule()
                     .fill(color.opacity(colorScheme == .dark ? 0.22 : 0.14))

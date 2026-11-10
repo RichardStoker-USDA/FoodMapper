@@ -334,7 +334,7 @@ struct ReviewInspectorPanel: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.green)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, Spacing.sm)
                         .liquidGlassButtonStyle(color: .green)
                     }
                     .buttonStyle(.plain)
@@ -349,7 +349,7 @@ struct ReviewInspectorPanel: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, Spacing.sm)
                         .liquidGlassButtonStyle(color: .secondary)
                     }
                     .buttonStyle(.plain)
@@ -365,7 +365,7 @@ struct ReviewInspectorPanel: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(appState.bulkResetPendingConfirmation ? .white : .secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, Spacing.xs)
                     .background {
                         Capsule()
                             .fill(appState.bulkResetPendingConfirmation ? Color.red.opacity(0.8) : Color.primary.opacity(0.05))
@@ -453,7 +453,7 @@ struct ReviewInspectorPanel: View {
                                     .monospacedDigit()
                                     .foregroundStyle(Color.scoreBadgeForeground(displayScore))
                                     .padding(.horizontal, Spacing.sm)
-                                    .padding(.vertical, 2)
+                                    .padding(.vertical, Spacing.xxxs)
                                     .background(Color.scoreColor(displayScore).opacity(colorScheme == .dark ? 0.8 : 1.0))
                                     .clipShape(Capsule())
                             }
@@ -529,7 +529,7 @@ struct ReviewInspectorPanel: View {
                                     .monospacedDigit()
                                     .foregroundStyle(Color.scoreBadgeForeground(overrideScore))
                                     .padding(.horizontal, Spacing.sm)
-                                    .padding(.vertical, 2)
+                                    .padding(.vertical, Spacing.xxxs)
                                     .background(Color.scoreColor(overrideScore).opacity(colorScheme == .dark ? 0.8 : 1.0))
                                     .clipShape(Capsule())
                             }
@@ -631,7 +631,7 @@ struct ReviewInspectorPanel: View {
                                 .foregroundStyle(.tertiary)
                                 .rotationEffect(.degrees(reasoningExpanded ? 90 : 0))
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, Spacing.xxxs)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -810,14 +810,14 @@ struct ReviewInspectorPanel: View {
                 Button {
                     appState.handleResetConfirmation(for: result.id)
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xxs) {
                         Image(systemName: "arrow.counterclockwise")
                             .font(.caption2.weight(.bold))
                         Text(appState.resetPendingConfirmation ? "Confirm Reset" : "Reset Decision")
                             .font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(appState.resetPendingConfirmation ? Color.white : (colorScheme == .dark ? Color.white : Color.primary).opacity(0.7))
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, Spacing.md)
                     .padding(.vertical, 5)
                     .background(
                         Capsule()
@@ -833,7 +833,7 @@ struct ReviewInspectorPanel: View {
                 }
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, 2)
+                .padding(.bottom, Spacing.xxxs)
                 .help("Reset to original auto-triage state (R, press twice)")
                 .animation(.easeInOut(duration: 0.15), value: appState.resetPendingConfirmation)
                 .reportTutorialFrame("inspectorResetButton", to: appState)
@@ -854,7 +854,7 @@ struct ReviewInspectorPanel: View {
                         }
                         .foregroundStyle(.green)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, Spacing.sm)
                         .liquidGlassButtonStyle(
                             color: Color.green,
                             cornerRadius: 8,
@@ -888,7 +888,7 @@ struct ReviewInspectorPanel: View {
                         }
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, Spacing.sm)
                         .liquidGlassButtonStyle(
                             color: Color.secondary,
                             cornerRadius: 8,
@@ -938,7 +938,7 @@ struct ReviewInspectorPanel: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(overrideExpanded ? 90 : 0))
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxxs)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -977,7 +977,7 @@ struct ReviewInspectorPanel: View {
                                         overrideExpanded = false
                                     } label: {
                                         HStack(alignment: .top, spacing: Spacing.xs) {
-                                            VStack(alignment: .leading, spacing: 2) {
+                                            VStack(alignment: .leading, spacing: Spacing.xxxs) {
                                                 Text(hit.matchText)
                                                     .font(.caption)
                                                     .lineLimit(2)
@@ -1025,39 +1025,39 @@ struct ReviewInspectorPanel: View {
                                 }
                             }
                             .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.02)))
-                            .padding(.top, 4)
+                            .padding(.top, Spacing.xxs)
                         } else if snapshotSearchInFlight {
                             Text("Searching target database...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, 4)
+                                .padding(.vertical, Spacing.xxs)
+                                .padding(.leading, Spacing.xxs)
                         } else if debouncedOverrideSearchText.count >= 2 {
                             Text("No matching target database rows")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, 4)
+                                .padding(.vertical, Spacing.xxs)
+                                .padding(.leading, Spacing.xxs)
                         } else {
                             Text("Type at least 2 characters to search the target database.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, 4)
+                                .padding(.vertical, Spacing.xxs)
+                                .padding(.leading, Spacing.xxs)
                         }
                     } else {
                         if validSnapshotReference != nil && snapshotSearchFailed {
                             Text("Full target search is unavailable. Showing retained candidates.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, 4)
+                                .padding(.vertical, Spacing.xxs)
+                                .padding(.leading, Spacing.xxs)
                         } else if validSnapshotReference == nil {
                             Text("This session has no saved target database. Search uses retained candidates.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, 4)
+                                .padding(.vertical, Spacing.xxs)
+                                .padding(.leading, Spacing.xxs)
                         }
 
                         if !overrideSearchResults.isEmpty {
@@ -1126,13 +1126,13 @@ struct ReviewInspectorPanel: View {
                             }
                         }
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.02)))
-                        .padding(.top, 4)
+                        .padding(.top, Spacing.xxs)
                         } else if debouncedOverrideSearchText.count >= 2 {
                             Text("No matching candidate entries in this session")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, 4)
+                                .padding(.vertical, Spacing.xxs)
+                                .padding(.leading, Spacing.xxs)
                         }
                     }
                 }
@@ -1167,7 +1167,7 @@ struct ReviewInspectorPanel: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(notesExpanded ? 90 : 0))
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxxs)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

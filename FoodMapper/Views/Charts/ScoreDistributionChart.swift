@@ -101,7 +101,7 @@ struct ScoreDistributionChart: View {
             // Score threshold legend
             HStack(spacing: Spacing.sm) {
                 LegendPill(color: .green, label: "High (\u{2265}86%)", colorScheme: colorScheme)
-                LegendPill(color: .orange, label: "Medium (80-85%)", colorScheme: colorScheme)
+                LegendPill(color: Color.scoreColor(0.82), label: "Medium (80-85%)", colorScheme: colorScheme)
                 LegendPill(color: Color(nsColor: .secondaryLabelColor), label: "Low (<80%)", colorScheme: colorScheme)
             }
             .padding(.horizontal, Spacing.md)

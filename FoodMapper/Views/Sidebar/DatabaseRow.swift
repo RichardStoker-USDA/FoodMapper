@@ -47,7 +47,7 @@ struct DatabaseRow: View {
 }
 
 #Preview("Database Rows - Light") {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
         DatabaseRow(name: "FooDB", subtitle: "9,913 items", isSelected: true, isCustom: false) {}
         DatabaseRow(name: "DFG2", subtitle: "256 items", isSelected: false, isCustom: false) {}
         DatabaseRow(name: "My Custom DB", subtitle: "1,234 items", isSelected: false, isCustom: true) {}
@@ -57,7 +57,7 @@ struct DatabaseRow: View {
 }
 
 #Preview("Database Rows - Dark") {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
         DatabaseRow(name: "FooDB", subtitle: "9,913 items", isSelected: true, isCustom: false) {}
         DatabaseRow(name: "DFG2", subtitle: "256 items", isSelected: false, isCustom: false) {}
         DatabaseRow(name: "My Custom DB", subtitle: "1,234 items", isSelected: false, isCustom: true) {}

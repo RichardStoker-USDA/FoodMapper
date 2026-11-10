@@ -607,14 +607,14 @@ struct MatchSetupView: View {
                     Text("Hybrid Matching")
                         .font(.callout)
 
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xxs) {
                         Image(systemName: "cloud")
                             .font(.caption2)
                         Text("cloud")
                             .font(.caption2.weight(.medium))
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, Spacing.xs)
+                    .padding(.vertical, Spacing.xxxs)
                     .appBadgeStyle(tone: .neutral, cornerRadius: 999)
                 }
             }

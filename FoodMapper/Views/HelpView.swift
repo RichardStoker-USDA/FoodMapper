@@ -1153,7 +1153,7 @@ private struct HelpUnderstandingScoresContent: View {
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     scoreRow(color: .green, label: "Green", desc: "High similarity")
-                    scoreRow(color: .orange, label: "Orange", desc: "Moderate similarity")
+                    scoreRow(color: Color.scoreColor(0.82), label: "Amber", desc: "Moderate similarity")
                     scoreRow(color: Color(nsColor: .secondaryLabelColor), label: "Gray", desc: "Low similarity")
                 }
 

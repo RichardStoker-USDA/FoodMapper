@@ -34,7 +34,7 @@ struct FilePickerRow: View {
                     Image(systemName: "doc")
                         .foregroundStyle(.green)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Spacing.xxxs) {
                         Text(file.name)
                             .fontWeight(.medium)
                             .lineLimit(1)
