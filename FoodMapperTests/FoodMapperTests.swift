@@ -1357,6 +1357,27 @@ final class DatabaseOperationAdmissionTests: XCTestCase {
         _ = CacheRecoveryState.consumeFailure()
     }
 
+    func testRemovedPipelineFlagFollowsTheResultsAndLeaseFlagFollowsTheRun() {
+        let state = AppState()
+        // Session restore sets the flag after it sets the results.
+        state.results = [MatchResult(inputText: "milk", inputRow: 0, score: 0.97, status: .match)]
+        state.openResultsCameFromRemovedPipeline = true
+        // Navigation clears the session ID while the results stay open. The flag must survive that.
+        state.currentSessionId = nil
+        XCTAssertTrue(state.openResultsCameFromRemovedPipeline)
+        // New or cleared results are not from a removed pipeline.
+        state.results = []
+        XCTAssertFalse(state.openResultsCameFromRemovedPipeline)
+
+        let run = UUID()
+        XCTAssertTrue(state.beginEngineOperation(.matching(run)))
+        state.activeMatchUsesAdvancedLease = true
+        state.finishEngineOperation(UUID())
+        XCTAssertTrue(state.activeMatchUsesAdvancedLease, "another operation's ID does not end this run")
+        state.finishEngineOperation(run)
+        XCTAssertFalse(state.activeMatchUsesAdvancedLease)
+    }
+
     func testMatchingAndDatabaseOperationsSerializeByGeneration() {
         let state = AppState()
         let matching = UUID()

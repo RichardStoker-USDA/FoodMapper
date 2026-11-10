@@ -418,6 +418,33 @@ extension OpenAIAdapterTests {
         XCTAssertEqual(transport.requests.count, 0, "nothing is sent after authorization ends")
     }
 
+    func testBackoffExtendedDuringACredentialRefreshIsWaitedOut() async throws {
+        final class Calls: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func next() -> Int { lock.withLock { count += 1; return count } }
+            var total: Int { lock.withLock { count } }
+        }
+        let plan = ProviderProfile(name: "Plan", kind: .chatGPTPlan, model: "m", interface: .responses, concurrency: 2, accountID: UUID())
+        let transport = StubProviderTransport([.events(decisionEvents(#"{"decision":"select","candidate_id":"c1"}"#))])
+        let coordinator = ProviderRunCoordinator()
+        let calls = Calls()
+        let started = Date()
+        // While this worker fetches its credential, another worker's 429 pushes the shared backoff out.
+        let decision = try await ProviderRerankerPipeline.decideWithRetry(
+            input: "milk", candidates: ["Milk, whole"], instruction: nil, profile: plan,
+            credentialSource: {
+                if calls.next() == 1 { await coordinator.noteRetry(resumeAfter: 0.3) }
+                return "t"
+            },
+            transport: transport, coordinator: coordinator
+        )
+        XCTAssertEqual(decision.selection, 0)
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 0.25, "the request waits for the extended backoff")
+        XCTAssertEqual(transport.requests.count, 1)
+        XCTAssertEqual(calls.total, 2, "the credential is read again after the wait")
+    }
+
     func testTokenCountsFromAServerCannotOverflowOrGoNegative() {
         let sum = ProviderTokenUsage(inputTokens: .max, outputTokens: 5) + ProviderTokenUsage(inputTokens: 1, outputTokens: 7)
         XCTAssertEqual(sum.inputTokens, .max, "the sum saturates")

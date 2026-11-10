@@ -100,13 +100,6 @@ extension AppState {
         return (accept, reject)
     }
 
-    /// True when the open results were recorded by a pipeline this version no longer has.
-    /// A new match makes a new session, so this turns false as soon as GTE-Large produces the results.
-    var openResultsCameFromRemovedPipeline: Bool {
-        guard let id = currentSessionId, let session = sessions.first(where: { $0.id == id }) else { return false }
-        return LegacyPipeline.isRemoved(recordedName: session.pipelineName)
-    }
-
     /// Compute triage decisions without touching @Published state.
     /// Safe to call from any thread. Returns a new decisions dictionary.
     nonisolated static func computeTriageDecisions(

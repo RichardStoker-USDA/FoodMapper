@@ -448,7 +448,9 @@ enum FDCBundleImporter {
                 recordNumber += 1
                 if let columns {
                     // A record that is wider or narrower than the header would be read against the
-                    // wrong columns. Stop instead of importing shifted values.
+                    // wrong columns. Stop instead of importing shifted values. The stream already
+                    // skips a record with no content at all (a blank line or only commas), which
+                    // carries nothing to shift.
                     guard record.count == headerWidth else {
                         throw FDCBundleImportError.malformedRow(
                             file: url.lastPathComponent, record: recordNumber, expected: headerWidth, found: record.count

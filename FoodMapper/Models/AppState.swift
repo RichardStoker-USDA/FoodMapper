@@ -119,6 +119,10 @@ final class AppState: ObservableObject {
     @Published private(set) var activeEngineOperation: EngineOperation?
     /// True while the running match holds an Advanced lease, whatever pipeline is selected now.
     var activeMatchUsesAdvancedLease = false
+    /// True when the open results were recorded by a pipeline this version no longer has. It
+    /// belongs to the results, not to the session ID, which navigation clears while the results
+    /// stay open. Re-triage never accepts such results automatically.
+    var openResultsCameFromRemovedPipeline = false
 
     /// Bumped whenever embedding cache files change on disk, forcing SwiftUI views
     /// that depend on `hasEmbeddings(for:)` to re-evaluate.
@@ -132,6 +136,8 @@ final class AppState: ObservableObject {
 
     @Published var results: [MatchResult] = [] {
         didSet {
+            // New results are never from a removed pipeline. Session restore sets the flag after this.
+            openResultsCameFromRemovedPipeline = false
             rebuildResultsByID()
             if !suppressFilterUpdates { updateFilteredResults() }
         }

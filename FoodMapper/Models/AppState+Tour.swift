@@ -342,7 +342,11 @@ extension AppState {
         if let result = resultsByID[resultId] {
             let profile = effectiveProfile()
             let oldCategory = cachedCategories[resultId] ?? .noMatch
-            reviewDecisions[resultId] = AppState.triageDecision(for: result, profile: profile, pipelineType: selectedPipelineType, autoMatchScoreFloor: autoMatchScoreFloor, autoMatchMinGap: autoMatchMinGap)
+            reviewDecisions[resultId] = AppState.triageDecision(
+                for: result, profile: profile, pipelineType: selectedPipelineType,
+                autoMatchScoreFloor: autoMatchScoreFloor, autoMatchMinGap: autoMatchMinGap,
+                recordedByRemovedPipeline: openResultsCameFromRemovedPipeline
+            )
             let newCategory = MatchCategory.from(
                 result: result, decision: reviewDecisions[resultId], profile: profile
             )
