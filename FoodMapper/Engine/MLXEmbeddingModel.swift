@@ -345,18 +345,26 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
             try Task.checkCancellation()
 
             let batchEnd = min(batchStart + batchSize, texts.count)
-            let batchCount = batchEnd - batchStart
-            let tensorArray: [Float] = autoreleasepool {
-                let batchEncoding = tokenizer.encodeBatch(Array(texts[batchStart..<batchEnd]))
-                let output = model(batchEncoding.ids, attentionMask: batchEncoding.attentionMask)
-                let pooled = meanPooling(output.lastHiddenState, attentionMask: batchEncoding.attentionMask)
-                let normalized = l2Normalize(pooled)
-                eval(normalized)
-                return normalized.asArray(Float.self)
-            }
+            let batch = Array(texts[batchStart..<batchEnd])
+
+            // Batch tokenization with padding
+            let batchEncoding = tokenizer.encodeBatch(batch)
+
+            // Single forward pass for entire batch
+            let output = model(batchEncoding.ids, attentionMask: batchEncoding.attentionMask)
+
+            // Mean pooling (handles [batch, seq, hidden] -> [batch, hidden])
+            let pooled = meanPooling(output.lastHiddenState, attentionMask: batchEncoding.attentionMask)
+
+            // L2 normalize
+            let normalized = l2Normalize(pooled)
+
+            // Evaluate and extract
+            eval(normalized)
+            let tensorArray = normalized.asArray(Float.self)
 
             // Split into individual embeddings
-            for i in 0..<batchCount {
+            for i in 0..<batch.count {
                 let start = i * embeddingDim
                 let end = start + embeddingDim
                 allEmbeddings.append(Array(tensorArray[start..<end]))
@@ -374,15 +382,15 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
 
         let embeddingDim = 1024
 
-        // Single forward pass for the batch, released before the caller's next batch.
-        let tensorArray: [Float] = autoreleasepool {
-            let batchEncoding = tokenizer.encodeBatch(texts)
-            let output = model(batchEncoding.ids, attentionMask: batchEncoding.attentionMask)
-            let pooled = meanPooling(output.lastHiddenState, attentionMask: batchEncoding.attentionMask)
-            let normalized = l2Normalize(pooled)
-            eval(normalized)
-            return normalized.asArray(Float.self)
-        }
+        // Single forward pass for entire batch
+        let batchEncoding = tokenizer.encodeBatch(texts)
+        let output = model(batchEncoding.ids, attentionMask: batchEncoding.attentionMask)
+        let pooled = meanPooling(output.lastHiddenState, attentionMask: batchEncoding.attentionMask)
+        let normalized = l2Normalize(pooled)
+
+        // Evaluate and extract
+        eval(normalized)
+        let tensorArray = normalized.asArray(Float.self)
 
         // Split into individual embeddings
         var embeddings: [[Float]] = []
@@ -397,15 +405,12 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
     }
 
     /// Batch embed -> MLXArray [N, 1024] for GPU matmul similarity.
-    ///
-    /// Each sub-batch is tokenized, evaluated, and released inside its own
-    /// autorelease pool. Swift concurrency does not drain a pool between loop
-    /// iterations, so Metal buffers and tokenizer temporaries from a long run
-    /// otherwise stay alive until the task ends.
+    /// Single eval() at the end to keep MLX lazy evaluation happy.
     func embedBatchAsMatrix(_ texts: [String], batchSize: Int = 48) async throws -> MLXArray {
         guard let model = model, let tokenizer = tokenizer else {
             throw EmbeddingError.modelNotLoaded
         }
+
         guard !texts.isEmpty else {
             return MLXArray.zeros([0, info.dimensions])
         }
@@ -415,18 +420,21 @@ actor MLXEmbeddingModel: EmbeddingModelProtocol {
 
         for batchStart in stride(from: 0, to: texts.count, by: step) {
             try Task.checkCancellation()
+
             let batchEnd = min(batchStart + step, texts.count)
-            let part: MLXArray = autoreleasepool {
-                let batchEncoding = tokenizer.encodeBatch(Array(texts[batchStart..<batchEnd]))
-                let output = model(batchEncoding.ids, attentionMask: batchEncoding.attentionMask)
-                let pooled = meanPooling(output.lastHiddenState, attentionMask: batchEncoding.attentionMask)
-                let normalized = l2Normalize(pooled)
-                eval(normalized)
-                return normalized
-            }
-            parts.append(part)
+            let batchEncoding = tokenizer.encodeBatch(Array(texts[batchStart..<batchEnd]))
+            let output = model(batchEncoding.ids, attentionMask: batchEncoding.attentionMask)
+            let pooled = meanPooling(output.lastHiddenState, attentionMask: batchEncoding.attentionMask)
+            let normalized = l2Normalize(pooled)
+
+            // Evaluate each sub-batch now. One lazy graph over the whole chunk keeps every
+            // sub-batch's intermediates alive until the end: about 0.5 GB more peak memory
+            // at 512-row chunks, with no throughput gain.
+            eval(normalized)
+            parts.append(normalized)
         }
 
+        // [total_texts, 1024]
         guard parts.count > 1 else { return parts[0] }
         let result = concatenated(parts, axis: 0)
         eval(result)
