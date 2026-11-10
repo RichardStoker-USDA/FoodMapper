@@ -199,13 +199,13 @@ struct ModelsSettingsTab: View {
     private func modelStatusSymbol(_ model: RegisteredModel) -> some View {
         switch appState.modelManager.state(for: model.key) {
         case .downloaded, .loaded:
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: "checkmark.circle")
                 .foregroundStyle(.green)
         case .downloading, .loading:
             ProgressView()
                 .controlSize(.mini)
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(.red)
         case .notDownloaded:
             Image(systemName: model.admission == .inventory ? "lock.circle" : "circle")

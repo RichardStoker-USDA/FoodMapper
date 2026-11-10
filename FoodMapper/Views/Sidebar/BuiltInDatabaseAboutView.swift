@@ -13,7 +13,7 @@ struct BuiltInDatabaseAboutView: View {
                     .font(.system(size: 32))
                     .foregroundStyle(.secondary)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Spacing.xxxs) {
                     Text(database.displayName)
                         .font(.headline)
                     Text("\(database.itemCount.formatted()) items")

@@ -187,7 +187,7 @@ struct SessionRow: View {
                         Text(session.databaseName)
                             .font(.caption)
                             .padding(.horizontal, Spacing.xs)
-                            .padding(.vertical, 2)
+                            .padding(.vertical, Spacing.xxxs)
                             .lineLimit(1)
                             .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
 
@@ -199,7 +199,7 @@ struct SessionRow: View {
                         Text(session.pipelineName)
                             .font(.caption2)
                             .padding(.horizontal, Spacing.xs)
-                            .padding(.vertical, 2)
+                            .padding(.vertical, Spacing.xxxs)
                             .lineLimit(1)
                             .appBadgeStyle(tone: .neutral, cornerRadius: 4)
 
@@ -212,7 +212,7 @@ struct SessionRow: View {
                 Spacer()
 
                 // Match rate + threshold
-                VStack(alignment: .trailing, spacing: 2) {
+                VStack(alignment: .trailing, spacing: Spacing.xxxs) {
                     Text(session.matchRate, format: .percent.precision(.fractionLength(0)))
                         .font(.title3)
                         .fontWeight(.semibold)

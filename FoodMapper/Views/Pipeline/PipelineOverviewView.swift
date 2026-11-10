@@ -233,7 +233,7 @@ struct PipelineOverviewView: View {
                                 .tag(Optional(profile.id))
                         }
                     }
-                    .frame(maxWidth: 420)
+                    .fixedSize()
 
                     if let profile = appState.selectedProviderProfile {
                         Text(profile.kind.sendsDataOffDevice
@@ -245,6 +245,7 @@ struct PipelineOverviewView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Spacing.lg)
             .panelMaterialStyle(cornerRadius: 10)
         }
@@ -262,7 +263,7 @@ struct PipelineOverviewView: View {
                         Text(preset.displayName).tag(preset)
                     }
                 }
-                .frame(maxWidth: 320)
+                .fixedSize()
 
                 if appState.selectedInstructionPreset == .custom {
                     TextEditor(text: $appState.customInstructionText)
@@ -281,6 +282,7 @@ struct PipelineOverviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Spacing.lg)
             .panelMaterialStyle(cornerRadius: 10)
         }
@@ -297,11 +299,14 @@ struct PipelineOverviewView: View {
                     .technicalLabel()
 
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text("Retrieval context")
+                        .font(.callout)
                     TextField(
                         "Retrieval context",
                         text: $appState.targetFieldPolicy.retrievalContext,
                         prompt: Text("For example: low sodium")
                     )
+                    .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 420)
                     Text("Added to each description when FoodMapper searches the database. It stays on this Mac.")
@@ -347,7 +352,7 @@ struct PipelineOverviewView: View {
                                     Text(column).tag(column)
                                 }
                             }
-                            .frame(maxWidth: 320)
+                            .fixedSize()
 
                             if policy.numericRule != nil {
                                 Picker("Goal", selection: ruleGoalBinding) {
@@ -367,6 +372,7 @@ struct PipelineOverviewView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Spacing.lg)
             .panelMaterialStyle(cornerRadius: 10)
             .onAppear { appState.pruneTargetFieldPolicy() }
@@ -487,9 +493,9 @@ struct PipelineOverviewView: View {
 
     private func modelStateSymbol(_ model: RegisteredModel) -> String {
         switch appState.modelManager.state(for: model.key) {
-        case .downloaded, .loaded: return "checkmark.circle.fill"
+        case .downloaded, .loaded: return "checkmark.circle"
         case .downloading, .loading: return "clock"
-        case .error: return "exclamationmark.triangle.fill"
+        case .error: return "exclamationmark.triangle"
         case .notDownloaded: return model.admission == .inventory ? "lock.circle" : "circle"
         }
     }

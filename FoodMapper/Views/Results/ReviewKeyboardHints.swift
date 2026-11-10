@@ -62,8 +62,8 @@ struct KeyCapView: View {
         Text(key)
             .font(.system(size: 10, weight: .bold, design: .monospaced))
             .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.8) : Color.primary.opacity(0.7))
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.xxs)
+            .padding(.vertical, Spacing.xxxs)
             .frame(minWidth: 20)
             .background {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)

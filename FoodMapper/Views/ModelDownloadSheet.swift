@@ -187,13 +187,13 @@ struct ModelDownloadSheet: View {
     private func modelStateSymbol(_ model: RegisteredModel) -> some View {
         switch modelManager.state(for: model.key) {
         case .downloaded, .loaded:
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: "checkmark.circle")
                 .foregroundStyle(.green)
         case .downloading, .loading:
             ProgressView()
                 .controlSize(.small)
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(.red)
         case .notDownloaded:
             if model.admission == .inventory {

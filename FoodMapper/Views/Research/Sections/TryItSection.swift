@@ -216,7 +216,7 @@ struct TryItSection: View {
                     Image(systemName: "checkmark.circle")
                         .foregroundStyle(.green)
                         .font(.title3)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Spacing.xxxs) {
                         Text("Embedding matching complete")
                             .font(.body.weight(.medium))
                         HStack(spacing: Spacing.xs) {
@@ -225,8 +225,8 @@ struct TryItSection: View {
                                 .foregroundStyle(.primary.opacity(colorScheme == .dark ? 0.72 : 0.82))
                             Text("Paper model")
                                 .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, Spacing.xs)
+                                .padding(.vertical, Spacing.xxxs)
                                 .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                             if let start = embeddingStartTime, let end = embeddingEndTime {
                                 Text(formatDuration(from: start, to: end))
@@ -338,7 +338,7 @@ struct TryItSection: View {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(Color.experimentalAmber)
                         .font(.title3)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Spacing.xxxs) {
                         Text("Matching could not complete")
                             .font(.body.weight(.medium))
                         Text("Make sure GTE-Large is downloaded. Check Settings > Models.")
@@ -369,7 +369,7 @@ struct TryItSection: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(Color.experimentalAmber)
                     .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Spacing.xxxs) {
                     Text("Embedding matching failed")
                         .font(.body.weight(.medium))
                     if let errorMessage = appState.tourEmbeddingError {
@@ -560,7 +560,7 @@ struct TryItSection: View {
                     Image(systemName: "checkmark.circle")
                         .foregroundStyle(.green)
                         .font(.title3)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Spacing.xxxs) {
                         Text("Hybrid matching complete")
                             .font(.body.weight(.medium))
                         if let model = completedModelVersion {
@@ -571,8 +571,8 @@ struct TryItSection: View {
                                 if model.isPaperModel {
                                     Text("Paper model")
                                         .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
+                                        .padding(.horizontal, Spacing.xs)
+                                        .padding(.vertical, Spacing.xxxs)
                                         .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                                 }
                             }
@@ -710,7 +710,7 @@ struct TryItSection: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(Color.experimentalAmber)
                     .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Spacing.xxxs) {
                     Text("Hybrid matching failed")
                         .font(.body.weight(.medium))
                     if let errorMessage = appState.tourHybridError {
@@ -829,7 +829,7 @@ struct TryItSection: View {
     }
 
     private func timingSummaryItem(label: String, start: Date?, end: Date?) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: Spacing.xxxs) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -850,7 +850,7 @@ struct TryItSection: View {
         detail: String,
         thresholds: (green: Double, orange: Double)
     ) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: Spacing.xxxs) {
             if let value {
                 Text("\(String(format: "%.1f", value * 100))%")
                     .font(.title2.weight(.bold).monospacedDigit())
@@ -1037,14 +1037,14 @@ struct TryItSection: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             
-                            HStack(spacing: 4) {
+                            HStack(spacing: Spacing.xxs) {
                                 Image(systemName: "cloud")
                                     .font(.caption2)
                                 Text("cloud")
                                     .font(.caption2.weight(.medium))
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, Spacing.xs)
+                            .padding(.vertical, Spacing.xxxs)
                             .appBadgeStyle(tone: .neutral, cornerRadius: 999)
                         }
                         Spacer()

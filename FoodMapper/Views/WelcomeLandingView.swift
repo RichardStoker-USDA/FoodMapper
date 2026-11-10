@@ -335,7 +335,7 @@ struct CompactSessionRow: View {
                 Text(session.databaseName)
                     .font(.caption)
                     .padding(.horizontal, Spacing.xs)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, Spacing.xxxs)
                     .lineLimit(1)
                     .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
 

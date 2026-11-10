@@ -345,14 +345,14 @@ struct ProviderProfilesView: View {
             .foregroundStyle(.secondary)
         case let .passed(receipt) where receipt.profileID == profile.id:
             if appState.hasCurrentProviderProbe(for: profile) {
-                Label("Passed \(receipt.completedAt.formatted(date: .omitted, time: .shortened))", systemImage: "checkmark.circle.fill")
+                Label("Passed \(receipt.completedAt.formatted(date: .omitted, time: .shortened))", systemImage: "checkmark.circle")
                     .foregroundStyle(.green)
             } else {
                 Label("Test expired", systemImage: "clock")
                     .foregroundStyle(.secondary)
             }
         case let .failed(id, message) where id == profile.id:
-            Label(message, systemImage: "exclamationmark.triangle.fill")
+            Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         default:

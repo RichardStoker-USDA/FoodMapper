@@ -251,7 +251,7 @@ struct LLMStageSection: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.top, 2)
+            .padding(.top, Spacing.xxxs)
         }
     }
 
@@ -406,8 +406,8 @@ struct LLMStageSection: View {
                 if isSelected {
                     Text("Selected")
                         .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, Spacing.xs)
+                        .padding(.vertical, Spacing.xxxs)
                         .appBadgeStyle(tone: .accentStrong, cornerRadius: 999)
                 } else {
                     Color.clear
@@ -447,7 +447,7 @@ struct LLMStageSection: View {
                 .foregroundStyle(example.isCorrect ? .green : .red)
                 .font(.title3)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Spacing.xxxs) {
                 HStack(spacing: Spacing.xs) {
                     Text("Selected:")
                         .font(.body)

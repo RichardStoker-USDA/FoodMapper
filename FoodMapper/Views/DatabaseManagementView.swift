@@ -328,7 +328,7 @@ struct DatabaseManagementRow: View {
                             Text(displayName(for: key))
                                 .font(.caption2)
                                 .padding(.horizontal, Spacing.xxs)
-                                .padding(.vertical, 2)
+                                .padding(.vertical, Spacing.xxxs)
                                 .appBadgeStyle(tone: .accentStrong, cornerRadius: 4)
                         }
                     }
@@ -348,7 +348,7 @@ struct DatabaseManagementRow: View {
                 .font(.caption2)
                 .fontWeight(.medium)
                 .padding(.horizontal, Spacing.xs)
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxxs)
                 .appBadgeStyle(tone: badgeTone, cornerRadius: 4)
 
             // Type badge
@@ -356,7 +356,7 @@ struct DatabaseManagementRow: View {
                 .font(.caption2)
                 .fontWeight(.medium)
                 .padding(.horizontal, Spacing.xs)
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxxs)
                 .appBadgeStyle(tone: isCustom ? .accent : .neutral, cornerRadius: 4)
         }
         .padding(.horizontal, Spacing.xxl)

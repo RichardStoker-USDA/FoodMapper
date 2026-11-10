@@ -11,7 +11,7 @@ struct ScoreIndicator: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         } else {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xxs) {
                 Circle()
                     .fill(dotColor)
                     .frame(width: 6, height: 6)

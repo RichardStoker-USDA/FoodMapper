@@ -566,7 +566,7 @@ struct ProgressToolbarItem: View {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
-                    .padding(4)
+                    .padding(Spacing.xxs)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -988,7 +988,7 @@ private struct MatchButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Spacing.xs) {
-                Image(systemName: "play.fill")
+                Image(systemName: "play")
                     .font(.system(size: 12, weight: .semibold))
 
                 Text("Run Match")
